@@ -1,6 +1,6 @@
 import Foundation
 
-public struct Redactor {
+public struct Redactor: Sendable {
     public init() {}
 
     public func redact(_ input: String) -> String {

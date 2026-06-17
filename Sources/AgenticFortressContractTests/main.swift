@@ -242,6 +242,43 @@ func runContracts() throws {
     )
     try expect(locked.locked && locked.rememberedLeases.isEmpty, "rollback mismatch must lock policy and clear leases")
 
+    let policyRoot = URL(fileURLWithPath: NSTemporaryDirectory()).appendingPathComponent("agentic-fortress-policy-\(UUID().uuidString)")
+    let policyURL = policyRoot.appendingPathComponent("policy.json")
+    let policyRepository = FilePolicyRepository(url: policyURL, macKeyData: Data("policy-mac-key-32-bytes-long!!".utf8))
+    let persistedPolicy = PolicyState(epoch: 9, hash: "policy-hash", locked: false, rememberedLeases: [lease])
+    try policyRepository.save(persistedPolicy)
+    let loadedPolicy = try policyRepository.load()
+    try expect(loadedPolicy == persistedPolicy, "policy repository must persist and verify MACed policy state")
+    var tamperedPolicyText = try String(contentsOf: policyURL, encoding: .utf8)
+    tamperedPolicyText = tamperedPolicyText.replacingOccurrences(of: "\"epoch\" : 9", with: "\"epoch\" : 10")
+    try tamperedPolicyText.write(to: policyURL, atomically: true, encoding: .utf8)
+    try expectThrows(PolicyRepositoryError.macMismatch, {
+        _ = try policyRepository.load()
+    }, "policy repository must reject tampered policy database")
+    let secretLikeLease = CryptoLease(
+        id: "lease_secret",
+        scope: LeaseScope(subject: "hcloud", adapterIdentity: "adapter", secretAlias: "OPENAI_API_KEY=sk-abcdefghijklmnopqrstuvwxyz", workspaceHash: "hmac:abc", parentApp: "Codex", actionClass: "hcloud.server.list", configContext: "", deliveryMode: .env, targetIdentity: "sha256:hcloud"),
+        risk: .readOnly,
+        expiresAt: Date(timeIntervalSince1970: 3600),
+        policyEpoch: 1
+    )
+    try expectThrows(PolicyRepositoryError.plaintextSecretDetected, {
+        try policyRepository.save(PolicyState(epoch: 10, hash: "secret-policy", rememberedLeases: [secretLikeLease]))
+    }, "policy repository must reject plaintext secret-like policy content")
+    try? FileManager.default.removeItem(at: policyRoot)
+
+    let anchorRepo = InMemoryRollbackAnchorRepository()
+    let anchor = RollbackAnchor(latestPolicyEpoch: 9, latestPolicyHash: "policy-hash", latestAuditHead: "audit-head", latestAppVersion: "0.1.0")
+    try anchorRepo.saveAnchor(anchor)
+    let loadedAnchor = try anchorRepo.loadAnchor()
+    try expect(loadedAnchor == anchor, "rollback anchor repository must save and load anchor state")
+
+    let recovery = try RecoveryBundleFactory.export(policy: persistedPolicy, aliasMap: ["cloud.hcloud.dev": "sec_hcloud"], providerBindingsWithoutPlaintextTokens: ["bws:project=cloud-dev;env=dev"], auditHead: "audit-head")
+    try expect(recovery.epoch == persistedPolicy.epoch && recovery.policyHash == persistedPolicy.hash, "recovery bundle must preserve epoch metadata")
+    try expectThrows(RecoveryBundleError.plaintextProviderTokenDetected, {
+        _ = try RecoveryBundleFactory.export(policy: persistedPolicy, aliasMap: [:], providerBindingsWithoutPlaintextTokens: ["BWS_ACCESS_TOKEN=sk-abcdefghijklmnopqrstuvwxyz"], auditHead: "audit")
+    }, "recovery bundle must reject plaintext provider tokens")
+
     let report = ReleaseGateRunner().staticReport()
     try expect(Set(report.results.map(\.gate)) == Set(ReleaseGate.allCases), "release gate report must cover all gates")
     try expect(report.canRelease, "release gate report must pass")
