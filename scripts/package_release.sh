@@ -12,6 +12,7 @@ MACOS="$CONTENTS/MacOS"
 RESOURCES="$CONTENTS/Resources"
 IDENTITY="${CODESIGN_IDENTITY:--}"
 ENTITLEMENTS="$ROOT/packaging/AgenticFortress.entitlements"
+CORE_ENTITLEMENTS="$ROOT/packaging/AgenticFortressCore.entitlements"
 
 swift build -c "$CONFIGURATION"
 
@@ -48,9 +49,12 @@ cat > "$CONTENTS/Info.plist" <<PLIST
 PLIST
 
 find "$MACOS" -type f -perm +111 -print | while IFS= read -r binary; do
-  codesign --force --options runtime --entitlements "$ENTITLEMENTS" --sign "$IDENTITY" "$binary"
+  binary_entitlements="$ENTITLEMENTS"
+  if [ "$(basename "$binary")" = "agentic-fortressd-core" ]; then
+    binary_entitlements="$CORE_ENTITLEMENTS"
+  fi
+  codesign --force --options runtime --entitlements "$binary_entitlements" --sign "$IDENTITY" "$binary"
 done
 codesign --force --options runtime --entitlements "$ENTITLEMENTS" --sign "$IDENTITY" "$APP_DIR"
 
 echo "$APP_DIR"
-

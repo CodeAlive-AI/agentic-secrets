@@ -17,9 +17,14 @@ if [ "${AGENTIC_FORTRESS_INTERACTIVE:-0}" != "1" ]; then
   exit 0
 fi
 
+PACKAGE_LOG="$(mktemp)"
+trap 'rm -f "$PACKAGE_LOG"' EXIT
+"$ROOT/scripts/package_release.sh" > "$PACKAGE_LOG"
+CORE_BINARY="$(tail -n 1 "$PACKAGE_LOG")/Contents/MacOS/agentic-fortressd-core"
+
 if [ "${AGENTIC_FORTRESS_EXPECT_CANCEL:-0}" = "1" ]; then
   set +e
-  OUTPUT="$(swift run --package-path "$ROOT" agentic-fortressd-core -- keychain-smoke --service "$SERVICE" --alias "$ALIAS" 2>&1)"
+  OUTPUT="$("$CORE_BINARY" keychain-smoke --service "$SERVICE" --alias "$ALIAS" 2>&1)"
   STATUS=$?
   set -e
   printf '%s\n' "$OUTPUT"
@@ -32,4 +37,4 @@ if [ "${AGENTIC_FORTRESS_EXPECT_CANCEL:-0}" = "1" ]; then
   exit 0
 fi
 
-swift run --package-path "$ROOT" agentic-fortressd-core -- keychain-smoke --service "$SERVICE" --alias "$ALIAS"
+"$CORE_BINARY" keychain-smoke --service "$SERVICE" --alias "$ALIAS"

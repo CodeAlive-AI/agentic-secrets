@@ -85,6 +85,8 @@ AGENTIC_FORTRESS_INTERACTIVE=1 AGENTIC_FORTRESS_EXPECT_CANCEL=1 ./scripts/intera
 
 For the cancellation check, press Cancel in the macOS prompt. The command passes only when core reports `userCanceled` and no secret is resolved.
 
+The interactive path first packages the app and then runs the packaged `agentic-fortressd-core` binary. This matters on macOS Tahoe because data-protection Keychain access requires the signed core binary to carry its approved app identity entitlement. Helper binaries and the app bundle keep the smaller baseline and do not get shared Keychain access.
+
 The script creates a temporary device-local Keychain item, reads it through the decision-bound LocalAuthentication reason, and deletes it. It never prints the generated secret value.
 
 The prompt-producing path runs in `agentic-fortressd-core`; CLI and helper targets are guarded by `scripts/check_secret_authority.sh` from directly using production Keychain resolution.
@@ -174,6 +176,7 @@ Run these checks before accepting a local production release:
 ./scripts/ci.sh
 ./scripts/tahoe_compatibility_check.sh
 ./scripts/check_secret_authority.sh
+./scripts/check_entitlements_diff.sh build/AgenticFortress.app
 swift run agentic-fortress release-gates
 swift run agentic-fortress ipc-conformance
 swift run agentic-fortress mcp-conformance
@@ -189,6 +192,7 @@ Local package validation:
 ```sh
 ./scripts/package_release.sh
 ./scripts/validate_release_artifact.sh build/AgenticFortress.app
+./scripts/check_entitlements_diff.sh build/AgenticFortress.app
 ./scripts/create_release_evidence.sh
 ```
 

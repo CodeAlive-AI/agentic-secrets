@@ -85,7 +85,7 @@ Pass condition:
 
 - The local package builds and validates on macOS Tahoe 26.x with macOS 26 SDK or newer.
 - The app bundle passes local ad-hoc code-signing validation.
-- Entitlements match the approved local self-build entitlement baseline.
+- The app bundle and every shipped executable match the approved local self-build entitlement baseline.
 
 Verification:
 
@@ -96,7 +96,7 @@ Verification:
 Required evidence:
 
 - Command exits `0`.
-- Output includes OS/SDK 26.x compatibility, successful package validation, and codesign verification.
+- Output includes OS/SDK 26.x compatibility, successful package validation, codesign verification, and entitlement diff verification.
 
 Failure examples:
 
@@ -141,6 +141,7 @@ Pass condition:
 - Every shipped executable and bundle is ad-hoc signed.
 - Hardened runtime is enabled where supported by the local packaging path.
 - Code-signing validation is part of the package validation script.
+- Only `agentic-fortressd-core` carries the minimal app identity entitlement required by Tahoe data-protection Keychain access; helper binaries use the smaller baseline.
 
 Verification:
 
@@ -148,12 +149,14 @@ Verification:
 ./scripts/package_release.sh
 ./scripts/validate_release_artifact.sh build/AgenticFortress.app
 codesign --verify --strict --deep --verbose=4 build/AgenticFortress.app
+./scripts/check_entitlements_diff.sh build/AgenticFortress.app
 ```
 
 Required evidence:
 
 - All commands exit `0`.
 - `codesign` output confirms the app satisfies its designated requirement.
+- Entitlement diff confirms the app/helper baseline and the core-only Keychain-capable baseline.
 
 Failure examples:
 
@@ -277,13 +280,15 @@ Verification:
 
 ```sh
 codesign -d --entitlements :- build/AgenticFortress.app
+codesign -d --entitlements :- build/AgenticFortress.app/Contents/MacOS/agentic-fortressd-core
 rg "kSecAttrAccessGroup|keychain-access-groups|com.apple.security.application-groups" Sources packaging Docs README.md --glob '!ACCEPTANCE_CRITERIA.md'
 ./scripts/check_secret_authority.sh
 ```
 
 Required evidence:
 
-- Entitlements and source scan show no default shared Keychain access group.
+- App and core entitlements plus source scan show no default shared Keychain access group.
+- Core has only a local app identity entitlement for data-protection Keychain access; this is not a shared Keychain access group.
 - If access-group strings exist, they are documented as optional future Developer ID-only work.
 
 Failure examples:
@@ -334,6 +339,7 @@ AGENTIC_FORTRESS_INTERACTIVE=1 AGENTIC_FORTRESS_EXPECT_CANCEL=1 ./scripts/intera
 Required evidence:
 
 - Automated tests cover prompt reason construction and proof expiry.
+- The interactive script uses the packaged, ad-hoc signed core binary so Tahoe data-protection Keychain entitlement behavior is exercised.
 - Interactive transcript confirms the macOS prompt appears before secret resolution and cancellation denies access with `userCanceled`.
 
 Failure examples:
