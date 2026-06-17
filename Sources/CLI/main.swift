@@ -4,7 +4,16 @@ import Foundation
 
 @main
 struct AgenticFortressCLI {
-    static func main() throws {
+    static func main() {
+        do {
+            try run()
+        } catch {
+            fputs("Error: \(error)\nRun `agentic-fortress` for usage.\n", stderr)
+            exit(64)
+        }
+    }
+
+    private static func run() throws {
         var args = Array(CommandLine.arguments.dropFirst())
         guard let command = args.first else {
             printUsage()
@@ -62,7 +71,7 @@ struct AgenticFortressCLI {
         case "redact":
             print(Redactor().redact(args.joined(separator: " ")))
         default:
-            printUsage()
+            throw CLIError.unknownCommand(command)
         }
     }
 
@@ -203,12 +212,12 @@ struct AgenticFortressCLI {
         try process.run()
         process.waitUntilExit()
         guard process.terminationStatus == 0 else {
-            throw CLIError.missingArgument("--target for \(name)")
+            throw CLIError.executableNotFound(name)
         }
         let output = String(decoding: pipe.fileHandleForReading.readDataToEndOfFile(), as: UTF8.self)
             .trimmingCharacters(in: .whitespacesAndNewlines)
         guard !output.isEmpty else {
-            throw CLIError.missingArgument("--target for \(name)")
+            throw CLIError.executableNotFound(name)
         }
         return output
     }
@@ -217,11 +226,17 @@ struct AgenticFortressCLI {
 
 enum CLIError: Error, CustomStringConvertible {
     case missingArgument(String)
+    case unknownCommand(String)
+    case executableNotFound(String)
 
     var description: String {
         switch self {
         case .missingArgument(let argument):
-            "Missing argument: \(argument)"
+            "Missing required argument: \(argument)"
+        case .unknownCommand(let command):
+            "Unknown command: \(command)"
+        case .executableNotFound(let name):
+            "Could not find executable '\(name)' on PATH. Install it or pass --target /absolute/path/to/\(name)."
         }
     }
 }

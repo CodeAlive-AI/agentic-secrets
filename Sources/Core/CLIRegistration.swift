@@ -45,17 +45,17 @@ public enum CLIRegistrationError: Error, Equatable, CustomStringConvertible {
     public var description: String {
         switch self {
         case .invalidCLIName(let name):
-            "invalidCLIName(\(name))"
+            "Invalid CLI name '\(name)'. Use a command name like 'hcloud' or pass a target path with --target."
         case .invalidEnvironmentName(let name):
-            "invalidEnvironmentName(\(name))"
+            "Invalid environment variable name '\(name)'. Pass only the name, for example --env HCLOUD_TOKEN. Do not pass HCLOUD_TOKEN=value."
         case .missingEnvironmentValue(let name):
-            "missingEnvironmentValue(\(name))"
+            "Missing secret value for environment variable '\(name)'. Use --secret-stdin, --secret-prompt, or --secrets-json-stdin."
         case .targetNotExecutable(let path):
-            "targetNotExecutable(\(path))"
+            "Target is not executable: \(path)"
         case .unsupportedSchema(let schema):
-            "unsupportedSchema(\(schema))"
+            "Unsupported CLI registry schema version: \(schema)"
         case .registrationMissing(let name):
-            "registrationMissing(\(name))"
+            "No CLI registration found for '\(name)'."
         }
     }
 }

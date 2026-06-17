@@ -4,7 +4,16 @@ import Foundation
 
 @main
 struct AgenticFortressCoreDaemon {
-    static func main() throws {
+    static func main() {
+        do {
+            try run()
+        } catch {
+            fputs("Error: \(error)\n", stderr)
+            exit(64)
+        }
+    }
+
+    private static func run() throws {
         var args = Array(CommandLine.arguments.dropFirst())
         if let command = args.first {
             args.removeFirst()
@@ -60,14 +69,15 @@ struct AgenticFortressCoreDaemon {
             throw CoreDaemonError.invalidArguments("use --secret-stdin, --secrets-json-stdin, or --secret-prompt")
         }
         let registration = try layout.registrationService.register(name: name, targetPath: target, environmentValues: values)
-        print(try AgenticFortressJSON.encodePretty([
-            "status": "registered",
-            "name": registration.name,
-            "targetPath": registration.targetPath,
-            "environments": registration.environmentBindings.map(\.environmentName).joined(separator: ","),
-            "registry": layout.registryURL.path,
-            "secretStore": "local-encrypted-file"
-        ]))
+        print(try AgenticFortressJSON.encodePretty(CLIRegistrationCommandResponse(
+            status: "registered",
+            name: registration.name,
+            targetPath: registration.targetPath,
+            environments: registration.environmentBindings.map(\.environmentName),
+            registry: layout.registryURL.path,
+            secretStore: "local-encrypted-file",
+            nextStep: "Registration stored. Do not create a native CLI context containing this token."
+        )))
     }
 
     private static func unregisterCLI(_ args: [String]) throws {
@@ -75,12 +85,12 @@ struct AgenticFortressCoreDaemon {
         let deleteSecrets = args.contains("--delete-secrets")
         let layout = AgenticFortressStateLayout(stateDirectory: stateDirectory(from: args))
         let registration = try layout.registrationService.unregister(name: name, deleteSecrets: deleteSecrets)
-        print(try AgenticFortressJSON.encodePretty([
-            "status": "unregistered",
-            "name": registration.name,
-            "deletedSecrets": String(deleteSecrets),
-            "environments": registration.environmentBindings.map(\.environmentName).joined(separator: ",")
-        ]))
+        print(try AgenticFortressJSON.encodePretty(CLIUnregistrationCommandResponse(
+            status: "unregistered",
+            name: registration.name,
+            deletedSecrets: deleteSecrets,
+            environments: registration.environmentBindings.map(\.environmentName)
+        )))
     }
 
     private static func serveOnce(_ args: [String]) throws {
@@ -237,4 +247,21 @@ enum CoreDaemonError: Error, CustomStringConvertible {
             "Invalid arguments: \(reason)"
         }
     }
+}
+
+private struct CLIRegistrationCommandResponse: Codable {
+    var status: String
+    var name: String
+    var targetPath: String
+    var environments: [String]
+    var registry: String
+    var secretStore: String
+    var nextStep: String
+}
+
+private struct CLIUnregistrationCommandResponse: Codable {
+    var status: String
+    var name: String
+    var deletedSecrets: Bool
+    var environments: [String]
 }
