@@ -69,7 +69,7 @@ These are intentionally not repository secrets:
 
 - Requiring every contributor to have an Apple Developer account.
 - Requiring Developer ID for source builds.
-- Teaching users to disable Gatekeeper.
+- Teaching users to weaken macOS platform security.
 - Sharing raw Keychain secret access with helpers.
 - Making notarization a prerequisite for development or contract tests.
 

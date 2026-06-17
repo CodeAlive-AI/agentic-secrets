@@ -10,6 +10,8 @@ This repository implements the V4 plan as enforceable delivery contracts.
 | Command adapters | `AdapterPackPayload`, `SignedAdapterPack`, `AdapterPackVerifier`, `AdapterRegistry`, `DynamicCommandAdapter`, `BuiltInAdapterPacks`, `CommandClassifier` |
 | TOCTOU tiers | `TargetAssessor`, `TOCTOUTier`, `SealedTargetCache` |
 | Shim model | `agentic-fortress-shim`, `EnvironmentScrubber`, `InvocationHandleStore` |
+| Local IPC control plane | `CoreIPCRequest`, `CoreIPCResponse`, `CoreIPCAuthorizer`, `IPCConformanceReport`, `agentic-fortress ipc-conformance` |
+| Self-build helper trust | `InstallManifest`, `SelfBuildPeerIdentity`, `SelfBuildPeerValidator`, `scripts/install_local.sh` |
 | Generic runner denial | `CommandClassifier`, `PolicyEngine` |
 | Local API proxy | `ProxyProfile`, `ProxyAuthorizer`, `agentic-fortress-proxyd` |
 | BWS provider split | `BWSProviderPolicy`, `BWSInvocation`, `agentic-fortress-bwsd` |
@@ -17,8 +19,9 @@ This repository implements the V4 plan as enforceable delivery contracts.
 | Rollback recovery | `RollbackProtector`, `RecoveryBundle` |
 | Audit and redaction | `AuditLog`, `Redactor` |
 | Remote delivery claims | `RemoteDeliveryCatalog` |
-| Release gates | `agentic-fortress-contract-tests`, `scripts/ci.sh` |
-| macOS package/signing scaffolding | `packaging/AgenticFortress.entitlements`, `scripts/package_release.sh`, `scripts/inspect_signing.sh` |
+| Release gates | `agentic-fortress-contract-tests`, `agentic-fortress release-gates`, `scripts/ci.sh` |
+| macOS package/signing scaffolding | `packaging/AgenticFortress.entitlements`, `scripts/package_release.sh`, `scripts/install_local.sh`, `scripts/uninstall_local.sh`, `scripts/inspect_signing.sh` |
+| Release evidence | `scripts/create_release_evidence.sh` |
 | Configuration | `AgenticFortressConfig`, `config/default.agentic-fortress.json`, `agentic-fortress default-config` |
 | Tahoe compatibility | `MacOSCompatibility`, `agentic-fortress check-macos`, `scripts/tahoe_compatibility_check.sh` |
 | Threat model and operations | `Docs/THREAT_MODEL.md`, `Docs/OPERATIONS.md` |
@@ -31,4 +34,4 @@ Dynamic adapter boundary:
 - Lease scope includes adapter id, version, and hash, so adapter changes invalidate approvals.
 - Unknown flags and unknown commands fail into high-risk classifications.
 
-Production packaging still needs signed/notarized macOS distribution, XPC listener wiring, and Keychain access-control prompts. Those pieces are platform packaging and TCB integration work; the core release-gate behavior is represented in code and runnable without secrets.
+The default production track is source self-build with local ad-hoc signing. `agentic-fortress release-gates` reports `canRunLocal` independently from optional `canDistributeBinary`, so Developer ID signing and notarization do not block local production use. Future downloadable binary distribution work remains in `Docs/FUTURE_DEVELOPER_ID.md`.

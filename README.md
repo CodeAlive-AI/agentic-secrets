@@ -47,6 +47,25 @@ swift build
 
 By default, the package script ad-hoc signs for local validation and self-build installs.
 
+## Install
+
+```sh
+./scripts/install_local.sh --prefix "$HOME/Library/Application Support/AgenticFortress/LocalInstall"
+./scripts/uninstall_local.sh --prefix "$HOME/Library/Application Support/AgenticFortress/LocalInstall" --keep-secrets
+```
+
+The local installer writes an install manifest with helper paths, owners, permissions, versions, SHA-256 hashes, and cdhash values. Runtime IPC authorization uses that manifest instead of requiring a Developer ID Team ID.
+
+## Release Evidence
+
+```sh
+swift run agentic-fortress release-gates
+swift run agentic-fortress ipc-conformance
+./scripts/create_release_evidence.sh
+```
+
+`release-gates` reports `canRunLocal` separately from optional `canDistributeBinary`.
+
 Optional future maintainer distribution signing and notarization:
 
 ```sh

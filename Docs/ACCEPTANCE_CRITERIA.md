@@ -276,7 +276,7 @@ Verification:
 
 ```sh
 codesign -d --entitlements :- build/AgenticFortress.app
-rg "kSecAttrAccessGroup|keychain-access-groups|com.apple.security.application-groups" Sources packaging Docs README.md
+rg "kSecAttrAccessGroup|keychain-access-groups|com.apple.security.application-groups" Sources packaging Docs README.md --glob '!ACCEPTANCE_CRITERIA.md'
 ```
 
 Required evidence:
@@ -567,7 +567,7 @@ Pass condition:
 Verification:
 
 ```sh
-rg "disable Gatekeeper|disable SIP|xattr -rd com.apple.quarantine" README.md Docs scripts
+rg "disable Gatekeeper|disable SIP|xattr -rd com.apple.quarantine" README.md Docs scripts --glob '!ACCEPTANCE_CRITERIA.md'
 ./scripts/ci.sh
 ```
 

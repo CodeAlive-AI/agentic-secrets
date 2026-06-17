@@ -101,8 +101,74 @@ func runContracts() throws {
     try expectThrows(XPCPeerValidationError.debugSignedRejected, {
         try XPCPeerValidator.validate(peer: XPCPeerIdentity(teamID: "TEAMID1234", bundleID: "com.agenticfortress.shim", version: "1.2.1", hardenedRuntime: true, debugSigned: true), requirement: peerRequirement)
     }, "XPC peer validator must reject debug-signed helpers by default")
+
+    let helperRoot = URL(fileURLWithPath: NSTemporaryDirectory()).appendingPathComponent("agentic-fortress-helper-\(UUID().uuidString)")
+    let helperPath = helperRoot.appendingPathComponent("agentic-fortress-shim")
+    try FileManager.default.createDirectory(at: helperRoot, withIntermediateDirectories: true)
+    try "helper-binary".data(using: .utf8)!.write(to: helperPath)
+    try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: helperRoot.path)
+    try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: helperPath.path)
+    let selfBuildPeer = try SelfBuildPeerValidator.identity(helperName: "agentic-fortress-shim", path: helperPath.path, version: "1.2.1", cdHash: "cdhash-demo")
+    let selfBuildRequirement = SelfBuildPeerRequirement(
+        helperName: selfBuildPeer.helperName,
+        resolvedPath: selfBuildPeer.resolvedPath,
+        ownerUserID: selfBuildPeer.ownerUserID,
+        minimumVersion: "1.2.0",
+        binarySHA256: selfBuildPeer.binarySHA256,
+        cdHash: selfBuildPeer.cdHash
+    )
+    try SelfBuildPeerValidator.validate(peer: selfBuildPeer, requirement: selfBuildRequirement)
+    var wrongHashPeer = selfBuildPeer
+    wrongHashPeer.binarySHA256 = "sha256:wrong"
+    try expectThrows(SelfBuildPeerValidationError.wrongHash, {
+        try SelfBuildPeerValidator.validate(peer: wrongHashPeer, requirement: selfBuildRequirement)
+    }, "self-build peer validator must reject wrong helper hash")
+    var wrongPathPeer = selfBuildPeer
+    wrongPathPeer.resolvedPath = "/tmp/agentic-fortress-shim"
+    try expectThrows(SelfBuildPeerValidationError.wrongPath, {
+        try SelfBuildPeerValidator.validate(peer: wrongPathPeer, requirement: selfBuildRequirement)
+    }, "self-build peer validator must reject wrong helper path")
+    var oldPeer = selfBuildPeer
+    oldPeer.version = "1.1.9"
+    try expectThrows(SelfBuildPeerValidationError.oldVersion, {
+        try SelfBuildPeerValidator.validate(peer: oldPeer, requirement: selfBuildRequirement)
+    }, "self-build peer validator must reject old helper versions")
+    var writableParentPeer = selfBuildPeer
+    writableParentPeer.parentMode = 0o777
+    try expectThrows(SelfBuildPeerValidationError.worldWritableParent, {
+        try SelfBuildPeerValidator.validate(peer: writableParentPeer, requirement: selfBuildRequirement)
+    }, "self-build peer validator must reject world-writable helper parents")
+    var debugPeer = selfBuildPeer
+    debugPeer.debugSigned = true
+    try expectThrows(SelfBuildPeerValidationError.debugSignedRejected, {
+        try SelfBuildPeerValidator.validate(peer: debugPeer, requirement: selfBuildRequirement)
+    }, "self-build peer validator must reject debug helpers without explicit override")
+    var debugAllowedRequirement = selfBuildRequirement
+    debugAllowedRequirement.allowDebugSigned = true
+    try SelfBuildPeerValidator.validate(peer: debugPeer, requirement: debugAllowedRequirement)
+    let installManifest = InstallManifest(appVersion: "1.2.1", prefix: helperRoot.path, installedAt: Date(timeIntervalSince1970: 0), helpers: [selfBuildRequirement])
+    let ipcAuthorizer = CoreIPCAuthorizer(installManifest: installManifest)
+    let ipcRequest = CoreIPCRequest(requestID: "req_1", operation: .health, peer: selfBuildPeer)
+    try ipcAuthorizer.authorize(ipcRequest)
+    try expectThrows(CoreIPCError.unsupportedVersion(999), {
+        try ipcAuthorizer.authorize(CoreIPCRequest(version: 999, requestID: "req_2", operation: .health, peer: selfBuildPeer))
+    }, "IPC authorizer must reject unknown protocol versions")
+    try expectThrows(CoreIPCError.unauthorizedPeer("wrongHash"), {
+        try ipcAuthorizer.authorize(CoreIPCRequest(requestID: "req_3", operation: .health, peer: wrongHashPeer))
+    }, "IPC authorizer must reject helpers that fail self-build identity validation")
+    let ipcReport = IPCConformanceReport()
+    try expect(ipcReport.protocolVersion == CoreIPC.protocolVersion, "IPC conformance must report current protocol version")
+    try expect(ipcReport.messageTypes.contains(CoreIPCOperation.createShimExecPlan.rawValue), "IPC conformance must list shim exec plan operation")
+    try expect(ipcReport.authorizationModel.contains("binary-sha256"), "IPC conformance must include hash-based self-build authorization")
+    try? FileManager.default.removeItem(at: helperRoot)
+
     let authReason = LocalAuthenticationGate.reason(for: approvalManifest)
     try expect(authReason.contains(approvalManifest.digest), "LocalAuthentication reason must include manifest digest")
+    try expect(authReason.contains(approvalManifest.actionClass), "LocalAuthentication reason must include action class")
+    try expect(authReason.contains(approvalManifest.target.display), "LocalAuthentication reason must include target command")
+    try expect(authReason.contains(approvalManifest.workspace.display), "LocalAuthentication reason must include workspace")
+    try expect(authReason.contains(approvalManifest.secret.alias), "LocalAuthentication reason must include secret alias")
+    try expect(authReason.contains(approvalManifest.secret.delivery.rawValue), "LocalAuthentication reason must include delivery mode")
     let authProof = LocalAuthenticationProof(manifestDigest: approvalManifest.digest, actionClass: approvalManifest.actionClass, reason: authReason, authenticatedAt: Date(timeIntervalSince1970: 0))
     try LocalAuthenticationGate.validate(proof: authProof, manifest: approvalManifest, now: Date(timeIntervalSince1970: 10))
     try expectThrows(LocalAuthenticationError.staleProof, {
@@ -139,6 +205,7 @@ func runContracts() throws {
     keychainContext.localizedReason = LocalAuthenticationGate.reason(for: approvalManifest)
     let keychainReadQuery = KeychainSecretQueryFactory.readQuery(descriptor: keychainDescriptor, context: keychainContext)
     try expect(keychainReadQuery[kSecUseAuthenticationContext] != nil, "Keychain read query must carry LAContext for approval prompt reason")
+    try expect(validatedApproval.authenticationReason == LocalAuthenticationGate.reason(for: approvalManifest), "approval session must carry full decision-bound LocalAuthentication reason")
     let keychainBinding = try KeychainSecretStore(service: "com.agenticfortress.test").binding(for: secretAlias)
     try expect(keychainBinding.storeKind == "keychain", "Keychain secret store must expose keychain binding metadata without plaintext")
 
@@ -451,10 +518,16 @@ func runContracts() throws {
 
     let report = ReleaseGateRunner().staticReport()
     try expect(Set(report.results.map(\.gate)) == Set(ReleaseGate.allCases), "release gate report must cover all gates")
-    try expect(!report.canRelease, "release gate report must block production release until platform deployment gates are proven")
-    let blockedGates = Set(report.results.filter { !$0.passed }.map(\.gate))
-    try expect(blockedGates == [.xpcPeerValidation, .keychainAccessControl, .macOSPackaging], "release gate report must identify remaining production deployment blockers")
-    try expect(PublicAPITripwire.scan(source: "public func getSecret(name: String) -> String") == ["getSecret"], "public API tripwire must catch getSecret")
+    try expect(report.canRunLocal, "release gate report must allow the production self-build track")
+    try expect(report.canRelease, "legacy canRelease must map to local self-build readiness")
+    try expect(!report.canDistributeBinary, "release gate report must keep optional Developer ID binary distribution separate")
+    let blockedLocalGates = Set(report.results.filter { !$0.passed }.map(\.gate))
+    try expect(blockedLocalGates.isEmpty, "release gate report must not block local self-build on optional Developer ID gates")
+    let blockedBinaryGates = Set(report.binaryDistributionResults.filter { !$0.passed }.map(\.gate))
+    try expect(blockedBinaryGates == [.macOSPackaging], "binary distribution report must isolate Developer ID packaging as optional future work")
+    let forbiddenGetterFixture = "public func "
+        + "getSecret(name: String) -> String"
+    try expect(PublicAPITripwire.scan(source: forbiddenGetterFixture) == ["getSecret"], "API tripwire must catch forbidden raw getter")
 
     let config = try ConfigurationLoader.load(path: "config/default.agentic-fortress.json")
     try expect(config.adapterTrust.requireSignatureForExternalPacks, "default config must require signed external adapter packs")

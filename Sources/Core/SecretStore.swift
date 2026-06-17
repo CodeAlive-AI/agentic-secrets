@@ -221,6 +221,14 @@ public struct KeychainSecretStore: LocalSecretStore {
         }
     }
 
+    public func delete(alias: SecretAlias) throws {
+        let descriptor = descriptors[alias] ?? KeychainSecretDescriptor(alias: alias, service: service, account: alias.rawValue, label: alias.rawValue, authentication: .presenceRequired)
+        let status = SecItemDelete(KeychainSecretQueryFactory.deleteQuery(descriptor: descriptor) as CFDictionary)
+        guard status == errSecSuccess || status == errSecItemNotFound else {
+            throw KeychainSecretStoreError.keychainStatus(status)
+        }
+    }
+
     public func binding(for alias: SecretAlias) throws -> SecretBinding {
         let descriptor = descriptors[alias] ?? KeychainSecretDescriptor(alias: alias, service: service, account: alias.rawValue, label: alias.rawValue, authentication: .presenceRequired)
         return SecretBinding(alias: alias, storeKind: "keychain", externalID: "\(descriptor.service):\(descriptor.account)", environment: "local")
@@ -232,11 +240,7 @@ public struct KeychainSecretStore: LocalSecretStore {
         }
         let descriptor = descriptors[alias] ?? KeychainSecretDescriptor(alias: alias, service: service, account: alias.rawValue, label: alias.rawValue, authentication: .presenceRequired)
         let context = LAContext()
-        context.localizedReason = [
-            "AgenticFortress approval \(session.manifestDigest)",
-            "Action: \(session.actionClass)",
-            "Secret: \(alias.rawValue)"
-        ].joined(separator: "\n")
+        context.localizedReason = session.authenticationReason
         context.localizedCancelTitle = "Deny"
         var item: CFTypeRef?
         let status = SecItemCopyMatching(KeychainSecretQueryFactory.readQuery(descriptor: descriptor, context: context) as CFDictionary, &item)
@@ -258,8 +262,18 @@ public struct ApprovalSession: Codable, Equatable, Sendable {
     public var approvalOption: ApprovalOption
     public var policyEpoch: Int
     public var expiresAt: Date
+    public var authenticationReason: String
 
-    public init(id: String, manifestDigest: String, actionClass: String, secretAlias: SecretAlias, approvalOption: ApprovalOption, policyEpoch: Int, expiresAt: Date) {
+    public init(
+        id: String,
+        manifestDigest: String,
+        actionClass: String,
+        secretAlias: SecretAlias,
+        approvalOption: ApprovalOption,
+        policyEpoch: Int,
+        expiresAt: Date,
+        authenticationReason: String
+    ) {
         self.id = id
         self.manifestDigest = manifestDigest
         self.actionClass = actionClass
@@ -267,6 +281,7 @@ public struct ApprovalSession: Codable, Equatable, Sendable {
         self.approvalOption = approvalOption
         self.policyEpoch = policyEpoch
         self.expiresAt = expiresAt
+        self.authenticationReason = authenticationReason
     }
 }
 
@@ -293,7 +308,8 @@ public final class ApprovalSessionStore: @unchecked Sendable {
             secretAlias: SecretAlias(manifest.secret.alias),
             approvalOption: manifest.approvalOptions.first ?? .deny,
             policyEpoch: policyEpoch,
-            expiresAt: now.addingTimeInterval(ttl)
+            expiresAt: now.addingTimeInterval(ttl),
+            authenticationReason: LocalAuthenticationGate.reason(for: manifest)
         )
         lock.withLock {
             sessions[session.id] = session

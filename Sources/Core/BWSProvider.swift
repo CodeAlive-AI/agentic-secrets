@@ -39,7 +39,7 @@ public enum BWSProviderError: Error, Equatable {
 }
 
 public protocol BWSSecretClient: Sendable {
-    func readSecret(binding: BWSSecretBinding) throws -> SecretMaterial
+    func fetchApprovedSecret(binding: BWSSecretBinding) throws -> SecretMaterial
 }
 
 public final class InMemoryBWSSecretClient: BWSSecretClient, @unchecked Sendable {
@@ -56,7 +56,7 @@ public final class InMemoryBWSSecretClient: BWSSecretClient, @unchecked Sendable
         }
     }
 
-    public func readSecret(binding: BWSSecretBinding) throws -> SecretMaterial {
+    public func fetchApprovedSecret(binding: BWSSecretBinding) throws -> SecretMaterial {
         try lock.withLock {
             guard let material = secrets[binding.secretID] else {
                 throw BWSProviderError.invalidOperation
@@ -131,7 +131,7 @@ public struct BWSProviderRuntime: Sendable {
 
     public func fetchOne(invocation: BWSInvocation, sinkIdentity: String, now: Date = Date()) throws -> SecretMaterial {
         try policy.validate(invocation: invocation, sinkIdentity: sinkIdentity, now: now)
-        return try client.readSecret(binding: invocation.binding)
+        return try client.fetchApprovedSecret(binding: invocation.binding)
     }
 }
 

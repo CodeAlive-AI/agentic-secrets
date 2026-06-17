@@ -16,6 +16,55 @@ Run the macOS Tahoe package/signing gate:
 ./scripts/tahoe_compatibility_check.sh
 ```
 
+Check release readiness split by distribution track:
+
+```sh
+swift run agentic-fortress release-gates
+swift run agentic-fortress ipc-conformance
+```
+
+`canRunLocal` is the production gate for the default self-build track. `canDistributeBinary` is only for optional future Developer ID releases.
+
+## Local Install, Update, and Uninstall
+
+Install from the current checkout:
+
+```sh
+./scripts/install_local.sh --prefix "$HOME/Library/Application Support/AgenticFortress/LocalInstall"
+```
+
+Update by running the install command again from the desired commit. The script rebuilds, ad-hoc signs, validates, copies the app bundle, refreshes command symlinks, and rewrites the install manifest.
+
+Uninstall without deleting Keychain secrets:
+
+```sh
+./scripts/uninstall_local.sh --prefix "$HOME/Library/Application Support/AgenticFortress/LocalInstall" --keep-secrets
+```
+
+Uninstall and remove local non-secret state:
+
+```sh
+./scripts/uninstall_local.sh --prefix "$HOME/Library/Application Support/AgenticFortress/LocalInstall" --purge-local-state
+```
+
+Keychain secret deletion is intentionally not implicit. It must be a separate reviewed product action, not a side effect of package removal.
+
+## Keychain Prompt Verification
+
+Non-interactive contract check:
+
+```sh
+./scripts/interactive_keychain_prompt_check.sh
+```
+
+Interactive prompt-producing check:
+
+```sh
+AGENTIC_FORTRESS_INTERACTIVE=1 ./scripts/interactive_keychain_prompt_check.sh
+```
+
+The script creates a temporary device-local Keychain item, reads it through the decision-bound LocalAuthentication reason, and deletes it. It never prints the generated secret value.
+
 ## Adapter Management
 
 List built-in adapter metadata:
@@ -100,6 +149,7 @@ Local package validation:
 ```sh
 ./scripts/package_release.sh
 ./scripts/validate_release_artifact.sh build/AgenticFortress.app
+./scripts/create_release_evidence.sh
 ```
 
 The default supported distribution path is source checkout plus local ad-hoc signing. Developer ID signing and notarization are optional future maintainer steps for downloadable binaries.

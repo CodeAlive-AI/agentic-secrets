@@ -2,6 +2,16 @@
 
 This plan turns the current production-contract skeleton into a production macOS security product. Every step must end with verification and a commit. The production-ready definition for the default no-Developer-ID track is governed by `Docs/ACCEPTANCE_CRITERIA.md`.
 
+## Current Status
+
+The no-Developer-ID production track is implemented as source self-build plus local ad-hoc signing:
+
+- `swift run agentic-fortress release-gates` reports `canRunLocal` for the default release track and `canDistributeBinary` only for optional future Developer ID distribution.
+- `swift run agentic-fortress ipc-conformance` reports the versioned local IPC control plane and helper authorization model.
+- `./scripts/install_local.sh` and `./scripts/uninstall_local.sh` cover local install, update-by-reinstall, uninstall, launch-agent cleanup, symlink cleanup, and explicit local-state purge.
+- `./scripts/interactive_keychain_prompt_check.sh` covers non-interactive contracts by default and a real prompt-producing Keychain smoke check when `AGENTIC_FORTRESS_INTERACTIVE=1`.
+- `./scripts/create_release_evidence.sh` generates release evidence with commit, OS, SDK, Swift version, gate output, package validation, and residual risks.
+
 ## Step 1: Local Secret Store and Approval Session Core
 
 Scope:

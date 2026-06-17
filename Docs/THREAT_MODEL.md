@@ -14,6 +14,8 @@ It does not make arbitrary execution safe. It narrows how secrets are delivered,
 - Audit and debug paths reject raw secret-shaped values.
 - Rollback detection locks policy use and clears remembered leases.
 - Proxy and MCP paths pin profiles and block cross-origin redirects by default.
+- Self-build IPC authorization uses an install manifest with resolved helper paths, owner user id, permissions, minimum version, SHA-256 hash, and optional cdhash. Developer ID Team ID checks are optional for future binary distribution, not required for source builds.
+- Keychain reads are device-local, user-presence bound, and use LocalAuthentication reasons derived from the full decision manifest.
 
 ## Non-Claims
 
@@ -58,8 +60,9 @@ It does not make arbitrary execution safe. It narrows how secrets are delivered,
 - Proxy runtime: local token, method/path allowlist, upstream origin pinning, no body logging.
 - MCP bridge: Authorization injection, session-id propagation, profile pinning, no body logging.
 - Release gates: contract tests, Tahoe SDK/runtime gate, code signing verification, entitlement diff.
+- Local install manifest: helper path, owner, permissions, version, binary hash, and cdhash validation without Developer ID.
+- IPC protocol: versioned structured messages; unknown versions and helper identity mismatches fail closed.
 
 ## Residual Risk
 
-The largest residual risks are trust in approved recipients, same-user local abuse while a delivery session is active, and incomplete protection until production XPC/Keychain wiring replaces the current boundary models. These are tracked as explicit product non-claims, not hidden implementation details.
-
+The largest residual risks are trust in approved recipients, same-user local abuse while a delivery session is active, and the absence of Developer ID/notarization for downloadable binary convenience releases. These are tracked as explicit product non-claims, not hidden implementation details. The default source self-build track relies on local ad-hoc signing plus install-manifest identity binding instead of Apple Team ID identity.
