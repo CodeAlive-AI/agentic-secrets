@@ -278,6 +278,20 @@ func runContracts() throws {
     try expectThrows(ProxyError.crossOriginRedirectBlocked, {
         try authorizer.validateRedirect(session: session, location: URL(string: "https://evil.example.test/v1/responses")!)
     }, "proxy must block cross-origin redirects")
+    let proxyRuntime = ProxyRuntime()
+    let upstreamRequest = try proxyRuntime.prepareUpstreamRequest(
+        session: session,
+        request: ProxyHTTPRequest(method: "POST", path: "/v1/responses", headers: ["KEYGATE_PROXY_TOKEN": token], body: Data("{}".utf8), sessionToken: token),
+        upstreamSecret: SecretMaterial(utf8: "real-upstream-secret"),
+        now: Date(timeIntervalSince1970: 1)
+    )
+    try expect(upstreamRequest.url.absoluteString == "https://api.openai.com/v1/responses", "proxy runtime must pin upstream origin and append allowed path")
+    try expect(upstreamRequest.headers["Authorization"] == "Bearer real-upstream-secret", "proxy runtime must inject upstream authorization only in upstream request")
+    try expect(upstreamRequest.headers["KEYGATE_PROXY_TOKEN"] == nil, "proxy runtime must not forward local proxy capability token upstream")
+    try expect(upstreamRequest.auditMetadata["authorization"] == "present-redacted", "proxy runtime audit metadata must not include upstream secret")
+    try expectThrows(ProxyError.bodyLoggingDisabled, {
+        _ = try proxyRuntime.bodyForAudit(Data("secret-body".utf8))
+    }, "proxy runtime must not log request bodies by default")
 
     let bwsPolicy = BWSProviderPolicy()
     let bwsBinding = BWSSecretBinding(alias: "cloud.hcloud.dev", projectID: "cloud-dev", secretID: "sec_hcloud", environment: "dev")

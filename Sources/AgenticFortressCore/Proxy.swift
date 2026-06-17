@@ -33,6 +33,31 @@ public enum ProxyError: Error, Equatable {
     case methodBlocked
     case pathBlocked
     case crossOriginRedirectBlocked
+    case bodyLoggingDisabled
+}
+
+public struct ProxyHTTPRequest: Codable, Equatable, Sendable {
+    public var method: String
+    public var path: String
+    public var headers: [String: String]
+    public var body: Data?
+    public var sessionToken: String?
+
+    public init(method: String, path: String, headers: [String: String] = [:], body: Data? = nil, sessionToken: String?) {
+        self.method = method
+        self.path = path
+        self.headers = headers
+        self.body = body
+        self.sessionToken = sessionToken
+    }
+}
+
+public struct ProxyUpstreamRequest: Equatable, Sendable {
+    public var url: URL
+    public var method: String
+    public var headers: [String: String]
+    public var body: Data?
+    public var auditMetadata: [String: String]
 }
 
 public struct ProxyAuthorizer: Sendable {
@@ -61,6 +86,39 @@ public struct ProxyAuthorizer: Sendable {
     }
 }
 
+public struct ProxyRuntime: Sendable {
+    private let authorizer: ProxyAuthorizer
+    private let redactor: Redactor
+
+    public init(authorizer: ProxyAuthorizer = ProxyAuthorizer(), redactor: Redactor = Redactor()) {
+        self.authorizer = authorizer
+        self.redactor = redactor
+    }
+
+    public func prepareUpstreamRequest(session: ProxySession, request: ProxyHTTPRequest, upstreamSecret: SecretMaterial, now: Date = Date()) throws -> ProxyUpstreamRequest {
+        try authorizer.authorize(session: session, token: request.sessionToken, method: request.method, path: request.path, now: now)
+        let upstreamURL = session.profile.upstreamOrigin.appendingPathComponent(String(request.path.drop(while: { $0 == "/" })))
+        var headers = request.headers
+        headers["Authorization"] = upstreamSecret.withUTF8String { "Bearer \($0)" }
+        headers.removeValue(forKey: "KEYGATE_PROXY_TOKEN")
+        let metadata = [
+            "profile": session.profile.name,
+            "method": request.method.uppercased(),
+            "path": request.path,
+            "upstream": "\(session.profile.upstreamOrigin.scheme ?? "")://\(session.profile.upstreamOrigin.host ?? "")",
+            "authorization": "present-redacted"
+        ].mapValues { redactor.redact($0) }
+        return ProxyUpstreamRequest(url: upstreamURL, method: request.method.uppercased(), headers: headers, body: request.body, auditMetadata: metadata)
+    }
+
+    public func bodyForAudit(_ body: Data?) throws -> String? {
+        guard body == nil else {
+            throw ProxyError.bodyLoggingDisabled
+        }
+        return nil
+    }
+}
+
 public enum BuiltInProxyProfiles {
     public static let openAI = ProxyProfile(
         name: "openai",
@@ -78,4 +136,3 @@ public enum BuiltInProxyProfiles {
         secretAlias: "ai.anthropic.dev"
     )
 }
-
