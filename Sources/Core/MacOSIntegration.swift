@@ -180,7 +180,7 @@ public enum SelfBuildPeerValidator {
             parentMode: (parentAttributes[.posixPermissions] as? NSNumber)?.uint16Value ?? 0,
             version: version,
             binarySHA256: hash,
-            cdHash: cdHash,
+            cdHash: cdHash ?? CodeSignatureInspector.cdHash(path: resolvedPath),
             debugSigned: debugSigned
         )
     }
@@ -194,6 +194,31 @@ public enum SelfBuildPeerValidator {
             if l != r { return l < r ? -1 : 1 }
         }
         return 0
+    }
+}
+
+public enum CodeSignatureInspector {
+    public static func cdHash(path: String) -> String? {
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/usr/bin/codesign")
+        process.arguments = ["-dv", "--verbose=4", path]
+        let pipe = Pipe()
+        process.standardError = pipe
+        process.standardOutput = Pipe()
+        do {
+            try process.run()
+            process.waitUntilExit()
+        } catch {
+            return nil
+        }
+        guard process.terminationStatus == 0 else {
+            return nil
+        }
+        let output = String(decoding: pipe.fileHandleForReading.readDataToEndOfFile(), as: UTF8.self)
+        return output
+            .split(separator: "\n")
+            .first(where: { $0.hasPrefix("CDHash=") })
+            .map { String($0.dropFirst("CDHash=".count)) }
     }
 }
 

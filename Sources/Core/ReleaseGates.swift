@@ -85,7 +85,7 @@ public struct ReleaseGateRunner: Sendable {
         ReleaseGateReport(
             results: [
                 .init(gate: .noGetSecretAPI, passed: true, detail: "Public API tripwire rejects getSecret-style secret extraction APIs."),
-                .init(gate: .xpcPeerValidation, passed: true, detail: "Self-build IPC peer validation uses install manifest path, owner, permissions, version, and binary hash/cdhash; Team ID is optional."),
+                .init(gate: .xpcPeerValidation, passed: true, detail: "Self-build IPC peer validation uses Unix domain socket requests plus install manifest path, owner, permissions, version, binary hash/cdhash; Team ID is optional."),
                 .init(gate: .keychainAccessControl, passed: true, detail: "Keychain queries use data-protection Keychain, device-local accessibility, user-presence access control, and decision-bound LAContext reasons."),
                 .init(gate: .invocationHandleBinding, passed: true, detail: "Invocation handles are single-use and bound to peer, injector, target, action, workspace, policy epoch, and delivery mode."),
                 .init(gate: .redaction, passed: true, detail: "Audit and CLI redaction contracts reject secret-like material in exported state."),

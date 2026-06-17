@@ -66,6 +66,7 @@ public struct ShimExecutionPlanner: Sendable {
         approvalSessions: ApprovalSessionStore,
         secrets: LocalSecretStore,
         handles: InvocationHandleStore,
+        audit: AuditLog? = nil,
         targetAssessor: TargetAssessor = TargetAssessor(),
         now: Date = Date()
     ) throws -> ExecPlan {
@@ -79,8 +80,26 @@ public struct ShimExecutionPlanner: Sendable {
         let intent = DeliveryIntent(flow: .cliEnv, secretAlias: targetPolicy.secretAlias, delivery: .env, environmentName: targetPolicy.environmentName, workspace: request.workspace, parentApp: request.parentApp)
         let manifest = DecisionManifestFactory().make(command: command, intent: intent, target: target)
 
-        _ = try PolicyEngine().authorize(command: command, intent: intent, target: target, approval: manifest.approvalOptions.contains(.once) ? .once : .deny, state: policyState, now: now)
-        let approval = try approvalSessions.validate(sessionID: approvalSessionID, manifest: manifest, policyEpoch: policyState.epoch, now: now)
+        let requestedApproval: ApprovalOption = manifest.approvalOptions.contains(.once) ? .once : .deny
+        let decision: PolicyDecision
+        do {
+            decision = try PolicyEngine().authorize(command: command, intent: intent, target: target, approval: requestedApproval, state: policyState, now: now)
+        } catch {
+            try audit?.append(.delivery(manifest: manifest, decision: "deny", subjectID: request.peerIdentity, policyEpoch: policyState.epoch, approval: requestedApproval, outcome: "policy-error:\(error)", time: now))
+            throw error
+        }
+        if case .deny(let reason) = decision {
+            try audit?.append(.delivery(manifest: manifest, decision: "deny", subjectID: request.peerIdentity, policyEpoch: policyState.epoch, approval: requestedApproval, outcome: reason, time: now))
+            throw ShimPlannerError.approvalDenied
+        }
+
+        let approval: ApprovalSession
+        do {
+            approval = try approvalSessions.validate(sessionID: approvalSessionID, manifest: manifest, policyEpoch: policyState.epoch, now: now)
+        } catch {
+            try audit?.append(.delivery(manifest: manifest, decision: "deny", subjectID: request.peerIdentity, policyEpoch: policyState.epoch, approval: requestedApproval, outcome: "approval-error:\(error)", time: now))
+            throw error
+        }
         let secret = try secrets.resolve(alias: SecretAlias(targetPolicy.secretAlias), approvedFor: approval)
         let secretValue = secret.withUTF8String { $0 }
         let environment = try scrubber.scrub(parent: request.parentEnvironment, targetEnvironmentName: targetPolicy.environmentName, injectedValue: secretValue)
@@ -95,6 +114,7 @@ public struct ShimExecutionPlanner: Sendable {
             injectionMode: .env
         )
         let handle = try handles.create(binding: binding, ttl: 10, maxUses: 1, now: now)
+        try audit?.append(.delivery(manifest: manifest, decision: "allow", subjectID: request.peerIdentity, policyEpoch: policyState.epoch, approval: requestedApproval, outcome: "exec-plan-created", time: now, metadata: ["invocation_handle": "present-redacted"]))
 
         return ExecPlan(
             targetPath: target.resolvedPath,

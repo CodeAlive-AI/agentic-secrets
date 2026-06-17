@@ -54,8 +54,6 @@ struct AgenticFortressCLI {
         case "check-macos":
             let sdkMajor = args.first.flatMap(Int.init)
             print(try AgenticFortressJSON.encodePretty(MacOSCompatibility.runtimeReport(sdkMajor: sdkMajor)))
-        case "keychain-smoke":
-            try runKeychainSmoke(args)
         case "adapter":
             try handleAdapter(args)
         case "redact":
@@ -80,7 +78,6 @@ struct AgenticFortressCLI {
           agentic-fortress release-gates
           agentic-fortress default-config
           agentic-fortress check-macos 26
-          agentic-fortress keychain-smoke [--service service] [--alias alias]
           agentic-fortress adapter list
           agentic-fortress adapter install-payload <payload.json> <registry.json>
           agentic-fortress adapter revoke <adapter-id> <registry.json>
@@ -114,46 +111,6 @@ struct AgenticFortressCLI {
         }
     }
 
-    private static func runKeychainSmoke(_ args: [String]) throws {
-        let service = value(after: "--service", in: args) ?? "com.agenticfortress.interactive-smoke"
-        let alias = SecretAlias(value(after: "--alias", in: args) ?? "agentic-fortress.interactive-smoke")
-        let store = KeychainSecretStore(service: service)
-        let material = SecretMaterial(utf8: "generated-\(UUID().uuidString)")
-        try store.store(alias: alias, material: material, label: "AgenticFortress interactive smoke", authentication: .presenceRequired)
-        defer { try? store.delete(alias: alias) }
-
-        let command = CommandClassifier().classify(executableName: "agentic-fortress", arguments: ["keychain-smoke"])
-        let target = TargetAssessor().synthetic(path: CommandLine.arguments.first ?? "agentic-fortress", identity: "sha256:keychain-smoke")
-        let manifest = DecisionManifestFactory().make(
-            command: command,
-            intent: DeliveryIntent(
-                flow: .cliEnv,
-                secretAlias: alias.rawValue,
-                delivery: .env,
-                environmentName: "AGENTIC_FORTRESS_SMOKE_SECRET",
-                workspace: FileManager.default.currentDirectoryPath,
-                parentApp: ProcessInfo.processInfo.environment["TERM_PROGRAM"] ?? "unknown"
-            ),
-            target: target
-        )
-        let session = ApprovalSessionStore().create(manifest: manifest, policyEpoch: 1, ttl: 30)
-        _ = try store.resolve(alias: alias, approvedFor: session)
-        print(try AgenticFortressJSON.encodePretty([
-            "status": "ok",
-            "secret": "resolved-redacted",
-            "manifestDigest": manifest.digest,
-            "promptReasonContainsTarget": String(session.authenticationReason.contains(manifest.target.display)),
-            "promptReasonContainsWorkspace": String(session.authenticationReason.contains(manifest.workspace.display)),
-            "promptReasonContainsDelivery": String(session.authenticationReason.contains(manifest.secret.delivery.rawValue))
-        ]))
-    }
-
-    private static func value(after flag: String, in args: [String]) -> String? {
-        guard let index = args.firstIndex(of: flag) else { return nil }
-        let valueIndex = args.index(after: index)
-        guard valueIndex < args.endIndex else { return nil }
-        return args[valueIndex]
-    }
 }
 
 enum CLIError: Error, CustomStringConvertible {

@@ -8,28 +8,81 @@ public enum AuditMode: String, Codable, Sendable {
 public struct AuditEvent: Codable, Equatable, Sendable {
     public var event: String
     public var decision: String
+    public var decisionDigest: String
     public var flow: DeliveryFlow
     public var subjectID: String
     public var secretID: String
     public var actionClass: String
+    public var targetIdentity: String
+    public var workspaceHash: String
     public var delivery: DeliveryMode
     public var policyEpoch: Int
     public var approval: String
+    public var outcome: String
     public var time: Date
     public var metadata: [String: String]
 
-    public init(event: String, decision: String, flow: DeliveryFlow, subjectID: String, secretID: String, actionClass: String, delivery: DeliveryMode, policyEpoch: Int, approval: String, time: Date, metadata: [String: String] = [:]) {
+    public init(
+        event: String,
+        decision: String,
+        decisionDigest: String = "",
+        flow: DeliveryFlow,
+        subjectID: String,
+        secretID: String,
+        actionClass: String,
+        targetIdentity: String = "",
+        workspaceHash: String = "",
+        delivery: DeliveryMode,
+        policyEpoch: Int,
+        approval: String,
+        outcome: String = "",
+        time: Date,
+        metadata: [String: String] = [:]
+    ) {
         self.event = event
         self.decision = decision
+        self.decisionDigest = decisionDigest
         self.flow = flow
         self.subjectID = subjectID
         self.secretID = secretID
         self.actionClass = actionClass
+        self.targetIdentity = targetIdentity
+        self.workspaceHash = workspaceHash
         self.delivery = delivery
         self.policyEpoch = policyEpoch
         self.approval = approval
+        self.outcome = outcome.isEmpty ? decision : outcome
         self.time = time
         self.metadata = metadata
+    }
+
+    public static func delivery(
+        manifest: DecisionManifest,
+        decision: String,
+        subjectID: String,
+        policyEpoch: Int,
+        approval: ApprovalOption,
+        outcome: String,
+        time: Date,
+        metadata: [String: String] = [:]
+    ) -> AuditEvent {
+        AuditEvent(
+            event: "secret_delivery",
+            decision: decision,
+            decisionDigest: manifest.digest,
+            flow: manifest.flow,
+            subjectID: subjectID,
+            secretID: manifest.secret.alias,
+            actionClass: manifest.actionClass,
+            targetIdentity: manifest.target.identity,
+            workspaceHash: manifest.workspace.canonicalHash,
+            delivery: manifest.secret.delivery,
+            policyEpoch: policyEpoch,
+            approval: approval.rawValue,
+            outcome: outcome,
+            time: time,
+            metadata: metadata
+        )
     }
 }
 

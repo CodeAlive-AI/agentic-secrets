@@ -16,4 +16,4 @@ if [ "${AGENTIC_FORTRESS_INTERACTIVE:-0}" != "1" ]; then
   exit 0
 fi
 
-swift run --package-path "$ROOT" agentic-fortress keychain-smoke --service "$SERVICE" --alias "$ALIAS"
+swift run --package-path "$ROOT" agentic-fortressd-core -- keychain-smoke --service "$SERVICE" --alias "$ALIAS"

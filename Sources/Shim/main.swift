@@ -4,8 +4,13 @@ import Foundation
 @main
 struct AgenticFortressShim {
     static func main() throws {
-        let invokedName = URL(fileURLWithPath: CommandLine.arguments.first ?? "agentic-fortress-shim").lastPathComponent
         let args = Array(CommandLine.arguments.dropFirst())
+        if args.first == "--ipc-health" {
+            try runIPCHealth(Array(args.dropFirst()))
+            return
+        }
+
+        let invokedName = URL(fileURLWithPath: CommandLine.arguments.first ?? "agentic-fortress-shim").lastPathComponent
         let command = CommandClassifier().classify(executableName: invokedName, arguments: args)
         let target = TargetAssessor().synthetic(path: "/usr/bin/env", identity: "sha256:shim-demo")
         let intent = DeliveryIntent(
@@ -33,5 +38,40 @@ struct AgenticFortressShim {
             print("Denied: \(reason)")
         }
     }
+
+    private static func runIPCHealth(_ args: [String]) throws {
+        let socket = try requiredValue(after: "--socket", in: args)
+        _ = try requiredValue(after: "--manifest", in: args)
+        let version = value(after: "--version", in: args) ?? "0.1.0"
+        let path = CommandLine.arguments.first ?? "agentic-fortress-shim"
+        let peer = try SelfBuildPeerValidator.identity(helperName: "agentic-fortress-shim", path: path, version: version)
+        let request = CoreIPCRequest(requestID: "req_" + shortDigest(UUID().uuidString, length: 12), operation: .health, peer: peer)
+        let response = try UnixDomainSocketIPCClient(socketPath: socket).send(request)
+        print(try AgenticFortressJSON.encodePretty(response))
+    }
+
+    private static func requiredValue(after flag: String, in args: [String]) throws -> String {
+        guard let value = value(after: flag, in: args) else {
+            throw ShimCLIError.missingArgument(flag)
+        }
+        return value
+    }
+
+    private static func value(after flag: String, in args: [String]) -> String? {
+        guard let index = args.firstIndex(of: flag) else { return nil }
+        let valueIndex = args.index(after: index)
+        guard valueIndex < args.endIndex else { return nil }
+        return args[valueIndex]
+    }
 }
 
+enum ShimCLIError: Error, CustomStringConvertible {
+    case missingArgument(String)
+
+    var description: String {
+        switch self {
+        case .missingArgument(let argument):
+            "Missing argument: \(argument)"
+        }
+    }
+}

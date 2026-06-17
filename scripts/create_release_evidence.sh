@@ -35,6 +35,7 @@ append_cmd "macOS Version" sw_vers
 append_cmd "macOS SDK Version" xcrun --sdk macosx --show-sdk-version
 append_cmd "Swift Version" swift --version
 append_cmd "CI" ./scripts/ci.sh
+append_cmd "Secret Authority Gate" ./scripts/check_secret_authority.sh
 append_cmd "Release Gates" swift run agentic-fortress release-gates
 append_cmd "Package" ./scripts/package_release.sh
 append_cmd "Package Validation" ./scripts/validate_release_artifact.sh build/AgenticFortress.app

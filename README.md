@@ -56,11 +56,14 @@ By default, the package script ad-hoc signs for local validation and self-build 
 
 The local installer writes an install manifest with helper paths, owners, permissions, versions, SHA-256 hashes, and cdhash values. Runtime IPC authorization uses that manifest instead of requiring a Developer ID Team ID.
 
+The core daemon serves the local control plane over a Unix domain socket. Helpers authenticate to core with the install manifest and do not read Keychain secret material directly.
+
 ## Release Evidence
 
 ```sh
 swift run agentic-fortress release-gates
 swift run agentic-fortress ipc-conformance
+./scripts/check_secret_authority.sh
 ./scripts/create_release_evidence.sh
 ```
 

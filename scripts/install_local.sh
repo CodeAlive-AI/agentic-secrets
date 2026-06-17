@@ -55,9 +55,14 @@ cat >"$CORE_PLIST" <<PLIST
   <key>ProgramArguments</key>
   <array>
     <string>$APP_DEST/Contents/MacOS/agentic-fortressd-core</string>
+    <string>serve</string>
+    <string>--socket</string>
+    <string>$RUN_DIR/core.sock</string>
+    <string>--manifest</string>
+    <string>$MANIFEST_PATH</string>
   </array>
   <key>RunAtLoad</key>
-  <false/>
+  <true/>
   <key>StandardOutPath</key>
   <string>$RUN_DIR/core.stdout.log</string>
   <key>StandardErrorPath</key>

@@ -1,5 +1,6 @@
 import AgenticFortressCore
 import CryptoKit
+import Dispatch
 import Foundation
 import LocalAuthentication
 import Security
@@ -7,6 +8,23 @@ import Security
 struct ContractTestFailure: Error, CustomStringConvertible {
     var message: String
     var description: String { message }
+}
+
+final class ErrorBox: @unchecked Sendable {
+    private var value: Error?
+    private let lock = NSLock()
+
+    func set(_ error: Error) {
+        lock.withLock {
+            value = error
+        }
+    }
+
+    func get() -> Error? {
+        lock.withLock {
+            value
+        }
+    }
 }
 
 func expect(_ condition: @autoclosure () -> Bool, _ message: String) throws {
@@ -156,6 +174,32 @@ func runContracts() throws {
     try expectThrows(CoreIPCError.unauthorizedPeer("wrongHash"), {
         try ipcAuthorizer.authorize(CoreIPCRequest(requestID: "req_3", operation: .health, peer: wrongHashPeer))
     }, "IPC authorizer must reject helpers that fail self-build identity validation")
+    try expectThrows(CoreIPCError.malformedPayload, {
+        _ = try CoreIPCCodec.decodeRequest(Data("{".utf8))
+    }, "IPC codec must reject malformed requests")
+    let ipcSocket = "/tmp/af-\(shortDigest(UUID().uuidString, length: 10)).sock"
+    try? FileManager.default.removeItem(atPath: ipcSocket)
+    let serverDone = DispatchSemaphore(value: 0)
+    let serverError = ErrorBox()
+    DispatchQueue.global().async {
+        do {
+            try UnixDomainSocketIPCServer(
+                socketPath: ipcSocket,
+                handler: CoreIPCHandler(authorizer: ipcAuthorizer)
+            ).serveOnce()
+        } catch {
+            serverError.set(error)
+        }
+        serverDone.signal()
+    }
+    for _ in 0..<100 where !FileManager.default.fileExists(atPath: ipcSocket) {
+        Thread.sleep(forTimeInterval: 0.01)
+    }
+    let ipcResponse = try UnixDomainSocketIPCClient(socketPath: ipcSocket).send(ipcRequest)
+    try expect(ipcResponse.ok, "Unix socket IPC health response must succeed")
+    try expect(String(decoding: ipcResponse.payload, as: UTF8.self).contains("\"status\" : \"ok\""), "Unix socket IPC health payload must come from core handler")
+    _ = serverDone.wait(timeout: .now() + 2)
+    try expect(serverError.get() == nil, "Unix socket IPC server must complete without error")
     let ipcReport = IPCConformanceReport()
     try expect(ipcReport.protocolVersion == CoreIPC.protocolVersion, "IPC conformance must report current protocol version")
     try expect(ipcReport.messageTypes.contains(CoreIPCOperation.createShimExecPlan.rawValue), "IPC conformance must list shim exec plan operation")
@@ -226,6 +270,7 @@ func runContracts() throws {
     let shimApprovals = ApprovalSessionStore()
     let shimApproval = shimApprovals.create(manifest: shimManifest, policyEpoch: 1, ttl: 30, now: Date(timeIntervalSince1970: 0))
     let shimHandles = InvocationHandleStore()
+    let shimAudit = AuditLog()
     let execPlan = try ShimExecutionPlanner().plan(
         request: shimRequest,
         targetPolicies: [shimPolicy],
@@ -234,8 +279,15 @@ func runContracts() throws {
         approvalSessions: shimApprovals,
         secrets: secretStore,
         handles: shimHandles,
+        audit: shimAudit,
         now: Date(timeIntervalSince1970: 1)
     )
+    let shimAuditEvents = shimAudit.snapshot()
+    try expect(shimAuditEvents.count == 1, "shim planner must write one audit event for approved delivery")
+    try expect(shimAuditEvents[0].decisionDigest == execPlan.manifest.digest, "audit event must include decision digest")
+    try expect(shimAuditEvents[0].targetIdentity == execPlan.target.identity, "audit event must include target identity")
+    try expect(shimAuditEvents[0].workspaceHash == execPlan.manifest.workspace.canonicalHash, "audit event must include workspace hash")
+    try expect(shimAuditEvents[0].outcome == "exec-plan-created", "audit event must include approved outcome")
     try expect(execPlan.targetPath == shimTarget.path, "shim planner must resolve target from policy, not argv")
     try expect(execPlan.environment["BWS_ACCESS_TOKEN"] == nil, "shim planner must scrub inherited secret-like env")
     try expect(execPlan.environment["HCLOUD_TOKEN"] == "super-secret-token", "shim planner must inject approved secret into fresh env")
@@ -268,6 +320,23 @@ func runContracts() throws {
             now: Date(timeIntervalSince1970: 1)
         )
     }, "shim planner must reject unknown symlink command names")
+    let destructiveApproval = shimApprovals.create(manifest: destructiveManifest, policyEpoch: 1, ttl: 30, now: Date(timeIntervalSince1970: 0))
+    let denyAudit = AuditLog()
+    try expectThrows(ShimPlannerError.approvalDenied, {
+        _ = try ShimExecutionPlanner().plan(
+            request: ShimRequest(invokedName: "hcloud", arguments: ["server", "delete", "prod-db-01"], parentEnvironment: [:], workspace: "/tmp/infra", parentApp: "Codex", peerIdentity: "peer:agentic-fortress-shim", injectorIdentity: "sig:agentic-fortress-shim"),
+            targetPolicies: [shimPolicy],
+            policyState: PolicyState(epoch: 1),
+            approvalSessionID: destructiveApproval.id,
+            approvalSessions: shimApprovals,
+            secrets: secretStore,
+            handles: InvocationHandleStore(),
+            audit: denyAudit,
+            now: Date(timeIntervalSince1970: 1)
+        )
+    }, "shim planner must fail closed when policy returns deny")
+    try expect(denyAudit.snapshot().first?.decision == "deny", "denied delivery must write an audit event")
+    try expect(denyAudit.snapshot().first?.decisionDigest.isEmpty == false, "denied audit event must include decision digest")
     let npmTarget = shimRoot.appendingPathComponent("npm")
     try "fake npm".data(using: .utf8)!.write(to: npmTarget)
     let npmPolicy = TargetPolicy(commandName: "npm", targetPath: npmTarget.path, secretAlias: "cloud.hcloud.dev", environmentName: "OPENAI_API_KEY")
@@ -360,6 +429,7 @@ func runContracts() throws {
     }, "audit must reject raw secret patterns")
     try audit.append(AuditEvent(event: "secret_delivery", decision: "allow", flow: .cliEnv, subjectID: "subject", secretID: "secret", actionClass: "hcloud.server.list", delivery: .env, policyEpoch: 1, approval: "once", time: Date(timeIntervalSince1970: 1), metadata: ["safe": "ok"]))
     try expect(audit.snapshot().count == 1, "audit must persist safe structured events")
+    try expect(audit.snapshot()[0].outcome == "allow", "audit event outcome must default to decision when omitted")
     let auditExport = try audit.exportRedactedJSON()
     try expect(!auditExport.contains("super-secret-token"), "audit export must not contain resolved secret plaintext")
 

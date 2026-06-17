@@ -200,6 +200,7 @@ Verification:
 
 ```sh
 rg "SecItemCopyMatching|KeychainSecretStore|resolve\\(" Sources
+./scripts/check_secret_authority.sh
 ./scripts/ci.sh
 ```
 
@@ -277,6 +278,7 @@ Verification:
 ```sh
 codesign -d --entitlements :- build/AgenticFortress.app
 rg "kSecAttrAccessGroup|keychain-access-groups|com.apple.security.application-groups" Sources packaging Docs README.md --glob '!ACCEPTANCE_CRITERIA.md'
+./scripts/check_secret_authority.sh
 ```
 
 Required evidence:

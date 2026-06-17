@@ -21,6 +21,7 @@ Check release readiness split by distribution track:
 ```sh
 swift run agentic-fortress release-gates
 swift run agentic-fortress ipc-conformance
+./scripts/check_secret_authority.sh
 ```
 
 `canRunLocal` is the production gate for the default self-build track. `canDistributeBinary` is only for optional future Developer ID releases.
@@ -34,6 +35,19 @@ Install from the current checkout:
 ```
 
 Update by running the install command again from the desired commit. The script rebuilds, ad-hoc signs, validates, copies the app bundle, refreshes command symlinks, and rewrites the install manifest.
+
+Smoke-test installed IPC:
+
+```sh
+PREFIX="$HOME/Library/Application Support/AgenticFortress/LocalInstall"
+SOCKET="/tmp/agentic-fortress-core-smoke.sock"
+"$PREFIX/Applications/AgenticFortress.app/Contents/MacOS/agentic-fortressd-core" serve-once \
+  --socket "$SOCKET" \
+  --manifest "$PREFIX/var/agentic-fortress/install-manifest.json" &
+"$PREFIX/bin/agentic-fortress-shim" --ipc-health \
+  --socket "$SOCKET" \
+  --manifest "$PREFIX/var/agentic-fortress/install-manifest.json"
+```
 
 Uninstall without deleting Keychain secrets:
 
@@ -64,6 +78,8 @@ AGENTIC_FORTRESS_INTERACTIVE=1 ./scripts/interactive_keychain_prompt_check.sh
 ```
 
 The script creates a temporary device-local Keychain item, reads it through the decision-bound LocalAuthentication reason, and deletes it. It never prints the generated secret value.
+
+The prompt-producing path runs in `agentic-fortressd-core`; CLI and helper targets are guarded by `scripts/check_secret_authority.sh` from directly using production Keychain resolution.
 
 ## Adapter Management
 
@@ -141,6 +157,22 @@ MCP bridge profiles must define:
 - cross-origin redirect policy
 
 The bridge propagates `MCP-Session-Id` when supplied by the upstream server. Tool filtering is only a guardrail; upstream authorization scope remains the real security boundary.
+
+## Diagnostics
+
+Run these checks before accepting a local production release:
+
+```sh
+./scripts/ci.sh
+./scripts/tahoe_compatibility_check.sh
+./scripts/check_secret_authority.sh
+swift run agentic-fortress release-gates
+swift run agentic-fortress ipc-conformance
+swift run agentic-fortress mcp-conformance
+./scripts/create_release_evidence.sh
+```
+
+Diagnostics must not include raw provider tokens, Keychain values, or full Authorization headers. Use `agentic-fortress redact` for ad-hoc log review.
 
 ## Release
 

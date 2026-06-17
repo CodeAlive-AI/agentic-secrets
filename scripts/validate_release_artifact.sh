@@ -15,3 +15,8 @@ test -x "$APP_PATH/Contents/MacOS/agentic-fortress-mcpd"
 codesign --verify --strict --deep --verbose=4 "$APP_PATH"
 "$ROOT/scripts/check_entitlements_diff.sh" "$APP_PATH"
 
+find "$APP_PATH/Contents/MacOS" -type f -perm +111 -print | while IFS= read -r binary; do
+  codesign --verify --strict --verbose=4 "$binary" >/dev/null
+  codesign -dvvv "$binary" 2>&1 | grep -q 'flags=.*runtime'
+done
+codesign -dvvv "$APP_PATH" 2>&1 | grep -q 'flags=.*runtime'
