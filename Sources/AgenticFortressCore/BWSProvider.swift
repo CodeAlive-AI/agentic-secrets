@@ -34,6 +34,36 @@ public enum BWSProviderError: Error, Equatable {
     case expired
     case wrongSink
     case invalidOperation
+    case leaseRequired
+    case rotationOutOfOrder
+}
+
+public protocol BWSSecretClient: Sendable {
+    func readSecret(binding: BWSSecretBinding) throws -> SecretMaterial
+}
+
+public final class InMemoryBWSSecretClient: BWSSecretClient, @unchecked Sendable {
+    private var secrets: [String: SecretMaterial]
+    private let lock = NSLock()
+
+    public init(secrets: [String: SecretMaterial] = [:]) {
+        self.secrets = secrets
+    }
+
+    public func put(secretID: String, material: SecretMaterial) {
+        lock.withLock {
+            secrets[secretID] = material
+        }
+    }
+
+    public func readSecret(binding: BWSSecretBinding) throws -> SecretMaterial {
+        try lock.withLock {
+            guard let material = secrets[binding.secretID] else {
+                throw BWSProviderError.invalidOperation
+            }
+            return material
+        }
+    }
 }
 
 public struct BWSProviderPolicy: Sendable {
@@ -61,6 +91,50 @@ public struct BWSProviderPolicy: Sendable {
     }
 }
 
+public enum ProviderEnvironment: String, Codable, Equatable, Sendable {
+    case dev
+    case staging
+    case prod
+}
+
+public struct BWSProviderLeasePolicy: Codable, Equatable, Sendable {
+    public var environment: ProviderEnvironment
+    public var maxLeaseSeconds: TimeInterval
+    public var requiresPerFetchApproval: Bool
+
+    public init(environment: ProviderEnvironment, maxLeaseSeconds: TimeInterval, requiresPerFetchApproval: Bool) {
+        self.environment = environment
+        self.maxLeaseSeconds = maxLeaseSeconds
+        self.requiresPerFetchApproval = requiresPerFetchApproval
+    }
+
+    public static func policy(for environment: ProviderEnvironment) -> BWSProviderLeasePolicy {
+        switch environment {
+        case .dev:
+            BWSProviderLeasePolicy(environment: .dev, maxLeaseSeconds: 300, requiresPerFetchApproval: false)
+        case .staging:
+            BWSProviderLeasePolicy(environment: .staging, maxLeaseSeconds: 60, requiresPerFetchApproval: false)
+        case .prod:
+            BWSProviderLeasePolicy(environment: .prod, maxLeaseSeconds: 0, requiresPerFetchApproval: true)
+        }
+    }
+}
+
+public struct BWSProviderRuntime: Sendable {
+    private let policy: BWSProviderPolicy
+    private let client: BWSSecretClient
+
+    public init(policy: BWSProviderPolicy = BWSProviderPolicy(), client: BWSSecretClient) {
+        self.policy = policy
+        self.client = client
+    }
+
+    public func fetchOne(invocation: BWSInvocation, sinkIdentity: String, now: Date = Date()) throws -> SecretMaterial {
+        try policy.validate(invocation: invocation, sinkIdentity: sinkIdentity, now: now)
+        return try client.readSecret(binding: invocation.binding)
+    }
+}
+
 public struct BWSRotationPlan: Codable, Equatable, Sendable {
     public var steps: [String]
 
@@ -75,3 +149,48 @@ public struct BWSRotationPlan: Codable, Equatable, Sendable {
     ])
 }
 
+public enum BWSRotationStep: String, Codable, Equatable, Sendable {
+    case createdNewToken
+    case storedInKeychain
+    case testedExactSecretAccess
+    case switchedBinding
+    case invalidatedProviderLeases
+    case revokedOldToken
+    case wroteAuditEvent
+}
+
+public struct BWSRotationState: Codable, Equatable, Sendable {
+    public var binding: BWSSecretBinding
+    public var completedSteps: [BWSRotationStep]
+
+    public init(binding: BWSSecretBinding, completedSteps: [BWSRotationStep] = []) {
+        self.binding = binding
+        self.completedSteps = completedSteps
+    }
+
+    public var isComplete: Bool {
+        completedSteps == BWSRotationWorkflow.requiredSteps
+    }
+}
+
+public enum BWSRotationWorkflow {
+    public static let requiredSteps: [BWSRotationStep] = [
+        .createdNewToken,
+        .storedInKeychain,
+        .testedExactSecretAccess,
+        .switchedBinding,
+        .invalidatedProviderLeases,
+        .revokedOldToken,
+        .wroteAuditEvent
+    ]
+
+    public static func advance(_ state: BWSRotationState, completing step: BWSRotationStep) throws -> BWSRotationState {
+        guard state.completedSteps.count < requiredSteps.count,
+              requiredSteps[state.completedSteps.count] == step else {
+            throw BWSProviderError.rotationOutOfOrder
+        }
+        var next = state
+        next.completedSteps.append(step)
+        return next
+    }
+}

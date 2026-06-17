@@ -283,6 +283,12 @@ func runContracts() throws {
     let bwsBinding = BWSSecretBinding(alias: "cloud.hcloud.dev", projectID: "cloud-dev", secretID: "sec_hcloud", environment: "dev")
     let invocation = try bwsPolicy.authorizeRuntimeRead(alias: "cloud.hcloud.dev", bindings: [bwsBinding], sinkIdentity: "agentic-fortress-shim", now: Date(timeIntervalSince1970: 0))
     try bwsPolicy.validate(invocation: invocation, sinkIdentity: "agentic-fortress-shim", now: Date(timeIntervalSince1970: 1))
+    let bwsClient = InMemoryBWSSecretClient(secrets: ["sec_hcloud": SecretMaterial(utf8: "bws-secret-value")])
+    let bwsRuntime = BWSProviderRuntime(client: bwsClient)
+    let fetchedBWSSecret = try bwsRuntime.fetchOne(invocation: invocation, sinkIdentity: "agentic-fortress-shim", now: Date(timeIntervalSince1970: 1))
+    try fetchedBWSSecret.withUTF8String { value in
+        try expect(value == "bws-secret-value", "BWS runtime must fetch exactly the approved secret")
+    }
     try expectThrows(BWSProviderError.invalidOperation, {
         _ = try bwsPolicy.authorizeRuntimeRead(alias: "missing.alias", bindings: [bwsBinding], sinkIdentity: "agentic-fortress-shim", now: Date(timeIntervalSince1970: 0))
     }, "BWS runtime must fetch only exact approved aliases")
@@ -298,6 +304,20 @@ func runContracts() throws {
     try expectThrows(BWSProviderError.wrongSink, {
         try bwsPolicy.validate(invocation: invocation, sinkIdentity: "agentic-fortress-mcpd", now: Date(timeIntervalSince1970: 1))
     }, "BWS invocation must bind sink")
+    try expectThrows(BWSProviderError.wrongSink, {
+        _ = try bwsRuntime.fetchOne(invocation: invocation, sinkIdentity: "agentic-fortress-mcpd", now: Date(timeIntervalSince1970: 1))
+    }, "BWS runtime must refuse to deliver to wrong sink")
+    try expect(BWSProviderLeasePolicy.policy(for: .dev).maxLeaseSeconds == 300, "dev BWS lease policy must allow short provider lease")
+    try expect(BWSProviderLeasePolicy.policy(for: .staging).maxLeaseSeconds == 60, "staging BWS lease policy must cap provider lease")
+    try expect(BWSProviderLeasePolicy.policy(for: .prod).requiresPerFetchApproval, "prod BWS lease policy must require per-fetch approval")
+    var rotation = BWSRotationState(binding: bwsBinding)
+    for step in BWSRotationWorkflow.requiredSteps {
+        rotation = try BWSRotationWorkflow.advance(rotation, completing: step)
+    }
+    try expect(rotation.isComplete, "BWS rotation workflow must complete after all ordered steps")
+    try expectThrows(BWSProviderError.rotationOutOfOrder, {
+        _ = try BWSRotationWorkflow.advance(BWSRotationState(binding: bwsBinding), completing: .storedInKeychain)
+    }, "BWS rotation workflow must reject out-of-order steps")
 
     let mcpProfile = MCPUpstreamProfile(name: "prod-mcp", origin: URL(string: "https://mcp.example.test")!, allowedPathPrefixes: ["/mcp"])
     let mcpSession = try MCPBridgeSession(profile: mcpProfile).updatingFromResponse(headers: ["MCP-Session-Id": "sess_123"])
