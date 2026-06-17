@@ -51,8 +51,10 @@ if [ "$PURGE_LOCAL_STATE" -eq 1 ]; then
   rm -rf "$STATE_DIR"
 fi
 
-if [ "$KEEP_SECRETS" -eq 1 ]; then
-  echo "Keychain secrets retained. Use explicit product tooling for reviewed Keychain item removal."
+if [ "$PURGE_LOCAL_STATE" -eq 1 ]; then
+  echo "Local AgenticFortress state purged."
+elif [ "$KEEP_SECRETS" -eq 1 ]; then
+  echo "Local secret records retained. Use --purge-local-state only when you intentionally want to remove local AgenticFortress state."
 fi
 
 find "$PREFIX" -type d -empty -delete 2>/dev/null || true

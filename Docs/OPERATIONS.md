@@ -3,6 +3,7 @@
 ## Verification
 
 The full no-Developer-ID production acceptance set is defined in `Docs/ACCEPTANCE_CRITERIA.md`.
+For operator-facing installation steps and common local macOS pitfalls, see `Docs/INSTALLATION.md`.
 
 Run the standard contract gate:
 
@@ -49,19 +50,19 @@ SOCKET="/tmp/agentic-fortress-core-smoke.sock"
   --manifest "$PREFIX/var/agentic-fortress/install-manifest.json"
 ```
 
-Uninstall without deleting Keychain secrets:
+Uninstall without deleting local state or local secret records:
 
 ```sh
 ./scripts/uninstall_local.sh --prefix "$HOME/Library/Application Support/AgenticFortress/LocalInstall" --keep-secrets
 ```
 
-Uninstall and remove local non-secret state:
+Uninstall and remove local AgenticFortress state:
 
 ```sh
 ./scripts/uninstall_local.sh --prefix "$HOME/Library/Application Support/AgenticFortress/LocalInstall" --purge-local-state
 ```
 
-Keychain secret deletion is intentionally not implicit. It must be a separate reviewed product action, not a side effect of package removal.
+Local secret record deletion is intentionally not implicit. Use `--purge-local-state` only as an explicit operator action, not as a side effect of package removal.
 
 ## Local Secret Prompt Verification
 
@@ -136,7 +137,7 @@ Accepting an old policy database never preserves remembered approvals.
 Rotation order:
 
 1. create new BWS token
-2. store new token in Keychain under `agentic-fortress-bwsd`
+2. store new token through the core-owned local secret store under the configured BWS alias
 3. test exact approved secret access
 4. switch binding
 5. invalidate provider leases

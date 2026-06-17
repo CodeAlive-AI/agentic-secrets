@@ -24,6 +24,7 @@ The default distribution model is open-source self-build with local ad-hoc signi
 See:
 
 - `Docs/THREAT_MODEL.md`
+- `Docs/INSTALLATION.md`
 - `Docs/ACCEPTANCE_CRITERIA.md`
 - `Docs/OPERATIONS.md`
 - `Docs/IMPLEMENTATION_MAP.md`
@@ -54,9 +55,11 @@ By default, the package script ad-hoc signs for local validation and self-build 
 ./scripts/uninstall_local.sh --prefix "$HOME/Library/Application Support/AgenticFortress/LocalInstall" --keep-secrets
 ```
 
+The full install, update, uninstall, launchd, LocalAuthentication, Tahoe, and troubleshooting guide is in `Docs/INSTALLATION.md`.
+
 The local installer writes an install manifest with helper paths, owners, permissions, versions, SHA-256 hashes, and cdhash values. Runtime IPC authorization uses that manifest instead of requiring a Developer ID Team ID.
 
-The core daemon serves the local control plane over a Unix domain socket. Helpers authenticate to core with the install manifest and do not read Keychain secret material directly.
+The core daemon serves the local control plane over a Unix domain socket. Helpers authenticate to core with the install manifest and do not read local secret material directly.
 
 On macOS Tahoe, the self-build track avoids restricted entitlements so ad-hoc signed binaries can execute normally. The core daemon stores local secret material in an owner-only encrypted file store gated by LocalAuthentication; no shared Keychain access group is required for the self-build track.
 

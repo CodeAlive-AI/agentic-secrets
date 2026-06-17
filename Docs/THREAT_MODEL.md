@@ -85,7 +85,7 @@ It does not make arbitrary execution safe. It narrows how secrets are delivered,
 | MCP bridge | Tampering | Invalid JSON-RPC, cancellation markers, 401 metadata, 404 reset metadata, and cross-origin redirects are handled explicitly. | `JSONRPCFramer`, `MCPBridgeSession` tests. Owner: MCP subsystem. |
 | MCP bridge | Information Disclosure | Bearer tokens are injected only into upstream requests and are represented as redacted metadata in audit paths. Bodies are not logged. | MCP bridge contract tests. Owner: MCP subsystem. |
 | Local install/update/uninstall | Elevation of Privilege | Install is user-local by default, uses ad-hoc signing validation, writes an install manifest, and does not require weakening macOS security settings. | `scripts/install_local.sh`, `scripts/uninstall_local.sh`, Tahoe gate. Owner: packaging subsystem. |
-| Local install/update/uninstall | Denial of Service | Uninstall removes launch agents, sockets, shims, run files, and app files; local state purge is explicit and Keychain secrets are not deleted implicitly. | install/uninstall smoke tests. Owner: packaging subsystem. |
+| Local install/update/uninstall | Denial of Service | Uninstall removes launch agents, sockets, shims, run files, and app files; local state purge is explicit and local secret records are not deleted implicitly. | install/uninstall smoke tests. Owner: packaging subsystem. |
 
 No high-severity STRIDE finding is currently unowned. Residual high-impact limits are recorded below as accepted non-goals for the no-Developer-ID self-build track.
 
