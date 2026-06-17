@@ -21,6 +21,48 @@ public enum MCPBridgeError: Error, Equatable {
     case pathBlocked
     case crossOriginRedirectBlocked
     case invalidSessionID
+    case invalidJSONRPC
+    case bodyLoggingDisabled
+}
+
+public struct JSONRPCMessage: Codable, Equatable, Sendable {
+    public var jsonrpc: String
+    public var id: String?
+    public var method: String?
+    public var params: [String: String]?
+
+    public init(jsonrpc: String = "2.0", id: String? = nil, method: String? = nil, params: [String: String]? = nil) {
+        self.jsonrpc = jsonrpc
+        self.id = id
+        self.method = method
+        self.params = params
+    }
+}
+
+public enum JSONRPCFramer {
+    public static func decodeLine(_ line: String) throws -> JSONRPCMessage {
+        guard let data = line.data(using: .utf8) else {
+            throw MCPBridgeError.invalidJSONRPC
+        }
+        let message = try JSONDecoder().decode(JSONRPCMessage.self, from: data)
+        guard message.jsonrpc == "2.0", message.method != nil || message.id != nil else {
+            throw MCPBridgeError.invalidJSONRPC
+        }
+        return message
+    }
+
+    public static func encodeLine(_ message: JSONRPCMessage) throws -> String {
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.sortedKeys, .withoutEscapingSlashes]
+        return String(decoding: try encoder.encode(message), as: UTF8.self) + "\n"
+    }
+}
+
+public struct MCPHTTPBridgeRequest: Equatable, Sendable {
+    public var path: String
+    public var headers: [String: String]
+    public var body: Data
+    public var auditMetadata: [String: String]
 }
 
 public struct MCPBridgeSession: Codable, Equatable, Sendable {
@@ -63,6 +105,47 @@ public struct MCPBridgeSession: Codable, Equatable, Sendable {
             }
         }
     }
+
+    public func prepareHTTPRequest(path: String, message: JSONRPCMessage, bearerToken: String) throws -> MCPHTTPBridgeRequest {
+        try validate(path: path)
+        let body = try JSONEncoder().encode(message)
+        var headers = requestHeaders(bearerToken: bearerToken)
+        headers["Content-Type"] = "application/json"
+        return MCPHTTPBridgeRequest(
+            path: path,
+            headers: headers,
+            body: body,
+            auditMetadata: [
+                "profile": profile.name,
+                "path": path,
+                "method": message.method ?? "response",
+                "body": "disabled",
+                "authorization": "present-redacted"
+            ]
+        )
+    }
+
+    public func bodyForAudit(_ body: Data?) throws -> String? {
+        guard body == nil else {
+            throw MCPBridgeError.bodyLoggingDisabled
+        }
+        return nil
+    }
+
+    public func responseMetadata(statusCode: Int, headers: [String: String]) -> [String: String] {
+        var metadata = ["status": "\(statusCode)"]
+        if statusCode == 401 {
+            metadata["auth_challenge"] = headers.first(where: { $0.key.lowercased() == "www-authenticate" })?.value ?? "missing"
+        }
+        if statusCode == 404 {
+            metadata["session_reset"] = "true"
+        }
+        return metadata
+    }
+
+    public func cancellationMessage(id: String) -> JSONRPCMessage {
+        JSONRPCMessage(id: id, method: "notifications/cancelled", params: ["requestId": id])
+    }
 }
 
 public struct MCPConformanceCase: Codable, Equatable, Sendable {
@@ -88,4 +171,3 @@ public enum MCPConformanceSuite {
         .init(name: "profile pinning", required: true)
     ]
 }
-

@@ -345,6 +345,23 @@ func runContracts() throws {
     try expectThrows(MCPBridgeError.crossOriginRedirectBlocked, {
         try mcpSession.validate(path: "/mcp", redirect: URL(string: "https://other.example.test/mcp")!)
     }, "MCP bridge must block cross-origin redirects")
+    let jsonrpcLine = try JSONRPCFramer.encodeLine(JSONRPCMessage(id: "1", method: "tools/list"))
+    let decodedJSONRPC = try JSONRPCFramer.decodeLine(jsonrpcLine)
+    try expect(decodedJSONRPC.method == "tools/list", "MCP JSON-RPC framer must round-trip method messages")
+    try expectThrows(MCPBridgeError.invalidJSONRPC, {
+        _ = try JSONRPCFramer.decodeLine("{\"jsonrpc\":\"1.0\"}")
+    }, "MCP JSON-RPC framer must reject invalid messages")
+    let mcpHTTPRequest = try mcpSession.prepareHTTPRequest(path: "/mcp", message: JSONRPCMessage(id: "2", method: "initialize"), bearerToken: "mcp-secret-token")
+    try expect(mcpHTTPRequest.headers["Authorization"] == "Bearer mcp-secret-token", "MCP bridge must inject Authorization header")
+    try expect(mcpHTTPRequest.headers["MCP-Session-Id"] == "sess_123", "MCP bridge must propagate MCP-Session-Id header")
+    try expect(mcpHTTPRequest.auditMetadata["body"] == "disabled", "MCP bridge audit metadata must not include body")
+    let cancellation = mcpSession.cancellationMessage(id: "2")
+    try expect(cancellation.method == "notifications/cancelled", "MCP bridge must model client cancellation")
+    try expect(mcpSession.responseMetadata(statusCode: 401, headers: ["WWW-Authenticate": "Bearer realm=\"mcp\""])["auth_challenge"] == "Bearer realm=\"mcp\"", "MCP bridge must preserve 401 challenge metadata")
+    try expect(mcpSession.responseMetadata(statusCode: 404, headers: [:])["session_reset"] == "true", "MCP bridge must mark 404 session reset metadata")
+    try expectThrows(MCPBridgeError.bodyLoggingDisabled, {
+        _ = try mcpSession.bodyForAudit(Data("secret-body".utf8))
+    }, "MCP bridge must not log bodies by default")
 
     let lease = CryptoLease(
         id: "lease_1",
