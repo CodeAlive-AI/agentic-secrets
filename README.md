@@ -61,7 +61,7 @@ The local installer writes an install manifest with helper paths, owners, permis
 
 The core daemon serves the local control plane over a Unix domain socket. Helpers authenticate to core with the install manifest and do not read local secret material directly.
 
-On macOS Tahoe, the self-build track avoids restricted entitlements so ad-hoc signed binaries can execute normally. The core daemon stores local secret material in an owner-only encrypted file store gated by LocalAuthentication; no shared Keychain access group is required for the self-build track.
+On macOS Tahoe, the self-build track avoids restricted entitlements so ad-hoc signed binaries can execute normally. The core daemon stores local secret material in an owner-only encrypted file store gated by LocalAuthentication; no shared Keychain access group is required for the self-build track. Registered CLI trust metadata is protected by a device-local macOS Keychain integrity key so hand-edited registry files fail closed before any secret is resolved.
 
 ## Release Evidence
 

@@ -88,20 +88,36 @@ public enum CLIRegistrationError: Error, Equatable, CustomStringConvertible {
 
 public struct CLIRegistrationStore: Sendable {
     public var registryURL: URL
+    public var integrityProtector: (any CLIRegistryIntegrityProtector)?
 
-    public init(registryURL: URL) {
+    public init(registryURL: URL, integrityProtector: (any CLIRegistryIntegrityProtector)? = nil) {
         self.registryURL = registryURL
+        self.integrityProtector = integrityProtector
+    }
+
+    public var integrityURL: URL {
+        let directory = registryURL.deletingLastPathComponent()
+        let baseName = registryURL.deletingPathExtension().lastPathComponent
+        return directory.appendingPathComponent("\(baseName).integrity.json")
     }
 
     public func load() throws -> CLIRegistrationDocument {
         guard FileManager.default.fileExists(atPath: registryURL.path) else {
             return CLIRegistrationDocument()
         }
+        let registryData = try Data(contentsOf: registryURL)
         let decoder = JSONDecoder()
         decoder.dateDecodingStrategy = .iso8601
-        let document = try decoder.decode(CLIRegistrationDocument.self, from: Data(contentsOf: registryURL))
+        let document = try decoder.decode(CLIRegistrationDocument.self, from: registryData)
         guard document.schemaVersion == 1 else {
             throw CLIRegistrationError.unsupportedSchema(document.schemaVersion)
+        }
+        if let integrityProtector {
+            guard FileManager.default.fileExists(atPath: integrityURL.path) else {
+                throw CLIRegistryIntegrityError.missingSignature(integrityURL.path)
+            }
+            let integrity = try decoder.decode(CLIRegistryIntegrity.self, from: Data(contentsOf: integrityURL))
+            try integrityProtector.verify(registryData, integrity: integrity)
         }
         return document
     }
@@ -112,8 +128,15 @@ public struct CLIRegistrationStore: Sendable {
         let encoder = JSONEncoder()
         encoder.dateEncodingStrategy = .iso8601
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys, .withoutEscapingSlashes]
-        try encoder.encode(document).write(to: registryURL, options: [.atomic])
+        let registryData = try encoder.encode(document)
+        let integrity = try integrityProtector?.sign(registryData, signedAt: Date())
+        try registryData.write(to: registryURL, options: [.atomic])
         try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: registryURL.path)
+        if let integrity {
+            let integrityData = try encoder.encode(integrity)
+            try integrityData.write(to: integrityURL, options: [.atomic])
+            try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: integrityURL.path)
+        }
     }
 }
 
@@ -282,7 +305,12 @@ public struct AgenticFortressStateLayout: Sendable {
 
     public var registrationService: CLIRegistrationService {
         CLIRegistrationService(
-            registryStore: CLIRegistrationStore(registryURL: registryURL),
+            registryStore: CLIRegistrationStore(
+                registryURL: registryURL,
+                integrityProtector: KeychainCLIRegistryIntegrityProtector(
+                    account: "local-state:" + shortDigest(stateDirectory.standardizedFileURL.path, length: 24)
+                )
+            ),
             secretStore: LocalEncryptedSecretStore(storeURL: secretStoreURL, keyURL: secretKeyURL)
         )
     }

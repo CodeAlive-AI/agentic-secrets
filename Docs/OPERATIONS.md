@@ -139,7 +139,9 @@ Unregister the CLI app and delete its local secret records:
 "$PREFIX/bin/agentic-fortress" cli unregister hcloud --delete-secrets
 ```
 
-Registration stores non-secret metadata in `var/agentic-fortress/cli-registry.json` and encrypted secret records under `var/agentic-fortress/secrets/`. Registry files are owner-only and must not contain plaintext token material. During `cli run`, the front-end CLI still does not resolve the secret; `agentic-fortressd-core` resolves it after local authentication, scrubs inherited secret-like environment variables, and injects the registered environment variables only into the child process.
+Registration stores non-secret metadata in `var/agentic-fortress/cli-registry.json` and encrypted secret records under `var/agentic-fortress/secrets/`. Registry files are owner-only and must not contain plaintext token material. The registry is also paired with `var/agentic-fortress/cli-registry.integrity.json`; that sidecar is signed with an HMAC-SHA256 key stored in the user's macOS Keychain using `WhenUnlockedThisDeviceOnly` accessibility. If the registry or sidecar is edited outside AgenticFortress, `cli run` fails before local authentication and before any secret-store read.
+
+During `cli run`, the front-end CLI still does not resolve the secret; `agentic-fortressd-core` resolves it after local authentication, scrubs inherited secret-like environment variables, and injects the registered environment variables only into the child process.
 
 AgenticFortress does not generate per-CLI shell shims for registered apps in the default self-build flow. Installed AgenticFortress executables are symlinked under `$PREFIX/bin`, while registered apps are stored as metadata in `cli-registry.json`. When a CLI is auto-discovered from `PATH`, the registry keeps the stable invocation path such as `/opt/homebrew/bin/hcloud`, plus the target binary identity captured at registration time. Each `cli run` resolves the current target, validates it against the captured macOS designated requirement when available, and otherwise falls back to SHA-256 identity pinning. Homebrew CLI upgrades therefore fail closed until the CLI target trust is refreshed after you verify the new binary:
 
@@ -147,7 +149,7 @@ AgenticFortress does not generate per-CLI shell shims for registered apps in the
 "$PREFIX/bin/agentic-fortress" cli trust-refresh hcloud
 ```
 
-`trust-refresh` updates only target identity metadata; it does not read, rewrite, or ask for the token again. A manually registered versioned path such as `/opt/homebrew/Cellar/hcloud/1.65.0/bin/hcloud` is also pinned and must be trust-refreshed or registered again after the version is removed.
+`trust-refresh` updates only target identity metadata and re-seals the registry integrity sidecar; it does not read, rewrite, or ask for the token again. A manually registered versioned path such as `/opt/homebrew/Cellar/hcloud/1.65.0/bin/hcloud` is also pinned and must be trust-refreshed or registered again after the version is removed.
 
 ## Adapter Management
 

@@ -359,6 +359,7 @@ Pass condition:
 - Symlink or argv invocation name is treated as untrusted input.
 - Target path is resolved from policy.
 - Target identity is assessed before execution.
+- Registered CLI trust metadata is not trusted unless its integrity sidecar verifies.
 
 Verification:
 
@@ -368,12 +369,13 @@ swift run agentic-fortress-contract-tests
 
 Required evidence:
 
-- Tests cover spoofed invocation name, policy target resolution, and target hash binding.
+- Tests cover spoofed invocation name, policy target resolution, target hash binding, and registry tamper rejection.
 
 Failure examples:
 
 - `/tmp/hcloud` can choose its own target path.
 - Changing the target binary after approval is not detected.
+- Editing `cli-registry.json` to point at another target still allows secret resolution.
 
 ### AC-SHIM-002: Environment Injection Uses a Fresh Scrubbed Environment
 

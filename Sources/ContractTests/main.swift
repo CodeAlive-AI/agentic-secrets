@@ -294,7 +294,15 @@ func runContracts() throws {
     try "#!/bin/sh\nexit 0\n".data(using: .utf8)!.write(to: registeredTarget)
     try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: registeredTarget.path)
     let registrationLayout = AgenticFortressStateLayout(stateDirectory: registrationRoot.appendingPathComponent("state", isDirectory: true))
-    let registration = try registrationLayout.registrationService.register(
+    let registrationProtector = HMACCLIRegistryIntegrityProtector(
+        keyID: "contract-test-registry-key",
+        keyData: Data(repeating: 0xA7, count: 32)
+    )
+    let registrationService = CLIRegistrationService(
+        registryStore: CLIRegistrationStore(registryURL: registrationLayout.registryURL, integrityProtector: registrationProtector),
+        secretStore: LocalEncryptedSecretStore(storeURL: registrationLayout.secretStoreURL, keyURL: registrationLayout.secretKeyURL)
+    )
+    let registration = try registrationService.register(
         name: "hcloud",
         targetPath: registeredTarget.path,
         environmentValues: ["HCLOUD_TOKEN": SecretMaterial(utf8: "registration-secret-token")],
@@ -304,11 +312,21 @@ func runContracts() throws {
     try expect(registration.targetPath == registeredTarget.path, "CLI registration must persist resolved target path")
     try expect(registration.targetIdentity?.hasPrefix("sha256:") == true, "CLI registration must pin assessed target identity")
     try expect(registration.environmentBindings == [CLIEnvironmentBinding(environmentName: "HCLOUD_TOKEN", secretAlias: "cli.hcloud.hcloud_token")], "CLI registration must bind env name to deterministic secret alias")
-    let loadedRegistration = try registrationLayout.registrationService.registration(named: "hcloud")
+    let loadedRegistration = try registrationService.registration(named: "hcloud")
     try expect(loadedRegistration == registration, "CLI run path must load registration metadata by name")
     let registryText = String(decoding: try Data(contentsOf: registrationLayout.registryURL), as: UTF8.self)
     try expect(registryText.contains("HCLOUD_TOKEN"), "CLI registry must store env metadata")
     try expect(!registryText.contains("registration-secret-token"), "CLI registry must not store plaintext secret values")
+    try expect(FileManager.default.fileExists(atPath: registrationService.registryStore.integrityURL.path), "CLI registry must write an integrity sidecar")
+    let integrityPermissions = try FileManager.default.attributesOfItem(atPath: registrationService.registryStore.integrityURL.path)[.posixPermissions] as? NSNumber
+    try expect(integrityPermissions?.intValue == 0o600, "CLI registry integrity sidecar must be owner-only")
+    let tamperedRegistryText = registryText.replacingOccurrences(of: registration.targetIdentity ?? "sha256:missing", with: "sha256:attacker")
+    try tamperedRegistryText.data(using: .utf8)!.write(to: registrationLayout.registryURL, options: [.atomic])
+    try expectThrows(CLIRegistryIntegrityError.signatureMismatch, {
+        _ = try registrationService.registryStore.load()
+    }, "CLI registry load must fail closed when trust metadata is modified outside AgenticFortress")
+    try registryText.data(using: .utf8)!.write(to: registrationLayout.registryURL, options: [.atomic])
+    try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: registrationLayout.registryURL.path)
     let registeredSecretStoreText = String(decoding: try Data(contentsOf: registrationLayout.secretStoreURL), as: UTF8.self)
     try expect(!registeredSecretStoreText.contains("registration-secret-token"), "CLI local encrypted store must not contain plaintext registered secret")
     let registryPermissions = try FileManager.default.attributesOfItem(atPath: registrationLayout.registryURL.path)[.posixPermissions] as? NSNumber
@@ -323,7 +341,7 @@ func runContracts() throws {
     try "#!/bin/sh\nexit 0\n".data(using: .utf8)!.write(to: versionedHcloud)
     try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: versionedHcloud.path)
     try FileManager.default.createSymbolicLink(atPath: stableHcloud.path, withDestinationPath: "../Cellar/hcloud/1.65.0/bin/hcloud")
-    let symlinkRegistration = try registrationLayout.registrationService.register(
+    let symlinkRegistration = try registrationService.register(
         name: "hcloud-symlink",
         targetPath: stableHcloud.path,
         environmentValues: ["HCLOUD_TOKEN": SecretMaterial(utf8: "symlink-secret-token")],
@@ -331,7 +349,7 @@ func runContracts() throws {
     )
     try expect(symlinkRegistration.targetPath == stableHcloud.path, "CLI registration must keep stable symlink invocation path across CLI upgrades")
     let originalSymlinkTarget = try TargetAssessor().assess(path: symlinkRegistration.targetPath)
-    try registrationLayout.registrationService.validateTargetIdentity(registration: symlinkRegistration, assessedTarget: originalSymlinkTarget)
+    try registrationService.validateTargetIdentity(registration: symlinkRegistration, assessedTarget: originalSymlinkTarget)
     let upgradedCellarRoot = symlinkRoot.appendingPathComponent("Cellar/hcloud/1.66.0/bin", isDirectory: true)
     try FileManager.default.createDirectory(at: upgradedCellarRoot, withIntermediateDirectories: true)
     let upgradedHcloud = upgradedCellarRoot.appendingPathComponent("hcloud")
@@ -341,27 +359,27 @@ func runContracts() throws {
     try FileManager.default.createSymbolicLink(atPath: stableHcloud.path, withDestinationPath: "../Cellar/hcloud/1.66.0/bin/hcloud")
     let changedSymlinkTarget = try TargetAssessor().assess(path: symlinkRegistration.targetPath)
     try expectThrows(CLIRegistrationError.targetIdentityChanged(name: "hcloud-symlink", expected: symlinkRegistration.targetIdentity ?? "", actual: changedSymlinkTarget.identity), {
-        try registrationLayout.registrationService.validateTargetIdentity(registration: symlinkRegistration, assessedTarget: changedSymlinkTarget)
+        try registrationService.validateTargetIdentity(registration: symlinkRegistration, assessedTarget: changedSymlinkTarget)
     }, "CLI run path must deny target binary replacement before resolving secrets")
-    let refreshedSymlinkRegistration = try registrationLayout.registrationService.refreshTargetTrust(name: "hcloud-symlink")
+    let refreshedSymlinkRegistration = try registrationService.refreshTargetTrust(name: "hcloud-symlink")
     try expect(refreshedSymlinkRegistration.environmentBindings == symlinkRegistration.environmentBindings, "trust refresh must not change secret bindings")
     try expect(refreshedSymlinkRegistration.targetPath == stableHcloud.path, "trust refresh must keep stable invocation path")
     try expect(refreshedSymlinkRegistration.targetIdentity == changedSymlinkTarget.identity, "trust refresh must update pinned target identity")
-    try registrationLayout.registrationService.validateTargetIdentity(registration: refreshedSymlinkRegistration, assessedTarget: changedSymlinkTarget)
+    try registrationService.validateTargetIdentity(registration: refreshedSymlinkRegistration, assessedTarget: changedSymlinkTarget)
     try expectThrows(CLIRegistrationError.invalidEnvironmentName("HCLOUD_TOKEN=leak"), {
-        _ = try registrationLayout.registrationService.register(
+        _ = try registrationService.register(
             name: "hcloud",
             targetPath: registeredTarget.path,
             environmentValues: ["HCLOUD_TOKEN=leak": SecretMaterial(utf8: "bad")],
             now: Date(timeIntervalSince1970: 0)
         )
     }, "CLI registration must reject env specs that include values in argument-shaped names")
-    let removedRegistration = try registrationLayout.registrationService.unregister(name: "hcloud", deleteSecrets: true)
+    let removedRegistration = try registrationService.unregister(name: "hcloud", deleteSecrets: true)
     try expect(removedRegistration.name == "hcloud", "CLI unregister must return removed registration")
-    let registryAfterDelete = try registrationLayout.registrationService.registryStore.load()
+    let registryAfterDelete = try registrationService.registryStore.load()
     try expect(registryAfterDelete.registrations["hcloud"] == nil, "CLI unregister must remove registration metadata")
     try expectThrows(SecretStoreError.missingBinding(SecretAlias("cli.hcloud.hcloud_token")), {
-        _ = try registrationLayout.registrationService.secretStore.binding(for: SecretAlias("cli.hcloud.hcloud_token"))
+        _ = try registrationService.secretStore.binding(for: SecretAlias("cli.hcloud.hcloud_token"))
     }, "CLI unregister with delete-secrets must remove secret binding")
     try? FileManager.default.removeItem(at: registrationRoot)
 
