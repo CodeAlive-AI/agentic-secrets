@@ -451,7 +451,9 @@ func runContracts() throws {
 
     let report = ReleaseGateRunner().staticReport()
     try expect(Set(report.results.map(\.gate)) == Set(ReleaseGate.allCases), "release gate report must cover all gates")
-    try expect(report.canRelease, "release gate report must pass")
+    try expect(!report.canRelease, "release gate report must block production release until platform deployment gates are proven")
+    let blockedGates = Set(report.results.filter { !$0.passed }.map(\.gate))
+    try expect(blockedGates == [.xpcPeerValidation, .keychainAccessControl, .macOSPackaging], "release gate report must identify remaining production deployment blockers")
     try expect(PublicAPITripwire.scan(source: "public func getSecret(name: String) -> String") == ["getSecret"], "public API tripwire must catch getSecret")
 
     let config = try ConfigurationLoader.load(path: "config/default.agentic-fortress.json")

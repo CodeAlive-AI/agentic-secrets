@@ -19,7 +19,7 @@ Adapter packs are dynamic but not trust-by-configuration. External packs must ve
 
 Runtime policy is configurable through `AgenticFortressConfig`; the default JSON lives at `config/default.agentic-fortress.json`. Configuration covers adapter trust, delivery defaults, proxy profiles, MCP profiles, and macOS compatibility gates.
 
-The current package includes packaging/signing scaffolding, but production deployment still needs real Developer ID signing, notarization credentials, XPC listener wiring, hardened runtime validation, and Keychain access-control prompts.
+The current package includes packaging/signing scaffolding and runnable contract gates. Production distribution is intentionally blocked by release gates until real Developer ID signing, notarization credentials, XPC listener wiring, hardened runtime validation, and end-to-end Keychain access-control prompts are proven.
 
 See:
 

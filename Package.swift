@@ -18,34 +18,44 @@ let package = Package(
         .executable(name: "agentic-fortress-contract-tests", targets: ["AgenticFortressContractTests"])
     ],
     targets: [
-        .target(name: "AgenticFortressCore"),
+        .target(
+            name: "AgenticFortressCore",
+            path: "Sources/Core"
+        ),
         .executableTarget(
             name: "AgenticFortressCLI",
-            dependencies: ["AgenticFortressCore"]
+            dependencies: ["AgenticFortressCore"],
+            path: "Sources/CLI"
         ),
         .executableTarget(
             name: "AgenticFortressShim",
-            dependencies: ["AgenticFortressCore"]
+            dependencies: ["AgenticFortressCore"],
+            path: "Sources/Shim"
         ),
         .executableTarget(
             name: "AgenticFortressCoreDaemon",
-            dependencies: ["AgenticFortressCore"]
+            dependencies: ["AgenticFortressCore"],
+            path: "Sources/CoreDaemon"
         ),
         .executableTarget(
             name: "AgenticFortressProxyd",
-            dependencies: ["AgenticFortressCore"]
+            dependencies: ["AgenticFortressCore"],
+            path: "Sources/Proxyd"
         ),
         .executableTarget(
             name: "AgenticFortressBwsd",
-            dependencies: ["AgenticFortressCore"]
+            dependencies: ["AgenticFortressCore"],
+            path: "Sources/Bwsd"
         ),
         .executableTarget(
             name: "AgenticFortressMcpd",
-            dependencies: ["AgenticFortressCore"]
+            dependencies: ["AgenticFortressCore"],
+            path: "Sources/Mcpd"
         ),
         .executableTarget(
             name: "AgenticFortressContractTests",
-            dependencies: ["AgenticFortressCore"]
+            dependencies: ["AgenticFortressCore"],
+            path: "Sources/ContractTests"
         )
     ]
 )
