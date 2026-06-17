@@ -145,6 +145,18 @@ pbpaste | "$PREFIX/bin/agentic-fortress" cli register hcloud \
 
 The token is read by the core-owned registration command from stdin and stored in the local encrypted secret store. Do not pass token values as command-line arguments.
 
+Run `hcloud` through AgenticFortress with arguments after `--`:
+
+```sh
+"$PREFIX/bin/agentic-fortress" cli run hcloud -- server list
+```
+
+AgenticFortress prints its own diagnostics to stderr, requests local authentication before reading the secret, scrubs inherited secret-like environment variables, injects `HCLOUD_TOKEN` only into the child process, and leaves the target CLI stdout/stderr intact. Use `--quiet` before `--` when wrapping scripts:
+
+```sh
+"$PREFIX/bin/agentic-fortress" cli run hcloud --quiet -- server list
+```
+
 To remove the registration and its local secret record:
 
 ```sh

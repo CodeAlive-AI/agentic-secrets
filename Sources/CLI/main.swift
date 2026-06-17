@@ -94,6 +94,7 @@ struct AgenticFortressCLI {
           agentic-fortress adapter install-payload <payload.json> <registry.json>
           agentic-fortress adapter revoke <adapter-id> <registry.json>
           agentic-fortress cli register hcloud --env HCLOUD_TOKEN --secret-stdin
+          agentic-fortress cli run hcloud -- server list
           agentic-fortress cli unregister hcloud --delete-secrets
           agentic-fortress redact "OPENAI_API_KEY=..."
         """)
@@ -152,6 +153,18 @@ struct AgenticFortressCLI {
                 passthrough += ["--state-dir", defaultStateDirectory().path]
             }
             try runCoreCommand(["unregister-cli", "--name", name] + passthrough)
+        case "run":
+            guard args.count >= 2 else { throw CLIError.missingArgument("cli name") }
+            let name = args[1]
+            var passthrough = Array(args.dropFirst(2))
+            guard passthrough.contains("--") else {
+                throw CLIError.missingArgument("-- before target arguments")
+            }
+            let separator = passthrough.firstIndex(of: "--")!
+            if !passthrough[..<separator].contains("--state-dir") {
+                passthrough.insert(contentsOf: ["--state-dir", defaultStateDirectory().path], at: 0)
+            }
+            try runCoreCommand(["run-cli", "--name", name] + passthrough)
         default:
             throw CLIError.missingArgument("known cli subcommand")
         }

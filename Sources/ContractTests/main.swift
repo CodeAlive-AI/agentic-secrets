@@ -296,6 +296,8 @@ func runContracts() throws {
     try expect(registration.name == "hcloud", "CLI registration must preserve command name")
     try expect(registration.targetPath == registeredTarget.path, "CLI registration must persist resolved target path")
     try expect(registration.environmentBindings == [CLIEnvironmentBinding(environmentName: "HCLOUD_TOKEN", secretAlias: "cli.hcloud.hcloud_token")], "CLI registration must bind env name to deterministic secret alias")
+    let loadedRegistration = try registrationLayout.registrationService.registration(named: "hcloud")
+    try expect(loadedRegistration == registration, "CLI run path must load registration metadata by name")
     let registryText = String(decoding: try Data(contentsOf: registrationLayout.registryURL), as: UTF8.self)
     try expect(registryText.contains("HCLOUD_TOKEN"), "CLI registry must store env metadata")
     try expect(!registryText.contains("registration-secret-token"), "CLI registry must not store plaintext secret values")
@@ -319,6 +321,19 @@ func runContracts() throws {
         _ = try registrationLayout.registrationService.secretStore.binding(for: SecretAlias("cli.hcloud.hcloud_token"))
     }, "CLI unregister with delete-secrets must remove secret binding")
     try? FileManager.default.removeItem(at: registrationRoot)
+
+    let multiInjectedEnvironment = try EnvironmentScrubber().scrub(
+        parent: ["PATH": "/usr/bin", "BWS_ACCESS_TOKEN": "drop-me", "SAFE": "keep"],
+        injectedValues: ["HCLOUD_TOKEN": "hcloud-value", "DEMO_TOKEN": "demo-value"]
+    )
+    try expect(multiInjectedEnvironment["PATH"] == "/usr/bin", "multi-env scrub must keep non-secret parent env")
+    try expect(multiInjectedEnvironment["SAFE"] == "keep", "multi-env scrub must keep safe parent env")
+    try expect(multiInjectedEnvironment["BWS_ACCESS_TOKEN"] == nil, "multi-env scrub must remove inherited secret-like env")
+    try expect(multiInjectedEnvironment["HCLOUD_TOKEN"] == "hcloud-value", "multi-env scrub must inject first target env")
+    try expect(multiInjectedEnvironment["DEMO_TOKEN"] == "demo-value", "multi-env scrub must inject second target env")
+    try expectThrows(EnvironmentScrubError.targetAlreadyPresent("HCLOUD_TOKEN"), {
+        _ = try EnvironmentScrubber().scrub(parent: ["HCLOUD_TOKEN": "ambient"], injectedValues: ["HCLOUD_TOKEN": "fresh"])
+    }, "multi-env scrub must fail closed on ambient target collision")
 
     let shimRoot = URL(fileURLWithPath: NSTemporaryDirectory()).appendingPathComponent("agentic-fortress-shim-\(UUID().uuidString)")
     let shimTarget = shimRoot.appendingPathComponent("hcloud")

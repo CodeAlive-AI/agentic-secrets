@@ -32,18 +32,24 @@ public struct EnvironmentScrubber: Sendable {
     public init() {}
 
     public func scrub(parent: [String: String], targetEnvironmentName: String, injectedValue: String) throws -> [String: String] {
-        if parent[targetEnvironmentName] != nil {
+        try scrub(parent: parent, injectedValues: [targetEnvironmentName: injectedValue])
+    }
+
+    public func scrub(parent: [String: String], injectedValues: [String: String]) throws -> [String: String] {
+        for targetEnvironmentName in injectedValues.keys.sorted() where parent[targetEnvironmentName] != nil {
             throw EnvironmentScrubError.targetAlreadyPresent(targetEnvironmentName)
         }
 
         var clean: [String: String] = [:]
         for (key, value) in parent {
-            if key == targetEnvironmentName { continue }
+            if injectedValues[key] != nil { continue }
             if blockedExactNames.contains(key) { continue }
             if looksSecretLike(key) { continue }
             clean[key] = value
         }
-        clean[targetEnvironmentName] = injectedValue
+        for (key, value) in injectedValues {
+            clean[key] = value
+        }
         return clean
     }
 

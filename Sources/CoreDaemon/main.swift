@@ -29,6 +29,9 @@ struct AgenticFortressCoreDaemon {
             case "register-cli":
                 try registerCLI(args)
                 return
+            case "run-cli":
+                try runCLI(args)
+                return
             case "unregister-cli":
                 try unregisterCLI(args)
                 return
@@ -76,8 +79,90 @@ struct AgenticFortressCoreDaemon {
             environments: registration.environmentBindings.map(\.environmentName),
             registry: layout.registryURL.path,
             secretStore: "local-encrypted-file",
-            nextStep: "Registration stored. Do not create a native CLI context containing this token."
+            nextStep: "Run with: agentic-fortress cli run \(registration.name) -- <arguments>. Do not create a native CLI context containing this token."
         )))
+    }
+
+    private static func runCLI(_ args: [String]) throws {
+        let controlArguments = argumentsBeforeRunSeparator(in: args)
+        let name = try requiredValue(after: "--name", in: controlArguments)
+        let quiet = controlArguments.contains("--quiet")
+        let targetArguments = argumentsAfterRunSeparator(in: args)
+        let layout = AgenticFortressStateLayout(stateDirectory: stateDirectory(from: controlArguments))
+        let registration = try layout.registrationService.registration(named: name)
+        let executableName = URL(fileURLWithPath: registration.targetPath).lastPathComponent
+        let command = CommandClassifier().classify(executableName: executableName, arguments: targetArguments)
+        let target = try TargetAssessor().assess(path: registration.targetPath)
+        let environmentNames = registration.environmentBindings.map(\.environmentName)
+        _ = try EnvironmentScrubber().scrub(
+            parent: ProcessInfo.processInfo.environment,
+            injectedValues: Dictionary(uniqueKeysWithValues: environmentNames.map { ($0, "") })
+        )
+
+        var injectedValues: [String: String] = [:]
+        for binding in registration.environmentBindings {
+            let intent = DeliveryIntent(
+                flow: .cliEnv,
+                secretAlias: binding.secretAlias,
+                delivery: .env,
+                environmentName: binding.environmentName,
+                workspace: FileManager.default.currentDirectoryPath,
+                parentApp: ProcessInfo.processInfo.environment["TERM_PROGRAM"] ?? "unknown"
+            )
+            let manifest = DecisionManifestFactory().make(command: command, intent: intent, target: target)
+            try authorizeCLIRun(command: command, intent: intent, target: target)
+            let session = ApprovalSession(
+                id: "run_" + shortDigest(UUID().uuidString, length: 16),
+                manifestDigest: manifest.digest,
+                actionClass: manifest.actionClass,
+                secretAlias: SecretAlias(binding.secretAlias),
+                approvalOption: .once,
+                policyEpoch: 1,
+                expiresAt: Date().addingTimeInterval(60),
+                authenticationReason: "AgenticFortress wants to run \(registration.name) with \(binding.environmentName)."
+            )
+            if !quiet {
+                fputs("AgenticFortress: requesting local authentication for \(registration.name) \(binding.environmentName).\n", stderr)
+            }
+            let material = try layout.registrationService.secretStore.resolve(alias: SecretAlias(binding.secretAlias), approvedFor: session)
+            material.withUTF8String { value in
+                injectedValues[binding.environmentName] = value
+            }
+        }
+
+        let environment = try EnvironmentScrubber().scrub(parent: ProcessInfo.processInfo.environment, injectedValues: injectedValues)
+        if !quiet {
+            let envNames = registration.environmentBindings.map(\.environmentName).sorted().joined(separator: ",")
+            fputs("AgenticFortress: running \(registration.name) -> \(target.resolvedPath) with env [\(envNames)] (secret values redacted).\n", stderr)
+        }
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: target.resolvedPath)
+        process.arguments = targetArguments
+        process.environment = environment
+        process.standardInput = FileHandle.standardInput
+        process.standardOutput = FileHandle.standardOutput
+        process.standardError = FileHandle.standardError
+        try process.run()
+        process.waitUntilExit()
+        switch process.terminationReason {
+        case .exit:
+            exit(process.terminationStatus)
+        case .uncaughtSignal:
+            exit(128 + process.terminationStatus)
+        @unknown default:
+            exit(70)
+        }
+    }
+
+    private static func authorizeCLIRun(command: NormalizedCommand, intent: DeliveryIntent, target: TargetAssessment) throws {
+        do {
+            let decision = try PolicyEngine().authorize(command: command, intent: intent, target: target, approval: .once, state: PolicyState())
+            if case .deny(let reason) = decision {
+                throw CoreDaemonError.policyDenied(reason)
+            }
+        } catch let error as PolicyError {
+            throw CoreDaemonError.policyDenied(policyErrorDescription(error))
+        }
     }
 
     private static func unregisterCLI(_ args: [String]) throws {
@@ -177,6 +262,33 @@ struct AgenticFortressCoreDaemon {
         return AgenticFortressStateLayout.defaultStateDirectory()
     }
 
+    private static func argumentsAfterRunSeparator(in args: [String]) -> [String] {
+        guard let separator = args.firstIndex(of: "--") else {
+            return []
+        }
+        return Array(args[args.index(after: separator)...])
+    }
+
+    private static func argumentsBeforeRunSeparator(in args: [String]) -> [String] {
+        guard let separator = args.firstIndex(of: "--") else {
+            return args
+        }
+        return Array(args[..<separator])
+    }
+
+    private static func policyErrorDescription(_ error: PolicyError) -> String {
+        switch error {
+        case .locked:
+            "Policy is locked."
+        case .genericEnvDenied:
+            "Generic runners are not allowed to receive raw environment secrets."
+        case .destructiveRememberDenied:
+            "High-risk or destructive commands are denied for cli run."
+        case .unknownDenied:
+            "Unknown-risk commands are denied for cli run."
+        }
+    }
+
     private static func readSingleSecretFromStdin() throws -> SecretMaterial {
         let data = FileHandle.standardInput.readDataToEndOfFile()
         let trimmed = trimTrailingNewlines(data)
@@ -236,6 +348,7 @@ enum CoreDaemonError: Error, CustomStringConvertible {
     case missingArgument(String)
     case unknownCommand(String)
     case invalidArguments(String)
+    case policyDenied(String)
 
     var description: String {
         switch self {
@@ -245,6 +358,8 @@ enum CoreDaemonError: Error, CustomStringConvertible {
             "Unknown core daemon command: \(command)"
         case .invalidArguments(let reason):
             "Invalid arguments: \(reason)"
+        case .policyDenied(let reason):
+            "Policy denied cli run: \(reason)"
         }
     }
 }

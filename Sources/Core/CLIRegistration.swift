@@ -148,6 +148,14 @@ public struct CLIRegistrationService: Sendable {
         return registration
     }
 
+    public func registration(named name: String) throws -> CLIAppRegistration {
+        let document = try registryStore.load()
+        guard let registration = document.registrations[name] else {
+            throw CLIRegistrationError.registrationMissing(name)
+        }
+        return registration
+    }
+
     public static func defaultAlias(cliName: String, environmentName: String) -> String {
         "cli.\(cliName).\(environmentName.lowercased())"
     }

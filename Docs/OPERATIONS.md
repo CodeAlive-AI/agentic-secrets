@@ -121,13 +121,25 @@ printf '%s\n' '{"HCLOUD_TOKEN":"<redacted>"}' | "$PREFIX/bin/agentic-fortress" c
   --secrets-json-stdin
 ```
 
+Run the registered CLI with target arguments after `--`:
+
+```sh
+"$PREFIX/bin/agentic-fortress" cli run hcloud -- server list
+```
+
+Use `--quiet` before `--` for scripts that do not want AgenticFortress diagnostic lines on stderr:
+
+```sh
+"$PREFIX/bin/agentic-fortress" cli run hcloud --quiet -- server list
+```
+
 Unregister the CLI app and delete its local secret records:
 
 ```sh
 "$PREFIX/bin/agentic-fortress" cli unregister hcloud --delete-secrets
 ```
 
-Registration stores non-secret metadata in `var/agentic-fortress/cli-registry.json` and encrypted secret records under `var/agentic-fortress/secrets/`. Registry files are owner-only and must not contain plaintext token material.
+Registration stores non-secret metadata in `var/agentic-fortress/cli-registry.json` and encrypted secret records under `var/agentic-fortress/secrets/`. Registry files are owner-only and must not contain plaintext token material. During `cli run`, the front-end CLI still does not resolve the secret; `agentic-fortressd-core` resolves it after local authentication, scrubs inherited secret-like environment variables, and injects the registered environment variables only into the child process.
 
 ## Adapter Management
 
