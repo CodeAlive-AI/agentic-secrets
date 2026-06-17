@@ -94,7 +94,7 @@ public enum CLIUnlockGrantError: Error, Equatable, CustomStringConvertible {
         case .signatureMismatch:
             "CLI unlock grant signature mismatch."
         case .invalidTTL:
-            "CLI unlock grant TTL must be between 0 and 900 seconds."
+            "CLI unlock grant TTL must be between 0 and 3600 seconds."
         case .missingKey:
             "CLI unlock grant key is missing."
         case .unsupportedKeyFormat:
@@ -108,7 +108,7 @@ public struct CLIUnlockGrantStore: Sendable {
     public var keyURL: URL
     public var maxTTL: TimeInterval
 
-    public init(url: URL, keyURL: URL, maxTTL: TimeInterval = 900) {
+    public init(url: URL, keyURL: URL, maxTTL: TimeInterval = 3600) {
         self.url = url
         self.keyURL = keyURL
         self.maxTTL = maxTTL

@@ -317,6 +317,15 @@ func runContracts() throws {
     try expectThrows(CLIUnlockGrantError.invalidTTL, {
         _ = try unlockStore.grant(scope: unlockScope, ttl: 301, now: Date(timeIntervalSince1970: 100))
     }, "CLI unlock grant must cap TTL")
+    let defaultUnlockRoot = URL(fileURLWithPath: NSTemporaryDirectory()).appendingPathComponent("agentic-fortress-default-unlock-\(UUID().uuidString)", isDirectory: true)
+    let defaultUnlockStore = CLIUnlockGrantStore(
+        url: defaultUnlockRoot.appendingPathComponent("cli-unlock-grants.json"),
+        keyURL: defaultUnlockRoot.appendingPathComponent("cli-unlock-grants.key")
+    )
+    _ = try defaultUnlockStore.grant(scope: unlockScope, ttl: 3600, now: Date(timeIntervalSince1970: 100))
+    try expectThrows(CLIUnlockGrantError.invalidTTL, {
+        _ = try defaultUnlockStore.grant(scope: unlockScope, ttl: 3601, now: Date(timeIntervalSince1970: 100))
+    }, "CLI unlock grant default cap must be one hour")
     let secondGrant = try unlockStore.grant(scope: unlockScope, ttl: 120, now: Date(timeIntervalSince1970: 300))
     let otherReadCommand = classifier.classify(executableName: "hcloud", arguments: ["location", "list"], observedVersion: "1.52.0")
     let otherReadManifest = DecisionManifestFactory().make(

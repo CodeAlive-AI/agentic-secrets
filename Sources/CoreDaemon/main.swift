@@ -309,9 +309,9 @@ struct AgenticFortressCoreDaemon {
     private static func cliUnlockTTL(from args: [String]) throws -> TimeInterval {
         let raw = value(after: "--unlock-ttl-seconds", in: args)
             ?? ProcessInfo.processInfo.environment["AGENTIC_FORTRESS_CLI_UNLOCK_TTL_SECONDS"]
-            ?? "300"
-        guard let seconds = TimeInterval(raw), seconds >= 0, seconds <= 900 else {
-            throw CoreDaemonError.invalidArguments("--unlock-ttl-seconds must be between 0 and 900")
+            ?? "3600"
+        guard let seconds = TimeInterval(raw), seconds >= 0, seconds <= 3600 else {
+            throw CoreDaemonError.invalidArguments("--unlock-ttl-seconds must be between 0 and 3600")
         }
         return seconds
     }

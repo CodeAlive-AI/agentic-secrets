@@ -161,7 +161,7 @@ public struct LocalAuthenticationPolicyGate: Sendable {
     public func authorize(reason: String, context: LAContext = LAContext()) throws {
         if context.canEvaluatePolicy(.deviceOwnerAuthenticationWithBiometrics, error: nil) {
             do {
-                try evaluate(policy: .deviceOwnerAuthenticationWithBiometrics, reason: reason, context: context)
+                try evaluate(policy: .deviceOwnerAuthenticationWithBiometrics, reason: reason, context: context, fallbackTitle: "")
                 return
             } catch let error as LocalEncryptedSecretStoreError where error == .userCanceled {
                 throw error
@@ -173,11 +173,14 @@ public struct LocalAuthenticationPolicyGate: Sendable {
         try evaluate(policy: .deviceOwnerAuthentication, reason: reason, context: context)
     }
 
-    private func evaluate(policy: LAPolicy, reason: String, context: LAContext) throws {
+    private func evaluate(policy: LAPolicy, reason: String, context: LAContext, fallbackTitle: String? = nil) throws {
         let semaphore = DispatchSemaphore(value: 0)
         let result = LocalAuthenticationResultBox()
         context.localizedReason = reason
         context.localizedCancelTitle = "Deny"
+        if let fallbackTitle {
+            context.localizedFallbackTitle = fallbackTitle
+        }
         context.evaluatePolicy(policy, localizedReason: reason) { success, error in
             if !success {
                 result.set(error ?? LocalEncryptedSecretStoreError.authenticationFailed("unknown"))

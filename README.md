@@ -14,7 +14,7 @@ This is an alpha release: expect breaking changes while the CLI, storage format,
 - AgenticFortress stores the secret in a local encrypted store and keeps non-secret CLI metadata in its registry.
 - Each run validates the registered target binary identity before resolving the secret.
 - macOS LocalAuthentication is required before secret delivery. Depending on system state, macOS may ask for Touch ID, Apple Watch, or the local account password.
-- Successful CLI authentication creates a short scoped unlock grant for matching runs. The default TTL is 5 minutes and is bound to the CLI, target identity, workspace, parent app, delivery mode, and secret alias. Each command is still policy-checked before secret delivery.
+- Successful CLI authentication creates a short scoped unlock grant for matching runs. The default TTL is 1 hour and is bound to the CLI, target identity, workspace, parent app, delivery mode, and secret alias. Each command is still policy-checked before secret delivery.
 - Trust changes, such as `trust-refresh` after a CLI upgrade, also require LocalAuthentication.
 - Registry tampering and target replacement fail closed before any secret is read.
 

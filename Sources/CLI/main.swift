@@ -95,7 +95,7 @@ struct AgenticFortressCLI {
           agentic-fortress adapter revoke <adapter-id> <registry.json>
           agentic-fortress cli register hcloud --env HCLOUD_TOKEN --secret-stdin
           agentic-fortress cli run hcloud -- server list
-          agentic-fortress cli run hcloud --unlock-ttl-seconds 300 -- server list
+          agentic-fortress cli run hcloud --unlock-ttl-seconds 3600 -- server list
           agentic-fortress cli shim install hcloud --configure-shell
           agentic-fortress cli trust-refresh hcloud
           agentic-fortress cli unregister hcloud --delete-secrets
