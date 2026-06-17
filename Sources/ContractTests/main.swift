@@ -259,6 +259,13 @@ func runContracts() throws {
     try expect(KeychainSecretStoreError.from(status: errSecUserCanceled) == .userCanceled, "Keychain user cancellation must fail closed with a distinct error")
     let keychainBinding = try KeychainSecretStore(service: "com.agenticfortress.test").binding(for: secretAlias)
     try expect(keychainBinding.storeKind == "keychain", "Keychain secret store must expose keychain binding metadata without plaintext")
+    let systemSignedTool = "/bin/ls"
+    if FileManager.default.fileExists(atPath: systemSignedTool) {
+        let signatureAssessment = CodeSignatureInspector.assess(path: systemSignedTool)
+        try expect(signatureAssessment.valid, "code signature inspector must validate signed system tools")
+        try expect(signatureAssessment.designatedRequirement?.isEmpty == false, "code signature inspector must capture designated requirements when available")
+        try expect(CodeSignatureInspector.satisfies(path: systemSignedTool, requirementText: signatureAssessment.designatedRequirement ?? ""), "code signature inspector must validate a tool against its captured requirement")
+    }
     let encryptedStoreRoot = URL(fileURLWithPath: NSTemporaryDirectory()).appendingPathComponent("agentic-fortress-local-secret-\(UUID().uuidString)", isDirectory: true)
     let encryptedStore = LocalEncryptedSecretStore(
         storeURL: encryptedStoreRoot.appendingPathComponent("secrets.json"),
@@ -295,6 +302,7 @@ func runContracts() throws {
     )
     try expect(registration.name == "hcloud", "CLI registration must preserve command name")
     try expect(registration.targetPath == registeredTarget.path, "CLI registration must persist resolved target path")
+    try expect(registration.targetIdentity?.hasPrefix("sha256:") == true, "CLI registration must pin assessed target identity")
     try expect(registration.environmentBindings == [CLIEnvironmentBinding(environmentName: "HCLOUD_TOKEN", secretAlias: "cli.hcloud.hcloud_token")], "CLI registration must bind env name to deterministic secret alias")
     let loadedRegistration = try registrationLayout.registrationService.registration(named: "hcloud")
     try expect(loadedRegistration == registration, "CLI run path must load registration metadata by name")
@@ -322,7 +330,19 @@ func runContracts() throws {
         now: Date(timeIntervalSince1970: 0)
     )
     try expect(symlinkRegistration.targetPath == stableHcloud.path, "CLI registration must keep stable symlink invocation path across CLI upgrades")
-    _ = try TargetAssessor().assess(path: symlinkRegistration.targetPath)
+    let originalSymlinkTarget = try TargetAssessor().assess(path: symlinkRegistration.targetPath)
+    try registrationLayout.registrationService.validateTargetIdentity(registration: symlinkRegistration, assessedTarget: originalSymlinkTarget)
+    let upgradedCellarRoot = symlinkRoot.appendingPathComponent("Cellar/hcloud/1.66.0/bin", isDirectory: true)
+    try FileManager.default.createDirectory(at: upgradedCellarRoot, withIntermediateDirectories: true)
+    let upgradedHcloud = upgradedCellarRoot.appendingPathComponent("hcloud")
+    try "#!/bin/sh\nexit 0\n# changed\n".data(using: .utf8)!.write(to: upgradedHcloud)
+    try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: upgradedHcloud.path)
+    try FileManager.default.removeItem(at: stableHcloud)
+    try FileManager.default.createSymbolicLink(atPath: stableHcloud.path, withDestinationPath: "../Cellar/hcloud/1.66.0/bin/hcloud")
+    let changedSymlinkTarget = try TargetAssessor().assess(path: symlinkRegistration.targetPath)
+    try expectThrows(CLIRegistrationError.targetIdentityChanged(name: "hcloud-symlink", expected: symlinkRegistration.targetIdentity ?? "", actual: changedSymlinkTarget.identity), {
+        try registrationLayout.registrationService.validateTargetIdentity(registration: symlinkRegistration, assessedTarget: changedSymlinkTarget)
+    }, "CLI run path must deny target binary replacement before resolving secrets")
     try expectThrows(CLIRegistrationError.invalidEnvironmentName("HCLOUD_TOKEN=leak"), {
         _ = try registrationLayout.registrationService.register(
             name: "hcloud",

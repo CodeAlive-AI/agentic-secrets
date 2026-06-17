@@ -13,12 +13,35 @@ public struct CLIEnvironmentBinding: Codable, Equatable, Sendable {
 public struct CLIAppRegistration: Codable, Equatable, Sendable {
     public var name: String
     public var targetPath: String
+    public var targetResolvedPath: String?
+    public var targetIdentity: String?
+    public var targetCDHash: String?
+    public var targetDesignatedRequirement: String?
+    public var targetSigningIdentifier: String?
+    public var targetTeamIdentifier: String?
     public var environmentBindings: [CLIEnvironmentBinding]
     public var registeredAt: Date
 
-    public init(name: String, targetPath: String, environmentBindings: [CLIEnvironmentBinding], registeredAt: Date) {
+    public init(
+        name: String,
+        targetPath: String,
+        targetResolvedPath: String? = nil,
+        targetIdentity: String? = nil,
+        targetCDHash: String? = nil,
+        targetDesignatedRequirement: String? = nil,
+        targetSigningIdentifier: String? = nil,
+        targetTeamIdentifier: String? = nil,
+        environmentBindings: [CLIEnvironmentBinding],
+        registeredAt: Date
+    ) {
         self.name = name
         self.targetPath = targetPath
+        self.targetResolvedPath = targetResolvedPath
+        self.targetIdentity = targetIdentity
+        self.targetCDHash = targetCDHash
+        self.targetDesignatedRequirement = targetDesignatedRequirement
+        self.targetSigningIdentifier = targetSigningIdentifier
+        self.targetTeamIdentifier = targetTeamIdentifier
         self.environmentBindings = environmentBindings
         self.registeredAt = registeredAt
     }
@@ -39,6 +62,7 @@ public enum CLIRegistrationError: Error, Equatable, CustomStringConvertible {
     case invalidEnvironmentName(String)
     case missingEnvironmentValue(String)
     case targetNotExecutable(String)
+    case targetIdentityChanged(name: String, expected: String, actual: String)
     case unsupportedSchema(Int)
     case registrationMissing(String)
 
@@ -52,6 +76,8 @@ public enum CLIRegistrationError: Error, Equatable, CustomStringConvertible {
             "Missing secret value for environment variable '\(name)'. Use --secret-stdin, --secret-prompt, or --secrets-json-stdin."
         case .targetNotExecutable(let path):
             "Target is not executable: \(path)"
+        case .targetIdentityChanged(let name, let expected, let actual):
+            "Registered target identity changed for '\(name)'. Expected \(expected), got \(actual). Re-register the CLI after verifying the target binary."
         case .unsupportedSchema(let schema):
             "Unsupported CLI registry schema version: \(schema)"
         case .registrationMissing(let name):
@@ -108,6 +134,8 @@ public struct CLIRegistrationService: Sendable {
     ) throws -> CLIAppRegistration {
         try validateCLIName(name)
         try validateExecutable(targetPath)
+        let target = try TargetAssessor().assess(path: targetPath)
+        let signature = CodeSignatureInspector.assess(path: target.resolvedPath)
         guard !environmentValues.isEmpty else {
             throw CLIRegistrationError.missingEnvironmentValue("*")
         }
@@ -126,6 +154,12 @@ public struct CLIRegistrationService: Sendable {
         let registration = CLIAppRegistration(
             name: name,
             targetPath: stableInvocationPath(targetPath),
+            targetResolvedPath: target.resolvedPath,
+            targetIdentity: target.identity,
+            targetCDHash: signature.cdHash,
+            targetDesignatedRequirement: signature.designatedRequirement,
+            targetSigningIdentifier: signature.signingIdentifier,
+            targetTeamIdentifier: signature.teamIdentifier,
             environmentBindings: bindings,
             registeredAt: now
         )
@@ -154,6 +188,21 @@ public struct CLIRegistrationService: Sendable {
             throw CLIRegistrationError.registrationMissing(name)
         }
         return registration
+    }
+
+    public func validateTargetIdentity(registration: CLIAppRegistration, assessedTarget: TargetAssessment) throws {
+        if let requirement = registration.targetDesignatedRequirement {
+            guard CodeSignatureInspector.satisfies(path: assessedTarget.resolvedPath, requirementText: requirement) else {
+                throw CLIRegistrationError.targetIdentityChanged(name: registration.name, expected: requirement, actual: assessedTarget.identity)
+            }
+            return
+        }
+        guard let expectedIdentity = registration.targetIdentity else {
+            return
+        }
+        guard expectedIdentity == assessedTarget.identity else {
+            throw CLIRegistrationError.targetIdentityChanged(name: registration.name, expected: expectedIdentity, actual: assessedTarget.identity)
+        }
     }
 
     public static func defaultAlias(cliName: String, environmentName: String) -> String {

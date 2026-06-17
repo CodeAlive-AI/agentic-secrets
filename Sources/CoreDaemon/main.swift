@@ -93,6 +93,7 @@ struct AgenticFortressCoreDaemon {
         let executableName = URL(fileURLWithPath: registration.targetPath).lastPathComponent
         let command = CommandClassifier().classify(executableName: executableName, arguments: targetArguments)
         let target = try TargetAssessor().assess(path: registration.targetPath)
+        try layout.registrationService.validateTargetIdentity(registration: registration, assessedTarget: target)
         let environmentNames = registration.environmentBindings.map(\.environmentName)
         _ = try EnvironmentScrubber().scrub(
             parent: ProcessInfo.processInfo.environment,

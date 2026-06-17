@@ -1,6 +1,7 @@
 import CryptoKit
 import Darwin
 import Foundation
+import Security
 
 public struct CodeSigningRequirement: Codable, Equatable, Sendable {
     public var teamID: String
@@ -198,7 +199,64 @@ public enum SelfBuildPeerValidator {
 }
 
 public enum CodeSignatureInspector {
+    public struct Assessment: Codable, Equatable, Sendable {
+        public var valid: Bool
+        public var cdHash: String?
+        public var signingIdentifier: String?
+        public var teamIdentifier: String?
+        public var designatedRequirement: String?
+
+        public init(valid: Bool, cdHash: String? = nil, signingIdentifier: String? = nil, teamIdentifier: String? = nil, designatedRequirement: String? = nil) {
+            self.valid = valid
+            self.cdHash = cdHash
+            self.signingIdentifier = signingIdentifier
+            self.teamIdentifier = teamIdentifier
+            self.designatedRequirement = designatedRequirement
+        }
+    }
+
+    public static func assess(path: String) -> Assessment {
+        let url = URL(fileURLWithPath: path) as CFURL
+        var staticCode: SecStaticCode?
+        guard SecStaticCodeCreateWithPath(url, SecCSFlags(), &staticCode) == errSecSuccess,
+              let staticCode else {
+            return Assessment(valid: false)
+        }
+
+        let valid = SecStaticCodeCheckValidity(staticCode, SecCSFlags(rawValue: kSecCSCheckAllArchitectures), nil) == errSecSuccess
+        var infoDictionary: CFDictionary?
+        let flags = SecCSFlags(rawValue: kSecCSSigningInformation | kSecCSRequirementInformation)
+        let infoStatus = SecCodeCopySigningInformation(staticCode, flags, &infoDictionary)
+        let info = infoStatus == errSecSuccess ? infoDictionary as? [String: Any] : nil
+
+        return Assessment(
+            valid: valid,
+            cdHash: (info?[kSecCodeInfoUnique as String] as? Data).map(hexString),
+            signingIdentifier: info?[kSecCodeInfoIdentifier as String] as? String,
+            teamIdentifier: info?[kSecCodeInfoTeamIdentifier as String] as? String,
+            designatedRequirement: designatedRequirement(for: staticCode)
+        )
+    }
+
+    public static func satisfies(path: String, requirementText: String) -> Bool {
+        let url = URL(fileURLWithPath: path) as CFURL
+        var staticCode: SecStaticCode?
+        guard SecStaticCodeCreateWithPath(url, SecCSFlags(), &staticCode) == errSecSuccess,
+              let staticCode else {
+            return false
+        }
+        var requirement: SecRequirement?
+        guard SecRequirementCreateWithString(requirementText as CFString, SecCSFlags(), &requirement) == errSecSuccess,
+              let requirement else {
+            return false
+        }
+        return SecStaticCodeCheckValidity(staticCode, SecCSFlags(rawValue: kSecCSCheckAllArchitectures), requirement) == errSecSuccess
+    }
+
     public static func cdHash(path: String) -> String? {
+        if let cdHash = assess(path: path).cdHash {
+            return cdHash
+        }
         let process = Process()
         process.executableURL = URL(fileURLWithPath: "/usr/bin/codesign")
         process.arguments = ["-dv", "--verbose=4", path]
@@ -219,6 +277,23 @@ public enum CodeSignatureInspector {
             .split(separator: "\n")
             .first(where: { $0.hasPrefix("CDHash=") })
             .map { String($0.dropFirst("CDHash=".count)) }
+    }
+
+    private static func designatedRequirement(for staticCode: SecStaticCode) -> String? {
+        var requirement: SecRequirement?
+        guard SecCodeCopyDesignatedRequirement(staticCode, SecCSFlags(), &requirement) == errSecSuccess,
+              let requirement else {
+            return nil
+        }
+        var requirementText: CFString?
+        guard SecRequirementCopyString(requirement, SecCSFlags(), &requirementText) == errSecSuccess else {
+            return nil
+        }
+        return requirementText as String?
+    }
+
+    private static func hexString(_ data: Data) -> String {
+        data.map { String(format: "%02x", $0) }.joined()
     }
 }
 
