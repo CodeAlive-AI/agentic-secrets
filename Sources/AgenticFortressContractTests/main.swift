@@ -395,6 +395,39 @@ func runContracts() throws {
     try expect(customCommand.risk == .readOnly, "custom registered adapter must classify matching command")
     try expect(customCommand.adapterIdentity?.adapterHash == AdapterCanonicalizer.hash(signedPayload), "custom adapter identity must carry canonical adapter hash")
 
+    let registryRoot = URL(fileURLWithPath: NSTemporaryDirectory()).appendingPathComponent("agentic-fortress-adapters-\(UUID().uuidString)")
+    let registryURL = registryRoot.appendingPathComponent("adapters.json")
+    let registryStore = AdapterRegistryStore(url: registryURL)
+    try registryStore.install(payload: signedPayload, now: Date(timeIntervalSince1970: 1))
+    let registryDocument = try registryStore.loadDocument()
+    try expect(registryDocument.entries.count == 1, "adapter registry store must persist installed adapters")
+    try AdapterGoldenFixtureRunner.run(
+        fixtures: [AdapterGoldenFixture(executableName: "demo", arguments: ["thing", "list"], expectedRisk: .readOnly, expectedActionClass: "demo.thing.list")],
+        registry: try registryStore.activeRegistry()
+    )
+    try expectThrows(AdapterGoldenFixtureError.mismatch(expected: AdapterGoldenFixture(executableName: "demo", arguments: ["thing", "list"], expectedRisk: .destructive, expectedActionClass: "demo.thing.delete"), actualRisk: .readOnly, actualActionClass: "demo.thing.list"), {
+        try AdapterGoldenFixtureRunner.run(
+            fixtures: [AdapterGoldenFixture(executableName: "demo", arguments: ["thing", "list"], expectedRisk: .destructive, expectedActionClass: "demo.thing.delete")],
+            registry: try registryStore.activeRegistry()
+        )
+    }, "adapter golden fixtures must fail closed on classification mismatch")
+    let firstHash = CommandClassifier(registry: try registryStore.activeRegistry()).classify(executableName: "demo", arguments: ["thing", "list"]).adapterIdentity?.adapterHash
+    let changedPayload = AdapterPackPayload(
+        adapterID: "com.example.adapters.demo",
+        adapterVersion: 3,
+        cliName: "demo",
+        publisher: "Example Publisher",
+        rules: [.init(resource: "thing", verb: "list", risk: .readOnly, warnings: ["changed"])],
+        defaultWarning: "changed"
+    )
+    try registryStore.install(payload: changedPayload, now: Date(timeIntervalSince1970: 2))
+    let changedHash = CommandClassifier(registry: try registryStore.activeRegistry()).classify(executableName: "demo", arguments: ["thing", "list"]).adapterIdentity?.adapterHash
+    try expect(firstHash != changedHash, "adapter hash changes must invalidate lease identity")
+    try registryStore.revoke(adapterID: "com.example.adapters.demo", now: Date(timeIntervalSince1970: 3))
+    let revokedCommand = CommandClassifier(registry: try registryStore.activeRegistry()).classify(executableName: "demo", arguments: ["thing", "list"])
+    try expect(revokedCommand.risk == .unknown, "revoked adapter must not remain active")
+    try? FileManager.default.removeItem(at: registryRoot)
+
     var registry = AdapterRegistry()
     try registry.installVerified(payload: signedPayload)
     let olderPayload = AdapterPackPayload(

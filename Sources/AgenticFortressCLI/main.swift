@@ -52,6 +52,8 @@ struct AgenticFortressCLI {
         case "check-macos":
             let sdkMajor = args.first.flatMap(Int.init)
             print(try AgenticFortressJSON.encodePretty(MacOSCompatibility.runtimeReport(sdkMajor: sdkMajor)))
+        case "adapter":
+            try handleAdapter(args)
         case "redact":
             print(Redactor().redact(args.joined(separator: " ")))
         default:
@@ -73,8 +75,37 @@ struct AgenticFortressCLI {
           agentic-fortress release-gates
           agentic-fortress default-config
           agentic-fortress check-macos 26
+          agentic-fortress adapter list
+          agentic-fortress adapter install-payload <payload.json> <registry.json>
+          agentic-fortress adapter revoke <adapter-id> <registry.json>
           agentic-fortress redact "OPENAI_API_KEY=..."
         """)
+    }
+
+    private static func handleAdapter(_ args: [String]) throws {
+        guard let subcommand = args.first else {
+            throw CLIError.missingArgument("adapter subcommand")
+        }
+        switch subcommand {
+        case "list":
+            let entries = [
+                AdapterRegistryEntry(payload: BuiltInAdapterPacks.hcloud, installedAt: Date(timeIntervalSince1970: 0)),
+                AdapterRegistryEntry(payload: BuiltInAdapterPacks.githubCLI, installedAt: Date(timeIntervalSince1970: 0)),
+                AdapterRegistryEntry(payload: BuiltInAdapterPacks.terraform, installedAt: Date(timeIntervalSince1970: 0))
+            ]
+            print(try AgenticFortressJSON.encodePretty(AdapterRegistryDocument(entries: entries)))
+        case "install-payload":
+            guard args.count >= 3 else { throw CLIError.missingArgument("payload.json registry.json") }
+            let payload = try JSONDecoder().decode(AdapterPackPayload.self, from: Data(contentsOf: URL(fileURLWithPath: args[1])))
+            try AdapterRegistryStore(url: URL(fileURLWithPath: args[2])).install(payload: payload)
+            print("installed \(payload.adapterID)@\(payload.adapterVersion)")
+        case "revoke":
+            guard args.count >= 3 else { throw CLIError.missingArgument("adapter-id registry.json") }
+            try AdapterRegistryStore(url: URL(fileURLWithPath: args[2])).revoke(adapterID: args[1])
+            print("revoked \(args[1])")
+        default:
+            throw CLIError.missingArgument("known adapter subcommand")
+        }
     }
 }
 

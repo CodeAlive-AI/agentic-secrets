@@ -315,6 +315,116 @@ public struct AdapterRegistry: Sendable {
     }
 }
 
+public struct AdapterRegistryEntry: Codable, Equatable, Sendable {
+    public var payload: AdapterPackPayload
+    public var adapterHash: String
+    public var installedAt: Date
+    public var revokedAt: Date?
+
+    public init(payload: AdapterPackPayload, adapterHash: String = "", installedAt: Date = Date(), revokedAt: Date? = nil) {
+        self.payload = payload
+        self.adapterHash = adapterHash.isEmpty ? AdapterCanonicalizer.hash(payload) : adapterHash
+        self.installedAt = installedAt
+        self.revokedAt = revokedAt
+    }
+}
+
+public struct AdapterRegistryDocument: Codable, Equatable, Sendable {
+    public var schemaVersion: Int
+    public var entries: [AdapterRegistryEntry]
+
+    public init(schemaVersion: Int = 1, entries: [AdapterRegistryEntry] = []) {
+        self.schemaVersion = schemaVersion
+        self.entries = entries
+    }
+}
+
+public enum AdapterRegistryStoreError: Error, Equatable {
+    case unsupportedSchema(Int)
+    case missingAdapter(String)
+}
+
+public struct AdapterRegistryStore: Sendable {
+    public var url: URL
+
+    public init(url: URL) {
+        self.url = url
+    }
+
+    public func loadDocument() throws -> AdapterRegistryDocument {
+        guard FileManager.default.fileExists(atPath: url.path) else {
+            return AdapterRegistryDocument()
+        }
+        let document = try JSONDecoder().decode(AdapterRegistryDocument.self, from: Data(contentsOf: url))
+        guard document.schemaVersion == 1 else {
+            throw AdapterRegistryStoreError.unsupportedSchema(document.schemaVersion)
+        }
+        return document
+    }
+
+    public func saveDocument(_ document: AdapterRegistryDocument) throws {
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.prettyPrinted, .sortedKeys, .withoutEscapingSlashes]
+        encoder.dateEncodingStrategy = .secondsSince1970
+        try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try encoder.encode(document).write(to: url, options: [.atomic])
+    }
+
+    public func install(payload: AdapterPackPayload, now: Date = Date()) throws {
+        var document = try loadDocument()
+        document.entries.removeAll { $0.payload.adapterID == payload.adapterID }
+        document.entries.append(AdapterRegistryEntry(payload: payload, installedAt: now))
+        try saveDocument(document)
+    }
+
+    public func revoke(adapterID: String, now: Date = Date()) throws {
+        var document = try loadDocument()
+        guard let index = document.entries.firstIndex(where: { $0.payload.adapterID == adapterID }) else {
+            throw AdapterRegistryStoreError.missingAdapter(adapterID)
+        }
+        document.entries[index].revokedAt = now
+        try saveDocument(document)
+    }
+
+    public func activeRegistry() throws -> AdapterRegistry {
+        var registry = AdapterRegistry()
+        for entry in try loadDocument().entries where entry.revokedAt == nil {
+            try registry.installVerified(payload: entry.payload)
+        }
+        return registry
+    }
+}
+
+public struct AdapterGoldenFixture: Codable, Equatable, Sendable {
+    public var executableName: String
+    public var arguments: [String]
+    public var expectedRisk: RiskLevel
+    public var expectedActionClass: String
+
+    public init(executableName: String, arguments: [String], expectedRisk: RiskLevel, expectedActionClass: String) {
+        self.executableName = executableName
+        self.arguments = arguments
+        self.expectedRisk = expectedRisk
+        self.expectedActionClass = expectedActionClass
+    }
+}
+
+public enum AdapterGoldenFixtureError: Error, Equatable {
+    case mismatch(expected: AdapterGoldenFixture, actualRisk: RiskLevel, actualActionClass: String)
+}
+
+public enum AdapterGoldenFixtureRunner {
+    public static func run(fixtures: [AdapterGoldenFixture], registry: AdapterRegistry) throws {
+        let classifier = CommandClassifier(registry: registry)
+        for fixture in fixtures {
+            let command = classifier.classify(executableName: fixture.executableName, arguments: fixture.arguments)
+            guard command.risk == fixture.expectedRisk, command.actionClass == fixture.expectedActionClass else {
+                throw AdapterGoldenFixtureError.mismatch(expected: fixture, actualRisk: command.risk, actualActionClass: command.actionClass)
+            }
+        }
+    }
+}
+
 public enum BuiltInAdapterPacks {
     public static func registry() -> AdapterRegistry {
         var registry = AdapterRegistry()
