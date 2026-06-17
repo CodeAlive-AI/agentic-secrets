@@ -257,6 +257,7 @@ public struct LocalEncryptedSecretStore: LocalSecretStore {
     }
 
     public func delete(alias: SecretAlias) throws {
+        try prepareParentDirectories()
         var storeFile = try loadStoreFile()
         storeFile.records.removeValue(forKey: alias.rawValue)
         try writeStoreFile(storeFile)

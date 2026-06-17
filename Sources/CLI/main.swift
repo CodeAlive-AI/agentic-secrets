@@ -1,4 +1,5 @@
 import AgenticFortressCore
+import Darwin
 import Foundation
 
 @main
@@ -56,6 +57,8 @@ struct AgenticFortressCLI {
             print(try AgenticFortressJSON.encodePretty(MacOSCompatibility.runtimeReport(sdkMajor: sdkMajor)))
         case "adapter":
             try handleAdapter(args)
+        case "cli":
+            try handleCLI(args)
         case "redact":
             print(Redactor().redact(args.joined(separator: " ")))
         default:
@@ -81,6 +84,8 @@ struct AgenticFortressCLI {
           agentic-fortress adapter list
           agentic-fortress adapter install-payload <payload.json> <registry.json>
           agentic-fortress adapter revoke <adapter-id> <registry.json>
+          agentic-fortress cli register hcloud --env HCLOUD_TOKEN --secret-stdin
+          agentic-fortress cli unregister hcloud --delete-secrets
           agentic-fortress redact "OPENAI_API_KEY=..."
         """)
     }
@@ -109,6 +114,103 @@ struct AgenticFortressCLI {
         default:
             throw CLIError.missingArgument("known adapter subcommand")
         }
+    }
+
+    private static func handleCLI(_ args: [String]) throws {
+        guard let subcommand = args.first else {
+            throw CLIError.missingArgument("cli subcommand")
+        }
+        switch subcommand {
+        case "register":
+            guard args.count >= 2 else { throw CLIError.missingArgument("cli name") }
+            let name = args[1]
+            var passthrough = Array(args.dropFirst(2))
+            guard passthrough.contains("--secret-stdin") || passthrough.contains("--secret-prompt") || passthrough.contains("--secrets-json-stdin") else {
+                throw CLIError.missingArgument("--secret-stdin, --secret-prompt, or --secrets-json-stdin")
+            }
+            if !passthrough.contains("--target") {
+                passthrough += ["--target", try resolveExecutable(name)]
+            }
+            if !passthrough.contains("--state-dir") {
+                passthrough += ["--state-dir", defaultStateDirectory().path]
+            }
+            try runCoreCommand(["register-cli", "--name", name] + passthrough)
+        case "unregister":
+            guard args.count >= 2 else { throw CLIError.missingArgument("cli name") }
+            let name = args[1]
+            var passthrough = Array(args.dropFirst(2))
+            if !passthrough.contains("--state-dir") {
+                passthrough += ["--state-dir", defaultStateDirectory().path]
+            }
+            try runCoreCommand(["unregister-cli", "--name", name] + passthrough)
+        default:
+            throw CLIError.missingArgument("known cli subcommand")
+        }
+    }
+
+    private static func runCoreCommand(_ arguments: [String]) throws {
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: try coreDaemonPath())
+        process.arguments = arguments
+        process.standardInput = FileHandle.standardInput
+        process.standardOutput = FileHandle.standardOutput
+        process.standardError = FileHandle.standardError
+        try process.run()
+        process.waitUntilExit()
+        guard process.terminationStatus == 0 else {
+            exit(process.terminationStatus)
+        }
+    }
+
+    private static func coreDaemonPath() throws -> String {
+        if let override = ProcessInfo.processInfo.environment["AGENTIC_FORTRESS_CORE_BINARY"], !override.isEmpty {
+            return override
+        }
+        let invoked = URL(fileURLWithPath: CommandLine.arguments[0])
+        let sibling = invoked.deletingLastPathComponent().appendingPathComponent("agentic-fortressd-core")
+        if FileManager.default.isExecutableFile(atPath: sibling.path) {
+            return sibling.path
+        }
+        throw CLIError.missingArgument("agentic-fortressd-core sibling binary or AGENTIC_FORTRESS_CORE_BINARY")
+    }
+
+    private static func defaultStateDirectory() -> URL {
+        if let override = ProcessInfo.processInfo.environment["AGENTIC_FORTRESS_STATE_DIR"], !override.isEmpty {
+            return URL(fileURLWithPath: override, isDirectory: true)
+        }
+        let invoked = URL(fileURLWithPath: CommandLine.arguments[0]).resolvingSymlinksInPath()
+        let components = invoked.pathComponents
+        if let applicationsIndex = components.lastIndex(of: "Applications"), applicationsIndex > 0 {
+            let prefix = URL(fileURLWithPath: "/" + components[1..<applicationsIndex].joined(separator: "/"), isDirectory: true)
+            return prefix.appendingPathComponent("var/agentic-fortress", isDirectory: true)
+        }
+        return AgenticFortressStateLayout.defaultStateDirectory()
+    }
+
+    private static func resolveExecutable(_ name: String) throws -> String {
+        guard !name.contains("/") else {
+            guard FileManager.default.isExecutableFile(atPath: name) else {
+                throw CLIError.missingArgument("executable target for \(name)")
+            }
+            return name
+        }
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/usr/bin/which")
+        process.arguments = [name]
+        let pipe = Pipe()
+        process.standardOutput = pipe
+        process.standardError = Pipe()
+        try process.run()
+        process.waitUntilExit()
+        guard process.terminationStatus == 0 else {
+            throw CLIError.missingArgument("--target for \(name)")
+        }
+        let output = String(decoding: pipe.fileHandleForReading.readDataToEndOfFile(), as: UTF8.self)
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !output.isEmpty else {
+            throw CLIError.missingArgument("--target for \(name)")
+        }
+        return output
     }
 
 }

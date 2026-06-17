@@ -281,6 +281,45 @@ func runContracts() throws {
     let userCancelError = NSError(domain: LAError.errorDomain, code: LAError.Code.userCancel.rawValue)
     try expect(LocalAuthenticationPolicyGate.map(error: userCancelError) == .userCanceled, "LocalAuthentication cancellation must fail closed with userCanceled")
 
+    let registrationRoot = URL(fileURLWithPath: NSTemporaryDirectory()).appendingPathComponent("agentic-fortress-cli-registration-\(UUID().uuidString)", isDirectory: true)
+    try FileManager.default.createDirectory(at: registrationRoot, withIntermediateDirectories: true)
+    let registeredTarget = registrationRoot.appendingPathComponent("hcloud")
+    try "#!/bin/sh\nexit 0\n".data(using: .utf8)!.write(to: registeredTarget)
+    try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: registeredTarget.path)
+    let registrationLayout = AgenticFortressStateLayout(stateDirectory: registrationRoot.appendingPathComponent("state", isDirectory: true))
+    let registration = try registrationLayout.registrationService.register(
+        name: "hcloud",
+        targetPath: registeredTarget.path,
+        environmentValues: ["HCLOUD_TOKEN": SecretMaterial(utf8: "registration-secret-token")],
+        now: Date(timeIntervalSince1970: 0)
+    )
+    try expect(registration.name == "hcloud", "CLI registration must preserve command name")
+    try expect(registration.targetPath == registeredTarget.path, "CLI registration must persist resolved target path")
+    try expect(registration.environmentBindings == [CLIEnvironmentBinding(environmentName: "HCLOUD_TOKEN", secretAlias: "cli.hcloud.hcloud_token")], "CLI registration must bind env name to deterministic secret alias")
+    let registryText = String(decoding: try Data(contentsOf: registrationLayout.registryURL), as: UTF8.self)
+    try expect(registryText.contains("HCLOUD_TOKEN"), "CLI registry must store env metadata")
+    try expect(!registryText.contains("registration-secret-token"), "CLI registry must not store plaintext secret values")
+    let registeredSecretStoreText = String(decoding: try Data(contentsOf: registrationLayout.secretStoreURL), as: UTF8.self)
+    try expect(!registeredSecretStoreText.contains("registration-secret-token"), "CLI local encrypted store must not contain plaintext registered secret")
+    let registryPermissions = try FileManager.default.attributesOfItem(atPath: registrationLayout.registryURL.path)[.posixPermissions] as? NSNumber
+    try expect(registryPermissions?.intValue == 0o600, "CLI registry must be owner-only")
+    try expectThrows(CLIRegistrationError.invalidEnvironmentName("HCLOUD_TOKEN=leak"), {
+        _ = try registrationLayout.registrationService.register(
+            name: "hcloud",
+            targetPath: registeredTarget.path,
+            environmentValues: ["HCLOUD_TOKEN=leak": SecretMaterial(utf8: "bad")],
+            now: Date(timeIntervalSince1970: 0)
+        )
+    }, "CLI registration must reject env specs that include values in argument-shaped names")
+    let removedRegistration = try registrationLayout.registrationService.unregister(name: "hcloud", deleteSecrets: true)
+    try expect(removedRegistration.name == "hcloud", "CLI unregister must return removed registration")
+    let registryAfterDelete = try registrationLayout.registrationService.registryStore.load()
+    try expect(registryAfterDelete.registrations["hcloud"] == nil, "CLI unregister must remove registration metadata")
+    try expectThrows(SecretStoreError.missingBinding(SecretAlias("cli.hcloud.hcloud_token")), {
+        _ = try registrationLayout.registrationService.secretStore.binding(for: SecretAlias("cli.hcloud.hcloud_token"))
+    }, "CLI unregister with delete-secrets must remove secret binding")
+    try? FileManager.default.removeItem(at: registrationRoot)
+
     let shimRoot = URL(fileURLWithPath: NSTemporaryDirectory()).appendingPathComponent("agentic-fortress-shim-\(UUID().uuidString)")
     let shimTarget = shimRoot.appendingPathComponent("hcloud")
     try FileManager.default.createDirectory(at: shimRoot, withIntermediateDirectories: true)

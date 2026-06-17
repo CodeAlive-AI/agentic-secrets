@@ -92,6 +92,43 @@ The script creates a temporary device-local encrypted secret record, reads it th
 
 The prompt-producing path runs in `agentic-fortressd-core`; CLI and helper targets are guarded by `scripts/check_secret_authority.sh` from directly using production secret resolution.
 
+## CLI App Registration
+
+Register a CLI app with one secret-backed environment variable:
+
+```sh
+PREFIX="$HOME/Library/Application Support/AgenticFortress/LocalInstall"
+pbpaste | "$PREFIX/bin/agentic-fortress" cli register hcloud \
+  --env HCLOUD_TOKEN \
+  --secret-stdin
+```
+
+The secret value is read by `agentic-fortressd-core` from stdin. The front-end CLI process does not parse or persist the value, and the value must not be passed as `HCLOUD_TOKEN=value` in argv.
+
+For an interactive hidden prompt:
+
+```sh
+"$PREFIX/bin/agentic-fortress" cli register hcloud \
+  --env HCLOUD_TOKEN \
+  --secret-prompt
+```
+
+For multiple environment variables, pass a JSON object over stdin:
+
+```sh
+printf '%s\n' '{"HCLOUD_TOKEN":"<redacted>"}' | "$PREFIX/bin/agentic-fortress" cli register hcloud \
+  --env HCLOUD_TOKEN \
+  --secrets-json-stdin
+```
+
+Unregister the CLI app and delete its local secret records:
+
+```sh
+"$PREFIX/bin/agentic-fortress" cli unregister hcloud --delete-secrets
+```
+
+Registration stores non-secret metadata in `var/agentic-fortress/cli-registry.json` and encrypted secret records under `var/agentic-fortress/secrets/`. Registry files are owner-only and must not contain plaintext token material.
+
 ## Adapter Management
 
 List built-in adapter metadata:

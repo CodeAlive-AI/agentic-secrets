@@ -1,4 +1,5 @@
 import AgenticFortressCore
+import Darwin
 import Foundation
 
 @main
@@ -16,6 +17,12 @@ struct AgenticFortressCoreDaemon {
             case "local-secret-smoke":
                 try runLocalSecretSmoke(args)
                 return
+            case "register-cli":
+                try registerCLI(args)
+                return
+            case "unregister-cli":
+                try unregisterCLI(args)
+                return
             default:
                 throw CoreDaemonError.unknownCommand(command)
             }
@@ -28,6 +35,51 @@ struct AgenticFortressCoreDaemon {
             "can_run_local": String(report.canRunLocal),
             "can_distribute_binary": String(report.canDistributeBinary),
             "note": "Default production track is self-build with local ad-hoc signing; Developer ID distribution is optional future maintainer work."
+        ]))
+    }
+
+    private static func registerCLI(_ args: [String]) throws {
+        let name = try requiredValue(after: "--name", in: args)
+        let target = try requiredValue(after: "--target", in: args)
+        let environmentNames = values(after: "--env", in: args)
+        let layout = AgenticFortressStateLayout(stateDirectory: stateDirectory(from: args))
+        let values: [String: SecretMaterial]
+        if args.contains("--secrets-json-stdin") {
+            values = try readSecretJSONFromStdin(allowedEnvironmentNames: environmentNames)
+        } else if args.contains("--secret-stdin") {
+            guard environmentNames.count == 1, let environmentName = environmentNames.first else {
+                throw CoreDaemonError.invalidArguments("--secret-stdin requires exactly one --env")
+            }
+            values = [environmentName: try readSingleSecretFromStdin()]
+        } else if args.contains("--secret-prompt") {
+            guard environmentNames.count == 1, let environmentName = environmentNames.first else {
+                throw CoreDaemonError.invalidArguments("--secret-prompt requires exactly one --env")
+            }
+            values = [environmentName: try readSingleSecretFromPrompt(label: "\(name) \(environmentName)")]
+        } else {
+            throw CoreDaemonError.invalidArguments("use --secret-stdin, --secrets-json-stdin, or --secret-prompt")
+        }
+        let registration = try layout.registrationService.register(name: name, targetPath: target, environmentValues: values)
+        print(try AgenticFortressJSON.encodePretty([
+            "status": "registered",
+            "name": registration.name,
+            "targetPath": registration.targetPath,
+            "environments": registration.environmentBindings.map(\.environmentName).joined(separator: ","),
+            "registry": layout.registryURL.path,
+            "secretStore": "local-encrypted-file"
+        ]))
+    }
+
+    private static func unregisterCLI(_ args: [String]) throws {
+        let name = try requiredValue(after: "--name", in: args)
+        let deleteSecrets = args.contains("--delete-secrets")
+        let layout = AgenticFortressStateLayout(stateDirectory: stateDirectory(from: args))
+        let registration = try layout.registrationService.unregister(name: name, deleteSecrets: deleteSecrets)
+        print(try AgenticFortressJSON.encodePretty([
+            "status": "unregistered",
+            "name": registration.name,
+            "deletedSecrets": String(deleteSecrets),
+            "environments": registration.environmentBindings.map(\.environmentName).joined(separator: ",")
         ]))
     }
 
@@ -98,11 +150,82 @@ struct AgenticFortressCoreDaemon {
         guard valueIndex < args.endIndex else { return nil }
         return args[valueIndex]
     }
+
+    private static func values(after flag: String, in args: [String]) -> [String] {
+        args.indices.compactMap { index in
+            guard args[index] == flag else { return nil }
+            let valueIndex = args.index(after: index)
+            guard valueIndex < args.endIndex else { return nil }
+            return args[valueIndex]
+        }
+    }
+
+    private static func stateDirectory(from args: [String]) -> URL {
+        if let stateDir = value(after: "--state-dir", in: args) {
+            return URL(fileURLWithPath: stateDir, isDirectory: true)
+        }
+        return AgenticFortressStateLayout.defaultStateDirectory()
+    }
+
+    private static func readSingleSecretFromStdin() throws -> SecretMaterial {
+        let data = FileHandle.standardInput.readDataToEndOfFile()
+        let trimmed = trimTrailingNewlines(data)
+        guard !trimmed.isEmpty else {
+            throw CoreDaemonError.invalidArguments("empty secret stdin")
+        }
+        return SecretMaterial(bytes: trimmed)
+    }
+
+    private static func readSecretJSONFromStdin(allowedEnvironmentNames: [String]) throws -> [String: SecretMaterial] {
+        let data = FileHandle.standardInput.readDataToEndOfFile()
+        let raw = try JSONDecoder().decode([String: String].self, from: data)
+        let allowed = Set(allowedEnvironmentNames)
+        guard !raw.isEmpty else {
+            throw CoreDaemonError.invalidArguments("empty secrets JSON")
+        }
+        if !allowed.isEmpty && !Set(raw.keys).isSubset(of: allowed) {
+            throw CoreDaemonError.invalidArguments("secrets JSON contains env names not listed with --env")
+        }
+        return raw.mapValues { SecretMaterial(utf8: $0) }
+    }
+
+    private static func readSingleSecretFromPrompt(label: String) throws -> SecretMaterial {
+        guard isatty(STDIN_FILENO) == 1 else {
+            throw CoreDaemonError.invalidArguments("--secret-prompt requires a TTY")
+        }
+        fputs("Enter secret for \(label): ", stderr)
+        var oldTermios = termios()
+        guard tcgetattr(STDIN_FILENO, &oldTermios) == 0 else {
+            throw CoreDaemonError.invalidArguments("failed to read terminal settings")
+        }
+        var newTermios = oldTermios
+        newTermios.c_lflag &= ~UInt(ECHO)
+        guard tcsetattr(STDIN_FILENO, TCSAFLUSH, &newTermios) == 0 else {
+            throw CoreDaemonError.invalidArguments("failed to disable terminal echo")
+        }
+        defer {
+            _ = tcsetattr(STDIN_FILENO, TCSAFLUSH, &oldTermios)
+            fputs("\n", stderr)
+        }
+        guard let line = readLine(strippingNewline: true), !line.isEmpty else {
+            throw CoreDaemonError.invalidArguments("empty secret")
+        }
+        return SecretMaterial(utf8: line)
+    }
+
+    private static func trimTrailingNewlines(_ data: Data) -> Data {
+        var bytes = Array(data)
+        while let last = bytes.last, last == 10 || last == 13 {
+            bytes.removeLast()
+        }
+        return Data(bytes)
+    }
 }
 
 enum CoreDaemonError: Error, CustomStringConvertible {
     case missingArgument(String)
     case unknownCommand(String)
+    case invalidArguments(String)
 
     var description: String {
         switch self {
@@ -110,6 +233,8 @@ enum CoreDaemonError: Error, CustomStringConvertible {
             "Missing argument: \(argument)"
         case .unknownCommand(let command):
             "Unknown core daemon command: \(command)"
+        case .invalidArguments(let reason):
+            "Invalid arguments: \(reason)"
         }
     }
 }

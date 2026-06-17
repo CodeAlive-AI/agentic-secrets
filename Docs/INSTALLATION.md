@@ -130,6 +130,27 @@ For cancellation, press Deny or Cancel in the macOS prompt. The command passes o
 
 The script name is kept for compatibility with older acceptance scripts, but the default self-build runtime path uses an owner-only encrypted local file store gated by LocalAuthentication. It does not require shared Keychain access groups.
 
+## Register hcloud Without cli.toml
+
+Do not use `hcloud context create` for the AgenticFortress flow. That official hcloud mode stores the token in `~/.config/hcloud/cli.toml`.
+
+Instead, copy the Hetzner Cloud project token to the clipboard and register `hcloud` through AgenticFortress:
+
+```sh
+PREFIX="$HOME/Library/Application Support/AgenticFortress/LocalInstall"
+pbpaste | "$PREFIX/bin/agentic-fortress" cli register hcloud \
+  --env HCLOUD_TOKEN \
+  --secret-stdin
+```
+
+The token is read by the core-owned registration command from stdin and stored in the local encrypted secret store. Do not pass token values as command-line arguments.
+
+To remove the registration and its local secret record:
+
+```sh
+"$PREFIX/bin/agentic-fortress" cli unregister hcloud --delete-secrets
+```
+
 ## Update
 
 Update by checking out the desired commit and running install again:
