@@ -24,6 +24,7 @@ The default distribution model is open-source self-build with local ad-hoc signi
 See:
 
 - `Docs/THREAT_MODEL.md`
+- `Docs/ACCEPTANCE_CRITERIA.md`
 - `Docs/OPERATIONS.md`
 - `Docs/IMPLEMENTATION_MAP.md`
 - `Docs/IMPLEMENTATION_PLAN.md`

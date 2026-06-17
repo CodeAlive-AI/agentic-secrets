@@ -2,6 +2,8 @@
 
 ## Verification
 
+The full no-Developer-ID production acceptance set is defined in `Docs/ACCEPTANCE_CRITERIA.md`.
+
 Run the standard contract gate:
 
 ```sh

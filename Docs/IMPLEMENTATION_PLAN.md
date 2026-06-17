@@ -1,6 +1,6 @@
 # AgenticFortress Production Implementation Plan
 
-This plan turns the current production-contract skeleton into a production macOS security product. Every step must end with verification and a commit.
+This plan turns the current production-contract skeleton into a production macOS security product. Every step must end with verification and a commit. The production-ready definition for the default no-Developer-ID track is governed by `Docs/ACCEPTANCE_CRITERIA.md`.
 
 ## Step 1: Local Secret Store and Approval Session Core
 
@@ -186,4 +186,3 @@ Verification:
 Commit:
 
 - `Document threat model and operator workflows`
-
