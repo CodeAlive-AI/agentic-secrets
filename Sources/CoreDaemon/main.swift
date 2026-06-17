@@ -13,8 +13,8 @@ struct AgenticFortressCoreDaemon {
             case "serve-once":
                 try serveOnce(args)
                 return
-            case "keychain-smoke":
-                try runKeychainSmoke(args)
+            case "local-secret-smoke":
+                try runLocalSecretSmoke(args)
                 return
             default:
                 throw CoreDaemonError.unknownCommand(command)
@@ -45,16 +45,21 @@ struct AgenticFortressCoreDaemon {
         }
     }
 
-    private static func runKeychainSmoke(_ args: [String]) throws {
+    private static func runLocalSecretSmoke(_ args: [String]) throws {
         let service = value(after: "--service", in: args) ?? "com.agenticfortress.interactive-smoke"
         let alias = SecretAlias(value(after: "--alias", in: args) ?? "agentic-fortress.interactive-smoke")
-        let store = KeychainSecretStore(service: service)
+        let smokeRoot = URL(fileURLWithPath: NSTemporaryDirectory())
+            .appendingPathComponent("\(service)-\(UUID().uuidString)", isDirectory: true)
+        let store = LocalEncryptedSecretStore(
+            storeURL: smokeRoot.appendingPathComponent("secrets.json"),
+            keyURL: smokeRoot.appendingPathComponent("secret-store.key")
+        )
         let material = SecretMaterial(utf8: "generated-\(UUID().uuidString)")
-        try store.store(alias: alias, material: material, label: "AgenticFortress interactive smoke", authentication: .presenceRequired)
-        defer { try? store.delete(alias: alias) }
+        try store.store(alias: alias, material: material, label: "AgenticFortress interactive smoke")
+        defer { try? FileManager.default.removeItem(at: smokeRoot) }
 
-        let command = CommandClassifier().classify(executableName: "agentic-fortressd-core", arguments: ["keychain-smoke"])
-        let target = TargetAssessor().synthetic(path: CommandLine.arguments.first ?? "agentic-fortressd-core", identity: "sha256:keychain-smoke")
+        let command = CommandClassifier().classify(executableName: "agentic-fortressd-core", arguments: ["local-secret-smoke"])
+        let target = TargetAssessor().synthetic(path: CommandLine.arguments.first ?? "agentic-fortressd-core", identity: "sha256:local-secret-smoke")
         let manifest = DecisionManifestFactory().make(
             command: command,
             intent: DeliveryIntent(
@@ -72,6 +77,7 @@ struct AgenticFortressCoreDaemon {
         print(try AgenticFortressJSON.encodePretty([
             "status": "ok",
             "secret": "resolved-redacted",
+            "store": "local-encrypted-file",
             "manifestDigest": manifest.digest,
             "promptReasonContainsTarget": String(session.authenticationReason.contains(manifest.target.display)),
             "promptReasonContainsWorkspace": String(session.authenticationReason.contains(manifest.workspace.display)),

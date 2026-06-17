@@ -10,7 +10,7 @@ A release is accepted as production-ready for the no-Developer-ID track when:
 
 - a user can clone, build, package, install, run, update, and uninstall AgenticFortress without an Apple Developer Program account;
 - all shipped executables are locally ad-hoc signed and pass local code-signing validation;
-- `agentic-fortressd-core` is the only component allowed to read Keychain secret material;
+- `agentic-fortressd-core` is the only component allowed to read local secret material;
 - helpers communicate with core through authenticated local IPC/XPC and never read secrets directly;
 - every secret delivery is tied to a decision manifest, policy epoch, target identity, approval session, and audit record;
 - every acceptance criterion below has concrete evidence from automated tests, local Tahoe gates, or an explicit interactive verification transcript.
@@ -21,7 +21,7 @@ A release is accepted as production-ready for the no-Developer-ID track when:
 | --- | --- | --- |
 | Automated | Must run without user interaction. | `./scripts/ci.sh`, contract tests, static checks, packaging checks. |
 | Local macOS | Must run on supported macOS with current SDK. | `./scripts/tahoe_compatibility_check.sh`, codesign validation, local app launch smoke tests. |
-| Interactive | Requires a user prompt or local credential store. | Keychain/LocalAuthentication prompt transcript, UI screenshot, recorded command output with secrets redacted. |
+| Interactive | Requires a user prompt or local credential store. | LocalAuthentication prompt transcript, UI screenshot, recorded command output with secrets redacted. |
 | Manual review | Human review required because the claim cannot be fully automated. | Threat-model sign-off, release checklist sign-off, docs review. |
 
 No acceptance criterion may rely on reading, printing, or grepping secret values.
@@ -141,7 +141,7 @@ Pass condition:
 - Every shipped executable and bundle is ad-hoc signed.
 - Hardened runtime is enabled where supported by the local packaging path.
 - Code-signing validation is part of the package validation script.
-- Only `agentic-fortressd-core` carries the minimal app identity entitlement required by Tahoe data-protection Keychain access; helper binaries use the smaller baseline.
+- No shipped executable carries restricted entitlements that make ad-hoc self-build execution fail on Tahoe.
 
 Verification:
 
@@ -156,7 +156,7 @@ Required evidence:
 
 - All commands exit `0`.
 - `codesign` output confirms the app satisfies its designated requirement.
-- Entitlement diff confirms the app/helper baseline and the core-only Keychain-capable baseline.
+- Entitlement diff confirms the app and every helper use the approved self-build baseline.
 
 Failure examples:
 
@@ -169,7 +169,7 @@ Pass condition:
 
 - The product has an uninstall command or script.
 - Uninstall removes launch agents, sockets, shims, temporary files, and installed app files.
-- Keychain items and policy state are retained or removed only according to an explicit user-selected mode.
+- Local secret records and policy state are retained or removed only according to an explicit user-selected mode.
 
 Verification:
 
@@ -187,7 +187,7 @@ Required evidence:
 Failure examples:
 
 - Uninstall leaves active launch agents.
-- Uninstall deletes Keychain items without explicit purge mode.
+- Uninstall deletes local secret records without explicit purge mode.
 
 ## Process Architecture and IPC
 
@@ -195,14 +195,14 @@ Failure examples:
 
 Pass condition:
 
-- Only `agentic-fortressd-core` imports and uses the production Keychain secret resolution path.
-- `agentic-fortress-shim`, `agentic-fortress-proxyd`, `agentic-fortress-bwsd`, and `agentic-fortress-mcpd` do not call `SecItemCopyMatching` for secret material.
+- Only `agentic-fortressd-core` imports and uses the production local secret resolution path.
+- `agentic-fortress-shim`, `agentic-fortress-proxyd`, `agentic-fortress-bwsd`, and `agentic-fortress-mcpd` do not call `SecItemCopyMatching` or instantiate production local secret stores for secret material.
 - Helpers receive narrow capabilities or execution plans, not raw secret read authority.
 
 Verification:
 
 ```sh
-rg "SecItemCopyMatching|KeychainSecretStore|resolve\\(" Sources
+rg "SecItemCopyMatching|KeychainSecretStore|LocalEncryptedSecretStore|resolve\\(" Sources
 ./scripts/check_secret_authority.sh
 ./scripts/ci.sh
 ```
@@ -210,11 +210,11 @@ rg "SecItemCopyMatching|KeychainSecretStore|resolve\\(" Sources
 Required evidence:
 
 - Static scan shows production secret resolution only in core-owned modules.
-- Contract tests cover helper behavior without direct Keychain access.
+- Contract tests cover helper behavior without direct local secret store access.
 
 Failure examples:
 
-- A helper reads Keychain tokens directly.
+- A helper reads local secret material directly.
 - A helper exposes a public "get secret" operation.
 
 ### AC-IPC-002: Local IPC Authenticates Helpers Without Developer ID
@@ -266,15 +266,16 @@ Failure examples:
 - Shim invokes core by passing secret-bearing JSON through argv.
 - A helper writes a secret request to `/tmp` for core to poll.
 
-## Keychain and Local Authentication
+## Local Secret Storage and Local Authentication
 
 ### AC-KEY-001: No Shared Keychain Access Group Is Required
 
 Pass condition:
 
 - Default entitlements do not include a shared Keychain access group.
-- Only core reads Keychain secret material.
-- Helpers cannot resolve Keychain secrets directly.
+- Only core reads local secret material.
+- Helpers cannot resolve local secrets directly.
+- Default self-build binaries do not use restricted Keychain entitlements.
 
 Verification:
 
@@ -287,8 +288,8 @@ rg "kSecAttrAccessGroup|keychain-access-groups|com.apple.security.application-gr
 
 Required evidence:
 
-- App and core entitlements plus source scan show no default shared Keychain access group.
-- Core has only a local app identity entitlement for data-protection Keychain access; this is not a shared Keychain access group.
+- App, core, and helper entitlements plus source scan show no default shared Keychain access group.
+- Self-build entitlements contain no restricted app identity or Keychain sharing capability.
 - If access-group strings exist, they are documented as optional future Developer ID-only work.
 
 Failure examples:
@@ -296,13 +297,14 @@ Failure examples:
 - All helpers share direct Keychain access.
 - Access groups are required for local self-build.
 
-### AC-KEY-002: Keychain Items Are Device-Local and User-Presence Bound
+### AC-KEY-002: Local Secret Records Are Device-Local and User-Presence Gated
 
 Pass condition:
 
-- Secret material is stored with `kSecUseDataProtectionKeychain`.
-- Secret material is stored as `kSecAttrAccessibleWhenUnlockedThisDeviceOnly`.
-- Production secrets require `.userPresence` or a stricter operator-selected policy.
+- Default self-build secret material is stored in an owner-only local encrypted file store.
+- Local encrypted store and key files are owner-only (`0600`) under owner-only directories (`0700`).
+- Production secret reads require LocalAuthentication user presence before decrypt.
+- Keychain-backed storage remains an optional provisioned-signing backend, not required for no-Developer-ID self-build acceptance.
 
 Verification:
 
@@ -312,13 +314,14 @@ swift run agentic-fortress-contract-tests
 
 Required evidence:
 
-- Tests assert data-protection Keychain use, device-local accessibility, and access-control flags.
+- Tests assert local encrypted store metadata, no plaintext secret material in the store file, owner-only file permissions, LocalAuthentication cancellation mapping, and optional provisioned Keychain query construction.
 
 Failure examples:
 
 - Secrets are synchronizable by default.
 - Secrets are readable while the device is locked.
-- Production default is `.notRequired`.
+- Production default bypasses LocalAuthentication.
+- Self-build requires restricted entitlements or provisioning profiles.
 
 ### AC-KEY-003: LocalAuthentication Prompt Is Decision-Bound
 
@@ -339,12 +342,12 @@ AGENTIC_FORTRESS_INTERACTIVE=1 AGENTIC_FORTRESS_EXPECT_CANCEL=1 ./scripts/intera
 Required evidence:
 
 - Automated tests cover prompt reason construction and proof expiry.
-- The interactive script uses the packaged, ad-hoc signed core binary so Tahoe data-protection Keychain entitlement behavior is exercised.
+- The interactive script uses the packaged, ad-hoc signed core binary so the Tahoe no-Developer-ID runtime path is exercised.
 - Interactive transcript confirms the macOS prompt appears before secret resolution and cancellation denies access with `userCanceled`.
 
 Failure examples:
 
-- Prompt says only "AgenticFortress wants to access Keychain".
+- Prompt says only "AgenticFortress wants to access a local secret".
 - A prompt approval can be replayed for a different target or workspace.
 
 ## Shim and CLI Env Delivery

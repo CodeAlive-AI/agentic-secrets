@@ -63,7 +63,7 @@ Uninstall and remove local non-secret state:
 
 Keychain secret deletion is intentionally not implicit. It must be a separate reviewed product action, not a side effect of package removal.
 
-## Keychain Prompt Verification
+## Local Secret Prompt Verification
 
 Non-interactive contract check:
 
@@ -83,13 +83,13 @@ Interactive cancellation check:
 AGENTIC_FORTRESS_INTERACTIVE=1 AGENTIC_FORTRESS_EXPECT_CANCEL=1 ./scripts/interactive_keychain_prompt_check.sh
 ```
 
-For the cancellation check, press Cancel in the macOS prompt. The command passes only when core reports `userCanceled` and no secret is resolved.
+For the cancellation check, press Deny or Cancel in the macOS prompt. The command passes only when core reports `userCanceled` and no secret is resolved.
 
-The interactive path first packages the app and then runs the packaged `agentic-fortressd-core` binary. This matters on macOS Tahoe because data-protection Keychain access requires the signed core binary to carry its approved app identity entitlement. Helper binaries and the app bundle keep the smaller baseline and do not get shared Keychain access.
+The interactive path first packages the app and then runs the packaged `agentic-fortressd-core` binary. This matters on macOS Tahoe because restricted Keychain entitlements are not valid for ad-hoc self-build binaries. The default self-build path uses an owner-only local encrypted secret store gated by LocalAuthentication, without shared Keychain access.
 
-The script creates a temporary device-local Keychain item, reads it through the decision-bound LocalAuthentication reason, and deletes it. It never prints the generated secret value.
+The script creates a temporary device-local encrypted secret record, reads it through the decision-bound LocalAuthentication reason, and deletes it. It never prints the generated secret value.
 
-The prompt-producing path runs in `agentic-fortressd-core`; CLI and helper targets are guarded by `scripts/check_secret_authority.sh` from directly using production Keychain resolution.
+The prompt-producing path runs in `agentic-fortressd-core`; CLI and helper targets are guarded by `scripts/check_secret_authority.sh` from directly using production secret resolution.
 
 ## Adapter Management
 

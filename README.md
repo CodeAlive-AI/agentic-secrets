@@ -58,7 +58,7 @@ The local installer writes an install manifest with helper paths, owners, permis
 
 The core daemon serves the local control plane over a Unix domain socket. Helpers authenticate to core with the install manifest and do not read Keychain secret material directly.
 
-On macOS Tahoe, the packaged core daemon carries a minimal local app identity entitlement so it can use the data-protection Keychain. The app bundle and helper binaries keep the smaller baseline; no shared Keychain access group is required for the self-build track.
+On macOS Tahoe, the self-build track avoids restricted entitlements so ad-hoc signed binaries can execute normally. The core daemon stores local secret material in an owner-only encrypted file store gated by LocalAuthentication; no shared Keychain access group is required for the self-build track.
 
 ## Release Evidence
 

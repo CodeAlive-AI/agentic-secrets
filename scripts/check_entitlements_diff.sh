@@ -4,7 +4,6 @@ set -eu
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 APP_PATH="${1:-$ROOT/build/AgenticFortress.app}"
 APPROVED="$ROOT/packaging/approved-entitlements.plist"
-APPROVED_CORE="$ROOT/packaging/approved-core-entitlements.plist"
 TMP_DIR="$(mktemp -d)"
 trap 'rm -rf "$TMP_DIR"' EXIT
 
@@ -24,9 +23,5 @@ check_entitlements() {
 check_entitlements "$APP_PATH" "$APPROVED" "app"
 
 find "$APP_PATH/Contents/MacOS" -type f -perm +111 -print | while IFS= read -r binary; do
-  approved="$APPROVED"
-  if [ "$(basename "$binary")" = "agentic-fortressd-core" ]; then
-    approved="$APPROVED_CORE"
-  fi
-  check_entitlements "$binary" "$approved" "$(basename "$binary")"
+  check_entitlements "$binary" "$APPROVED" "$(basename "$binary")"
 done

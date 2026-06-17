@@ -5,13 +5,13 @@ ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 SERVICE="com.agenticfortress.interactive-smoke"
 ALIAS="agentic-fortress.interactive-smoke"
 
-echo "This check creates a temporary device-local Keychain item, reads it through LocalAuthentication, and deletes it."
+echo "This check creates a temporary device-local encrypted secret record, reads it through LocalAuthentication, and deletes it."
 echo "The secret value is generated locally and is never printed."
 echo "Canceling the macOS prompt should make this command fail closed."
 
 if [ "${AGENTIC_FORTRESS_INTERACTIVE:-0}" != "1" ]; then
   echo "Set AGENTIC_FORTRESS_INTERACTIVE=1 to run the prompt-producing check."
-  echo "Set AGENTIC_FORTRESS_EXPECT_CANCEL=1 with interactive mode, then press Cancel, to verify fail-closed cancellation."
+  echo "Set AGENTIC_FORTRESS_EXPECT_CANCEL=1 with interactive mode, then press Deny or Cancel, to verify fail-closed cancellation."
   echo "Non-interactive static contract check:"
   swift run --package-path "$ROOT" agentic-fortress-contract-tests
   exit 0
@@ -24,7 +24,7 @@ CORE_BINARY="$(tail -n 1 "$PACKAGE_LOG")/Contents/MacOS/agentic-fortressd-core"
 
 if [ "${AGENTIC_FORTRESS_EXPECT_CANCEL:-0}" = "1" ]; then
   set +e
-  OUTPUT="$("$CORE_BINARY" keychain-smoke --service "$SERVICE" --alias "$ALIAS" 2>&1)"
+  OUTPUT="$("$CORE_BINARY" local-secret-smoke --service "$SERVICE" --alias "$ALIAS" 2>&1)"
   STATUS=$?
   set -e
   printf '%s\n' "$OUTPUT"
@@ -37,4 +37,4 @@ if [ "${AGENTIC_FORTRESS_EXPECT_CANCEL:-0}" = "1" ]; then
   exit 0
 fi
 
-"$CORE_BINARY" keychain-smoke --service "$SERVICE" --alias "$ALIAS"
+"$CORE_BINARY" local-secret-smoke --service "$SERVICE" --alias "$ALIAS"

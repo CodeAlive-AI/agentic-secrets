@@ -20,7 +20,7 @@ This repository implements the V4 plan as enforceable delivery contracts.
 | Audit and redaction | `AuditLog`, `Redactor` |
 | Remote delivery claims | `RemoteDeliveryCatalog` |
 | Release gates | `agentic-fortress-contract-tests`, `agentic-fortress release-gates`, `scripts/ci.sh` |
-| macOS package/signing scaffolding | `packaging/AgenticFortress.entitlements`, `packaging/AgenticFortressCore.entitlements`, `scripts/package_release.sh`, `scripts/install_local.sh`, `scripts/uninstall_local.sh`, `scripts/inspect_signing.sh` |
+| macOS package/signing scaffolding | `packaging/AgenticFortress.entitlements`, `scripts/package_release.sh`, `scripts/install_local.sh`, `scripts/uninstall_local.sh`, `scripts/inspect_signing.sh` |
 | Release evidence | `scripts/create_release_evidence.sh` |
 | Configuration | `AgenticFortressConfig`, `config/default.agentic-fortress.json`, `agentic-fortress default-config` |
 | Tahoe compatibility | `MacOSCompatibility`, `agentic-fortress check-macos`, `scripts/tahoe_compatibility_check.sh` |
