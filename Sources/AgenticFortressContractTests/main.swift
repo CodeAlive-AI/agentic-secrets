@@ -63,6 +63,49 @@ func runContracts() throws {
     try expect(destructiveManifest.approvalOptions == [.deny], "destructive actions must not offer remembered approval")
     try expect(destructiveManifest.typedChallenge == destructiveManifest.digest, "destructive manifest must expose typed challenge digest")
 
+    let approvalManifest = DecisionManifestFactory().make(
+        command: hcloudRead,
+        intent: DeliveryIntent(flow: .cliEnv, secretAlias: "cloud.hcloud.dev", delivery: .env, environmentName: "HCLOUD_TOKEN", workspace: "/tmp/infra", parentApp: "Codex"),
+        target: TargetAssessor().synthetic(path: "/opt/homebrew/bin/hcloud")
+    )
+    let approvalStore = ApprovalSessionStore()
+    let approval = approvalStore.create(manifest: approvalManifest, policyEpoch: 3, ttl: 10, now: Date(timeIntervalSince1970: 0))
+    let validatedApproval = try approvalStore.validate(sessionID: approval.id, manifest: approvalManifest, policyEpoch: 3, now: Date(timeIntervalSince1970: 1))
+    try expect(validatedApproval.manifestDigest == approvalManifest.digest, "approval session must bind manifest digest")
+    try expectThrows(ApprovalSessionError.expired, {
+        _ = try approvalStore.validate(sessionID: approval.id, manifest: approvalManifest, policyEpoch: 3, now: Date(timeIntervalSince1970: 11))
+    }, "approval session must expire")
+    let digestMismatchManifest = DecisionManifestFactory().make(
+        command: hcloudRead,
+        intent: DeliveryIntent(flow: .cliEnv, secretAlias: "cloud.hcloud.dev", delivery: .env, environmentName: "HCLOUD_TOKEN", workspace: "/tmp/other", parentApp: "Codex"),
+        target: TargetAssessor().synthetic(path: "/opt/homebrew/bin/hcloud")
+    )
+    let secondApproval = approvalStore.create(manifest: approvalManifest, policyEpoch: 3, ttl: 10, now: Date(timeIntervalSince1970: 20))
+    try expectThrows(ApprovalSessionError.digestMismatch, {
+        _ = try approvalStore.validate(sessionID: secondApproval.id, manifest: digestMismatchManifest, policyEpoch: 3, now: Date(timeIntervalSince1970: 21))
+    }, "approval session must reject manifest digest mismatch")
+    try expectThrows(ApprovalSessionError.policyEpochMismatch, {
+        _ = try approvalStore.validate(sessionID: secondApproval.id, manifest: approvalManifest, policyEpoch: 4, now: Date(timeIntervalSince1970: 21))
+    }, "approval session must reject policy epoch mismatch")
+
+    let secretStore = InMemorySecretStore()
+    let secretAlias = SecretAlias("cloud.hcloud.dev")
+    secretStore.put(
+        binding: SecretBinding(alias: secretAlias, storeKind: "memory", externalID: "sec_hcloud", environment: "dev"),
+        material: SecretMaterial(utf8: "super-secret-token")
+    )
+    let material = try secretStore.resolve(alias: secretAlias, approvedFor: validatedApproval)
+    try material.withUTF8String { value in
+        try expect(value == "super-secret-token", "secret store must resolve approved bound secret")
+    }
+    try expect(material.redactedDescription.contains("super-secret-token") == false, "secret material redacted description must not expose plaintext")
+    try expectThrows(SecretStoreError.missingBinding(SecretAlias("missing.alias")), {
+        _ = try secretStore.binding(for: SecretAlias("missing.alias"))
+    }, "secret store must deny missing bindings")
+    try expectThrows(SecretStoreError.accessDenied("approval-session-secret-mismatch"), {
+        _ = try secretStore.resolve(alias: SecretAlias("other.alias"), approvedFor: validatedApproval)
+    }, "secret store must bind secret resolution to approval session alias")
+
     let unknownFlag = classifier.classify(executableName: "hcloud", arguments: ["--plugin-mode", "server", "list"], observedVersion: "1.52.0")
     try expect(unknownFlag.risk == .unknown, "unknown adapter flags must classify as unknown")
     try expect(unknownFlag.leaseInvalidators.contains("unknown-flag"), "unknown adapter flags must invalidate remembered leases")
@@ -131,6 +174,8 @@ func runContracts() throws {
     }, "audit must reject raw secret patterns")
     try audit.append(AuditEvent(event: "secret_delivery", decision: "allow", flow: .cliEnv, subjectID: "subject", secretID: "secret", actionClass: "hcloud.server.list", delivery: .env, policyEpoch: 1, approval: "once", time: Date(timeIntervalSince1970: 1), metadata: ["safe": "ok"]))
     try expect(audit.snapshot().count == 1, "audit must persist safe structured events")
+    let auditExport = try audit.exportRedactedJSON()
+    try expect(!auditExport.contains("super-secret-token"), "audit export must not contain resolved secret plaintext")
 
     let authorizer = ProxyAuthorizer()
     let (session, token) = authorizer.createSession(profile: BuiltInProxyProfiles.openAI, bindPort: 48177, token: "local-session-token", now: Date(timeIntervalSince1970: 0))
