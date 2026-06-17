@@ -288,11 +288,11 @@ func runContracts() throws {
 
     let authReason = LocalAuthenticationGate.reason(for: approvalManifest)
     try expect(authReason.contains(approvalManifest.digest), "LocalAuthentication reason must include manifest digest")
-    try expect(authReason.contains(approvalManifest.actionClass), "LocalAuthentication reason must include action class")
-    try expect(authReason.contains(approvalManifest.target.display), "LocalAuthentication reason must include target command")
-    try expect(authReason.contains(approvalManifest.workspace.display), "LocalAuthentication reason must include workspace")
-    try expect(authReason.contains(approvalManifest.secret.alias), "LocalAuthentication reason must include secret alias")
-    try expect(authReason.contains(approvalManifest.secret.delivery.rawValue), "LocalAuthentication reason must include delivery mode")
+    try expect(authReason.contains("provide HCLOUD_TOKEN to hcloud"), "LocalAuthentication reason must start with a readable approval phrase")
+    try expect(authReason.contains("Command: hcloud server list"), "LocalAuthentication reason must include readable command")
+    try expect(authReason.contains("Project: /tmp/infra"), "LocalAuthentication reason must include readable workspace")
+    try expect(!authReason.contains(approvalManifest.secret.alias), "LocalAuthentication reason must not expose raw secret alias")
+    try expect(authReason.contains("Secret: HCLOUD_TOKEN"), "LocalAuthentication reason must include target environment name")
     let authProof = LocalAuthenticationProof(manifestDigest: approvalManifest.digest, actionClass: approvalManifest.actionClass, reason: authReason, authenticatedAt: Date(timeIntervalSince1970: 0))
     try LocalAuthenticationGate.validate(proof: authProof, manifest: approvalManifest, now: Date(timeIntervalSince1970: 10))
     try expectThrows(LocalAuthenticationError.staleProof, {

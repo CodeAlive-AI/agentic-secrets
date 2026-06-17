@@ -354,13 +354,29 @@ public enum LocalAuthenticationGate {
     }
 
     public static func reason(for manifest: DecisionManifest) -> String {
-        let delivery = manifest.secret.environmentName.map { "\(manifest.secret.delivery.rawValue):\($0)" } ?? manifest.secret.delivery.rawValue
+        let secretName = manifest.secret.environmentName ?? manifest.secret.alias
+        let command = readableCommand(from: manifest)
         return [
-            "AgenticFortress approval \(manifest.digest)",
-            "Action: \(manifest.actionClass)",
-            "Target: \(manifest.target.display)",
-            "Workspace: \(manifest.workspace.display)",
-            "Secret: \(manifest.secret.alias) via \(delivery)"
+            "provide \(secretName) to \(manifest.target.display).",
+            "Command: \(command)",
+            "Project: \(displayPath(manifest.workspace.display))",
+            "Secret: \(secretName)",
+            "Approval code: \(manifest.digest)"
         ].joined(separator: "\n")
+    }
+
+    private static func readableCommand(from manifest: DecisionManifest) -> String {
+        if !manifest.canonicalCommand.isEmpty {
+            return manifest.canonicalCommand.joined(separator: " ")
+        }
+        return manifest.actionClass.replacingOccurrences(of: ".", with: " ")
+    }
+
+    private static func displayPath(_ path: String) -> String {
+        let home = FileManager.default.homeDirectoryForCurrentUser.path
+        guard path == home || path.hasPrefix(home + "/") else {
+            return path
+        }
+        return "~" + path.dropFirst(home.count)
     }
 }
