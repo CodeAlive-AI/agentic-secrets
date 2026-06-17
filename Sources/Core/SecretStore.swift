@@ -131,7 +131,15 @@ public struct KeychainSecretDescriptor: Codable, Equatable, Sendable {
 public enum KeychainSecretStoreError: Error, Equatable {
     case accessControlCreationFailed
     case unexpectedItemShape
+    case userCanceled
     case keychainStatus(OSStatus)
+
+    public static func from(status: OSStatus) -> KeychainSecretStoreError {
+        if status == errSecUserCanceled {
+            return .userCanceled
+        }
+        return .keychainStatus(status)
+    }
 }
 
 public enum KeychainSecretQueryFactory {
@@ -217,7 +225,7 @@ public struct KeychainSecretStore: LocalSecretStore {
         _ = SecItemDelete(KeychainSecretQueryFactory.deleteQuery(descriptor: descriptor) as CFDictionary)
         let status = SecItemAdd(try KeychainSecretQueryFactory.addQuery(descriptor: descriptor, material: material) as CFDictionary, nil)
         guard status == errSecSuccess else {
-            throw KeychainSecretStoreError.keychainStatus(status)
+            throw KeychainSecretStoreError.from(status: status)
         }
     }
 
@@ -225,7 +233,7 @@ public struct KeychainSecretStore: LocalSecretStore {
         let descriptor = descriptors[alias] ?? KeychainSecretDescriptor(alias: alias, service: service, account: alias.rawValue, label: alias.rawValue, authentication: .presenceRequired)
         let status = SecItemDelete(KeychainSecretQueryFactory.deleteQuery(descriptor: descriptor) as CFDictionary)
         guard status == errSecSuccess || status == errSecItemNotFound else {
-            throw KeychainSecretStoreError.keychainStatus(status)
+            throw KeychainSecretStoreError.from(status: status)
         }
     }
 
@@ -245,7 +253,7 @@ public struct KeychainSecretStore: LocalSecretStore {
         var item: CFTypeRef?
         let status = SecItemCopyMatching(KeychainSecretQueryFactory.readQuery(descriptor: descriptor, context: context) as CFDictionary, &item)
         guard status == errSecSuccess else {
-            throw KeychainSecretStoreError.keychainStatus(status)
+            throw KeychainSecretStoreError.from(status: status)
         }
         guard let data = item as? Data else {
             throw KeychainSecretStoreError.unexpectedItemShape

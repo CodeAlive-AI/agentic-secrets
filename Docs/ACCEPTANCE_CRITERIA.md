@@ -328,12 +328,13 @@ Verification:
 ```sh
 swift run agentic-fortress-contract-tests
 ./scripts/interactive_keychain_prompt_check.sh
+AGENTIC_FORTRESS_INTERACTIVE=1 AGENTIC_FORTRESS_EXPECT_CANCEL=1 ./scripts/interactive_keychain_prompt_check.sh
 ```
 
 Required evidence:
 
 - Automated tests cover prompt reason construction and proof expiry.
-- Interactive transcript confirms the macOS prompt appears before secret resolution and cancellation denies access.
+- Interactive transcript confirms the macOS prompt appears before secret resolution and cancellation denies access with `userCanceled`.
 
 Failure examples:
 

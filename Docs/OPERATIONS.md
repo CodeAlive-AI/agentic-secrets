@@ -77,6 +77,14 @@ Interactive prompt-producing check:
 AGENTIC_FORTRESS_INTERACTIVE=1 ./scripts/interactive_keychain_prompt_check.sh
 ```
 
+Interactive cancellation check:
+
+```sh
+AGENTIC_FORTRESS_INTERACTIVE=1 AGENTIC_FORTRESS_EXPECT_CANCEL=1 ./scripts/interactive_keychain_prompt_check.sh
+```
+
+For the cancellation check, press Cancel in the macOS prompt. The command passes only when core reports `userCanceled` and no secret is resolved.
+
 The script creates a temporary device-local Keychain item, reads it through the decision-bound LocalAuthentication reason, and deletes it. It never prints the generated secret value.
 
 The prompt-producing path runs in `agentic-fortressd-core`; CLI and helper targets are guarded by `scripts/check_secret_authority.sh` from directly using production Keychain resolution.

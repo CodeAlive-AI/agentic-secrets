@@ -250,6 +250,7 @@ func runContracts() throws {
     let keychainReadQuery = KeychainSecretQueryFactory.readQuery(descriptor: keychainDescriptor, context: keychainContext)
     try expect(keychainReadQuery[kSecUseAuthenticationContext] != nil, "Keychain read query must carry LAContext for approval prompt reason")
     try expect(validatedApproval.authenticationReason == LocalAuthenticationGate.reason(for: approvalManifest), "approval session must carry full decision-bound LocalAuthentication reason")
+    try expect(KeychainSecretStoreError.from(status: errSecUserCanceled) == .userCanceled, "Keychain user cancellation must fail closed with a distinct error")
     let keychainBinding = try KeychainSecretStore(service: "com.agenticfortress.test").binding(for: secretAlias)
     try expect(keychainBinding.storeKind == "keychain", "Keychain secret store must expose keychain binding metadata without plaintext")
 
