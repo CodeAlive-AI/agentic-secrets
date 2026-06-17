@@ -88,6 +88,28 @@ func runContracts() throws {
         _ = try approvalStore.validate(sessionID: secondApproval.id, manifest: approvalManifest, policyEpoch: 4, now: Date(timeIntervalSince1970: 21))
     }, "approval session must reject policy epoch mismatch")
 
+    let peerRequirement = CodeSigningRequirement(teamID: "TEAMID1234", bundleID: "com.agenticfortress.shim", minimumVersion: "1.2.0")
+    try XPCPeerValidator.validate(peer: XPCPeerIdentity(teamID: "TEAMID1234", bundleID: "com.agenticfortress.shim", version: "1.2.1", hardenedRuntime: true), requirement: peerRequirement)
+    try expectThrows(XPCPeerValidationError.wrongTeamID, {
+        try XPCPeerValidator.validate(peer: XPCPeerIdentity(teamID: "OTHERTEAM", bundleID: "com.agenticfortress.shim", version: "1.2.1", hardenedRuntime: true), requirement: peerRequirement)
+    }, "XPC peer validator must reject wrong Team ID")
+    try expectThrows(XPCPeerValidationError.oldVersion, {
+        try XPCPeerValidator.validate(peer: XPCPeerIdentity(teamID: "TEAMID1234", bundleID: "com.agenticfortress.shim", version: "1.1.9", hardenedRuntime: true), requirement: peerRequirement)
+    }, "XPC peer validator must reject old helper versions")
+    try expectThrows(XPCPeerValidationError.debugSignedRejected, {
+        try XPCPeerValidator.validate(peer: XPCPeerIdentity(teamID: "TEAMID1234", bundleID: "com.agenticfortress.shim", version: "1.2.1", hardenedRuntime: true, debugSigned: true), requirement: peerRequirement)
+    }, "XPC peer validator must reject debug-signed helpers by default")
+    let authReason = LocalAuthenticationGate.reason(for: approvalManifest)
+    try expect(authReason.contains(approvalManifest.digest), "LocalAuthentication reason must include manifest digest")
+    let authProof = LocalAuthenticationProof(manifestDigest: approvalManifest.digest, actionClass: approvalManifest.actionClass, reason: authReason, authenticatedAt: Date(timeIntervalSince1970: 0))
+    try LocalAuthenticationGate.validate(proof: authProof, manifest: approvalManifest, now: Date(timeIntervalSince1970: 10))
+    try expectThrows(LocalAuthenticationError.staleProof, {
+        try LocalAuthenticationGate.validate(proof: authProof, manifest: approvalManifest, now: Date(timeIntervalSince1970: 31))
+    }, "LocalAuthentication proof must expire quickly")
+    try expectThrows(LocalAuthenticationError.digestMismatch, {
+        try LocalAuthenticationGate.validate(proof: LocalAuthenticationProof(manifestDigest: "wrong", actionClass: approvalManifest.actionClass, reason: authReason, authenticatedAt: Date(timeIntervalSince1970: 0)), manifest: approvalManifest, now: Date(timeIntervalSince1970: 1))
+    }, "LocalAuthentication proof must bind manifest digest")
+
     let secretStore = InMemorySecretStore()
     let secretAlias = SecretAlias("cloud.hcloud.dev")
     secretStore.put(
