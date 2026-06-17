@@ -125,7 +125,7 @@ public struct CLIRegistrationService: Sendable {
         var document = try registryStore.load()
         let registration = CLIAppRegistration(
             name: name,
-            targetPath: (targetPath as NSString).resolvingSymlinksInPath,
+            targetPath: stableInvocationPath(targetPath),
             environmentBindings: bindings,
             registeredAt: now
         )
@@ -181,6 +181,15 @@ public struct CLIRegistrationService: Sendable {
               FileManager.default.isExecutableFile(atPath: resolved) else {
             throw CLIRegistrationError.targetNotExecutable(path)
         }
+    }
+
+    private func stableInvocationPath(_ path: String) -> String {
+        if (path as NSString).isAbsolutePath {
+            return path
+        }
+        return URL(fileURLWithPath: FileManager.default.currentDirectoryPath, isDirectory: true)
+            .appendingPathComponent(path)
+            .path
     }
 }
 

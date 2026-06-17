@@ -157,6 +157,8 @@ AgenticFortress prints its own diagnostics to stderr, requests local authenticat
 "$PREFIX/bin/agentic-fortress" cli run hcloud --quiet -- server list
 ```
 
+The default flow does not create a separate `hcloud` shim symlink. The registration stores metadata in AgenticFortress state and keeps the stable invocation path discovered from `PATH`, such as `/opt/homebrew/bin/hcloud`. Each run resolves and hashes the current target binary, so normal Homebrew upgrades should keep working. A manually registered versioned Cellar path is treated as pinned and must be registered again after that version is removed.
+
 To remove the registration and its local secret record:
 
 ```sh

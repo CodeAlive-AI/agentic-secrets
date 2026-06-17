@@ -305,6 +305,24 @@ func runContracts() throws {
     try expect(!registeredSecretStoreText.contains("registration-secret-token"), "CLI local encrypted store must not contain plaintext registered secret")
     let registryPermissions = try FileManager.default.attributesOfItem(atPath: registrationLayout.registryURL.path)[.posixPermissions] as? NSNumber
     try expect(registryPermissions?.intValue == 0o600, "CLI registry must be owner-only")
+    let symlinkRoot = registrationRoot.appendingPathComponent("symlink-case", isDirectory: true)
+    let cellarRoot = symlinkRoot.appendingPathComponent("Cellar/hcloud/1.65.0/bin", isDirectory: true)
+    let binRoot = symlinkRoot.appendingPathComponent("bin", isDirectory: true)
+    try FileManager.default.createDirectory(at: cellarRoot, withIntermediateDirectories: true)
+    try FileManager.default.createDirectory(at: binRoot, withIntermediateDirectories: true)
+    let versionedHcloud = cellarRoot.appendingPathComponent("hcloud")
+    let stableHcloud = binRoot.appendingPathComponent("hcloud")
+    try "#!/bin/sh\nexit 0\n".data(using: .utf8)!.write(to: versionedHcloud)
+    try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: versionedHcloud.path)
+    try FileManager.default.createSymbolicLink(atPath: stableHcloud.path, withDestinationPath: "../Cellar/hcloud/1.65.0/bin/hcloud")
+    let symlinkRegistration = try registrationLayout.registrationService.register(
+        name: "hcloud-symlink",
+        targetPath: stableHcloud.path,
+        environmentValues: ["HCLOUD_TOKEN": SecretMaterial(utf8: "symlink-secret-token")],
+        now: Date(timeIntervalSince1970: 0)
+    )
+    try expect(symlinkRegistration.targetPath == stableHcloud.path, "CLI registration must keep stable symlink invocation path across CLI upgrades")
+    _ = try TargetAssessor().assess(path: symlinkRegistration.targetPath)
     try expectThrows(CLIRegistrationError.invalidEnvironmentName("HCLOUD_TOKEN=leak"), {
         _ = try registrationLayout.registrationService.register(
             name: "hcloud",
