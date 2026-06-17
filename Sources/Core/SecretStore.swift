@@ -61,6 +61,11 @@ public protocol LocalSecretStore: Sendable {
     func resolve(alias: SecretAlias, approvedFor session: ApprovalSession) throws -> SecretMaterial
 }
 
+public enum LocalAuthenticationRequirement: Sendable {
+    case required
+    case alreadySatisfied
+}
+
 public final class InMemorySecretStore: LocalSecretStore, @unchecked Sendable {
     private var bindings: [SecretAlias: SecretBinding]
     private var secrets: [SecretAlias: SecretMaterial]
@@ -272,6 +277,10 @@ public struct LocalEncryptedSecretStore: LocalSecretStore {
     }
 
     public func resolve(alias: SecretAlias, approvedFor session: ApprovalSession) throws -> SecretMaterial {
+        try resolve(alias: alias, approvedFor: session, localAuthentication: .required)
+    }
+
+    public func resolve(alias: SecretAlias, approvedFor session: ApprovalSession, localAuthentication: LocalAuthenticationRequirement) throws -> SecretMaterial {
         guard session.secretAlias == alias else {
             throw SecretStoreError.accessDenied("approval-session-secret-mismatch")
         }
@@ -279,7 +288,9 @@ public struct LocalEncryptedSecretStore: LocalSecretStore {
         guard let record = storeFile.records[alias.rawValue] else {
             throw SecretStoreError.missingSecret(alias)
         }
-        try authenticationGate.authorize(reason: session.authenticationReason)
+        if case .required = localAuthentication {
+            try authenticationGate.authorize(reason: session.authenticationReason)
+        }
         let key = try loadExistingKey()
         guard let nonceData = Data(base64Encoded: record.nonce),
               let ciphertext = Data(base64Encoded: record.ciphertext),

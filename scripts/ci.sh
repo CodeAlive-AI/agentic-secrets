@@ -8,6 +8,7 @@ trap 'rm -f "$PACKAGE_LOG" "$ACCESS_GROUP_SCAN"' EXIT
 swift build -Xswiftc -warnings-as-errors
 swift build -c release -Xswiftc -warnings-as-errors
 swift run agentic-fortress-contract-tests
+./script/ui_smoke.sh
 ./scripts/check_secret_authority.sh
 swift run agentic-fortress release-gates | grep -q '"canRunLocal" : true'
 swift run agentic-fortress ipc-conformance | grep -q '"compatibilityStatus" : "compatible"'

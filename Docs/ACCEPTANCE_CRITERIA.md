@@ -189,6 +189,33 @@ Failure examples:
 - Uninstall leaves active launch agents.
 - Uninstall deletes local secret records without explicit purge mode.
 
+### AC-DIST-004: Native App Lifecycle UX Has Repair Path
+
+Pass condition:
+
+- The SwiftUI app checks core daemon reachability on launch, refresh, and app activation.
+- If IPC is unavailable, the UI shows daemon status, socket path, LaunchAgent path when known, and a restart/repair action when the local install supports it.
+- The repair action uses the existing per-user LaunchAgent and install manifest model; the UI does not become the secret authority.
+- Menu bar status reflects healthy, attention, locked, and daemon-unavailable states.
+
+Verification:
+
+```sh
+./script/ui_smoke.sh
+./script/build_and_run.sh --verify
+```
+
+Required evidence:
+
+- UI smoke covers empty state, daemon unavailable state, register wizard validation, selection/search after refresh, and menu bar status.
+- App launch smoke exits `0` without requiring real provider tokens or Keychain secrets.
+
+Failure examples:
+
+- Daemon IPC failure appears only as a raw error alert with no recovery path.
+- The app reads local secret material directly to bypass daemon failure.
+- Menu bar status remains stale after daemon health changes.
+
 ## Process Architecture and IPC
 
 ### AC-IPC-001: Core Owns Secret Authority
@@ -266,6 +293,34 @@ Failure examples:
 - Shim invokes core by passing secret-bearing JSON through argv.
 - A helper writes a secret request to `/tmp` for core to poll.
 
+### AC-IPC-004: Untrusted Complex Parsers Stay Outside Secret Authority
+
+Pass condition:
+
+- Management IPC remains typed, versioned, length-prefixed Codable messages.
+- Any future parser for untrusted complex raw protocols, including adapter fixture formats, MCP body streams, SSH-like binary payloads, or provider-specific envelopes, runs outside the core secret authority path in a helper/XPC-style process boundary.
+- Core receives only narrow typed parser results and never hands local secret store authority to the parser process.
+- Malformed parser fixtures fail closed and do not produce audit records containing raw body or secret-shaped values.
+
+Verification:
+
+```sh
+swift run agentic-fortress-contract-tests
+./scripts/check_secret_authority.sh
+```
+
+Required evidence:
+
+- New raw parser work includes fixed valid and malformed fixtures.
+- Static secret-authority checks still prove only core can resolve local secret material.
+- Architecture review identifies the parser boundary before merge.
+
+Failure examples:
+
+- A future MCP or adapter parser is linked directly into secret resolution code.
+- Parser errors are converted into permissive delivery decisions.
+- Raw request or response bodies are written to audit logs.
+
 ## Local Secret Storage and Local Authentication
 
 ### AC-KEY-001: No Shared Keychain Access Group Is Required
@@ -330,6 +385,8 @@ Pass condition:
 - The prompt reason includes manifest digest, action class, target command, workspace, secret alias, and delivery mode.
 - Approval proof expires quickly and is bound to the decision manifest.
 - Prompt cancellation denies the operation without reading the secret.
+- Repeated CLI runs may use a short signed unlock grant only when CLI name, target identity, workspace hash, action class, parent app, delivery mode, and secret alias match.
+- CLI unlock grants store no secret material, expire by default after 300 seconds, and cannot exceed 900 seconds.
 
 Verification:
 
@@ -342,6 +399,7 @@ AGENTIC_FORTRESS_INTERACTIVE=1 AGENTIC_FORTRESS_EXPECT_CANCEL=1 ./scripts/intera
 Required evidence:
 
 - Automated tests cover prompt reason construction and proof expiry.
+- Automated tests cover CLI unlock grant TTL, expiry, tamper rejection, and scope mismatch.
 - The interactive script uses the packaged, ad-hoc signed core binary so the Tahoe no-Developer-ID runtime path is exercised.
 - Interactive transcript confirms the macOS prompt appears before secret resolution and cancellation denies access with `userCanceled`.
 
@@ -349,6 +407,7 @@ Failure examples:
 
 - Prompt says only "AgenticFortress wants to access a local secret".
 - A prompt approval can be replayed for a different target or workspace.
+- A local unlock grant can be edited to extend expiry.
 
 ## Shim and CLI Env Delivery
 
@@ -360,6 +419,7 @@ Pass condition:
 - Target path is resolved from policy.
 - Target identity is assessed before execution.
 - Registered CLI trust metadata is not trusted unless its integrity sidecar verifies.
+- Registered CLI trust refresh requires local authorization before writing new trust metadata.
 
 Verification:
 
@@ -369,13 +429,14 @@ swift run agentic-fortress-contract-tests
 
 Required evidence:
 
-- Tests cover spoofed invocation name, policy target resolution, target hash binding, and registry tamper rejection.
+- Tests cover spoofed invocation name, policy target resolution, target hash binding, registry tamper rejection, denied trust refresh, and target-change race during trust refresh.
 
 Failure examples:
 
 - `/tmp/hcloud` can choose its own target path.
 - Changing the target binary after approval is not detected.
 - Editing `cli-registry.json` to point at another target still allows secret resolution.
+- `trust-refresh` can silently rebind a CLI target without local authorization.
 
 ### AC-SHIM-002: Environment Injection Uses a Fresh Scrubbed Environment
 
@@ -400,7 +461,37 @@ Failure examples:
 - Parent `OPENAI_API_KEY` survives into target process.
 - `npm run dev` receives a raw API key by default.
 
-### AC-SHIM-003: Exec Plan Is Single-Use and Bound
+### AC-SHIM-003: Optional CLI Shim Is Explicit and Passes Help/Version Without Secret Delivery
+
+Pass condition:
+
+- Per-CLI shim installation is opt-in through `agentic-fortress cli shim install <name>`.
+- Shim installation creates a symlink to the installed `agentic-fortress-shim` binary, not a generated shell wrapper.
+- Shim installation does not replace or modify the native CLI binary.
+- Normal shimmed commands route through `agentic-fortress cli run <name> -- ...`.
+- Global help/version commands pass through to the registered target without resolving or injecting secrets.
+- Global help/version pass-through avoids LocalAuthentication and Keychain integrity-key prompts.
+- Pass-through execution still scrubs inherited secret-like environment variables.
+
+Verification:
+
+```sh
+swift run agentic-fortress-contract-tests
+swift build
+```
+
+Required evidence:
+
+- Contract tests cover the global help/version pass-through predicate.
+- A local smoke test registers a fake CLI with a synthetic token, installs a temporary shim, runs `<name> --version`, and proves the target does not receive the registered environment variable.
+
+Failure examples:
+
+- Installing a shim overwrites `/opt/homebrew/bin/hcloud`.
+- `hcloud --version` asks for LocalAuthentication or receives `HCLOUD_TOKEN`.
+- A generated shell wrapper contains product logic or a secret value.
+
+### AC-SHIM-004: Exec Plan Is Single-Use and Bound
 
 Pass condition:
 
@@ -697,10 +788,10 @@ Failure examples:
 A no-Developer-ID production release is accepted only when all of these are true:
 
 - [ ] `AC-GATE-001` through `AC-GATE-003` pass.
-- [ ] `AC-DIST-001` through `AC-DIST-003` pass.
-- [ ] `AC-IPC-001` through `AC-IPC-003` pass.
+- [ ] `AC-DIST-001` through `AC-DIST-004` pass.
+- [ ] `AC-IPC-001` through `AC-IPC-004` pass.
 - [ ] `AC-KEY-001` through `AC-KEY-003` pass.
-- [ ] `AC-SHIM-001` through `AC-SHIM-003` pass.
+- [ ] `AC-SHIM-001` through `AC-SHIM-004` pass.
 - [ ] `AC-ADAPT-001` and `AC-POLICY-001` pass.
 - [ ] `AC-BWS-001`, `AC-PROXY-001`, and `AC-MCP-001` pass.
 - [ ] `AC-AUDIT-001` and `AC-OPS-001` pass.

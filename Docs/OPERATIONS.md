@@ -90,6 +90,8 @@ The interactive path first packages the app and then runs the packaged `agentic-
 
 The script creates a temporary device-local encrypted secret record, reads it through the decision-bound LocalAuthentication reason, and deletes it. It never prints the generated secret value.
 
+LocalAuthentication may surface as Touch ID, Apple Watch, or the local account password. Treat all of these as valid local user-presence prompts unless the test is specifically verifying cancellation.
+
 The prompt-producing path runs in `agentic-fortressd-core`; CLI and helper targets are guarded by `scripts/check_secret_authority.sh` from directly using production secret resolution.
 
 ## CLI App Registration
@@ -98,19 +100,19 @@ Register a CLI app with one secret-backed environment variable:
 
 ```sh
 PREFIX="$HOME/Library/Application Support/AgenticFortress/LocalInstall"
-pbpaste | "$PREFIX/bin/agentic-fortress" cli register hcloud \
-  --env HCLOUD_TOKEN \
-  --secret-stdin
-```
-
-The secret value is read by `agentic-fortressd-core` from stdin. The front-end CLI process does not parse or persist the value, and the value must not be passed as `HCLOUD_TOKEN=value` in argv.
-
-For an interactive hidden prompt:
-
-```sh
 "$PREFIX/bin/agentic-fortress" cli register hcloud \
   --env HCLOUD_TOKEN \
   --secret-prompt
+```
+
+The secret value is read by `agentic-fortressd-core` through a hidden prompt. The front-end CLI process does not parse or persist the value, and the value must not be passed as `HCLOUD_TOKEN=value` in argv.
+
+For clipboard or automation use, pipe the value explicitly:
+
+```sh
+pbpaste | "$PREFIX/bin/agentic-fortress" cli register hcloud \
+  --env HCLOUD_TOKEN \
+  --secret-stdin
 ```
 
 For multiple environment variables, pass a JSON object over stdin:
@@ -143,13 +145,47 @@ Registration stores non-secret metadata in `var/agentic-fortress/cli-registry.js
 
 During `cli run`, the front-end CLI still does not resolve the secret; `agentic-fortressd-core` resolves it after local authentication, scrubs inherited secret-like environment variables, and injects the registered environment variables only into the child process.
 
-AgenticFortress does not generate per-CLI shell shims for registered apps in the default self-build flow. Installed AgenticFortress executables are symlinked under `$PREFIX/bin`, while registered apps are stored as metadata in `cli-registry.json`. When a CLI is auto-discovered from `PATH`, the registry keeps the stable invocation path such as `/opt/homebrew/bin/hcloud`, plus the target binary identity captured at registration time. Each `cli run` resolves the current target, validates it against the captured macOS designated requirement when available, and otherwise falls back to SHA-256 identity pinning. Homebrew CLI upgrades therefore fail closed until the CLI target trust is refreshed after you verify the new binary:
+After a successful local authentication prompt, core writes a short HMAC-signed CLI unlock grant under AgenticFortress state. The default TTL is 300 seconds and the maximum accepted TTL is 900 seconds. The grant contains no secret material and is scoped to CLI name, target identity, workspace hash, action class, parent app, delivery mode, and secret alias. Matching runs reuse the grant and skip the LocalAuthentication prompt; non-matching runs prompt again.
+
+Per-run TTL override:
+
+```sh
+"$PREFIX/bin/agentic-fortress" cli run hcloud --unlock-ttl-seconds 60 -- server list
+```
+
+Disable unlock reuse for a run:
+
+```sh
+"$PREFIX/bin/agentic-fortress" cli run hcloud --unlock-ttl-seconds 0 -- server list
+```
+
+AgenticFortress does not require per-CLI shims in the default self-build flow. Installed AgenticFortress executables are symlinked under `$PREFIX/bin`, while registered apps are stored as metadata in `cli-registry.json`. When a CLI is auto-discovered from `PATH`, the registry keeps the stable invocation path such as `/opt/homebrew/bin/hcloud`, plus the target binary identity captured at registration time. Each `cli run` resolves the current target, validates it against the captured macOS designated requirement when available, and otherwise falls back to SHA-256 identity pinning. Homebrew CLI upgrades therefore fail closed until the CLI target trust is refreshed after you verify the new binary. Because this changes trusted identity metadata, it requires LocalAuthentication:
 
 ```sh
 "$PREFIX/bin/agentic-fortress" cli trust-refresh hcloud
 ```
 
-`trust-refresh` updates only target identity metadata and re-seals the registry integrity sidecar; it does not read, rewrite, or ask for the token again. A manually registered versioned path such as `/opt/homebrew/Cellar/hcloud/1.65.0/bin/hcloud` is also pinned and must be trust-refreshed or registered again after the version is removed.
+`trust-refresh` updates only target identity metadata and re-seals the registry integrity sidecar; it does not read, rewrite, or ask for the token again. If local authentication is canceled or the target changes between the authentication prompt and the registry write, the command fails closed and leaves the previous trust metadata intact. A manually registered versioned path such as `/opt/homebrew/Cellar/hcloud/1.65.0/bin/hcloud` is also pinned and must be trust-refreshed or registered again after the version is removed.
+
+Optional shim mode is available when users want `hcloud ...` to route through AgenticFortress directly:
+
+```sh
+agentic-fortress cli shim install hcloud --configure-shell
+```
+
+This creates `$PREFIX/shims/hcloud` as a symlink to the installed `agentic-fortress-shim` binary and prepends the shim directory to future shell sessions. It does not edit or replace `/opt/homebrew/bin/hcloud`.
+
+Normal shimmed commands route to `agentic-fortress cli run hcloud -- ...`. Global help/version commands pass through to the registered target without secret resolution or injection:
+
+```sh
+hcloud --help
+hcloud server --help
+hcloud --version
+```
+
+The pass-through environment is still scrubbed of inherited secret-like variables.
+
+Pass-through help/version reads only non-secret registry metadata and avoids the registry Keychain integrity key. Secret-bearing commands still verify registry integrity inside core before resolving local secret material.
 
 ## Adapter Management
 

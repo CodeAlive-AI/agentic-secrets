@@ -90,6 +90,7 @@ struct AgenticFortressCoreDaemon {
         let controlArguments = argumentsBeforeRunSeparator(in: args)
         let name = try requiredValue(after: "--name", in: controlArguments)
         let quiet = controlArguments.contains("--quiet")
+        let unlockTTL = try cliUnlockTTL(from: controlArguments)
         let targetArguments = argumentsAfterRunSeparator(in: args)
         let layout = AgenticFortressStateLayout(stateDirectory: stateDirectory(from: controlArguments))
         let registration = try layout.registrationService.registration(named: name)
@@ -104,17 +105,21 @@ struct AgenticFortressCoreDaemon {
         )
 
         var injectedValues: [String: String] = [:]
+        let unlockGrants = CLIUnlockGrantStore(url: layout.cliUnlockGrantsURL, keyURL: layout.cliUnlockKeyURL)
         for binding in registration.environmentBindings {
+            let parentApp = ProcessInfo.processInfo.environment["TERM_PROGRAM"] ?? "unknown"
             let intent = DeliveryIntent(
                 flow: .cliEnv,
                 secretAlias: binding.secretAlias,
                 delivery: .env,
                 environmentName: binding.environmentName,
                 workspace: FileManager.default.currentDirectoryPath,
-                parentApp: ProcessInfo.processInfo.environment["TERM_PROGRAM"] ?? "unknown"
+                parentApp: parentApp
             )
             let manifest = DecisionManifestFactory().make(command: command, intent: intent, target: target)
             try authorizeCLIRun(command: command, intent: intent, target: target)
+            let unlockScope = CLIUnlockScope(manifest: manifest).withParentApp(parentApp)
+            let cachedGrant = unlockTTL > 0 ? try unlockGrants.validGrant(scope: unlockScope) : nil
             let session = ApprovalSession(
                 id: "run_" + shortDigest(UUID().uuidString, length: 16),
                 manifestDigest: manifest.digest,
@@ -123,12 +128,22 @@ struct AgenticFortressCoreDaemon {
                 approvalOption: .once,
                 policyEpoch: 1,
                 expiresAt: Date().addingTimeInterval(60),
-                authenticationReason: "AgenticFortress wants to run \(registration.name) with \(binding.environmentName)."
+                authenticationReason: LocalAuthenticationGate.reason(for: manifest)
             )
-            if !quiet {
+            if cachedGrant == nil, !quiet {
                 fputs("AgenticFortress: requesting local authentication for \(registration.name) \(binding.environmentName).\n", stderr)
+            } else if let cachedGrant, !quiet {
+                let seconds = max(0, Int(cachedGrant.expiresAt.timeIntervalSinceNow.rounded(.down)))
+                fputs("AgenticFortress: using cached local authentication for \(registration.name) \(binding.environmentName) (\(seconds)s remaining).\n", stderr)
             }
-            let material = try layout.registrationService.secretStore.resolve(alias: SecretAlias(binding.secretAlias), approvedFor: session)
+            let material = try layout.registrationService.secretStore.resolve(
+                alias: SecretAlias(binding.secretAlias),
+                approvedFor: session,
+                localAuthentication: cachedGrant == nil ? .required : .alreadySatisfied
+            )
+            if cachedGrant == nil, unlockTTL > 0 {
+                try unlockGrants.grant(scope: unlockScope, ttl: unlockTTL)
+            }
             material.withUTF8String { value in
                 injectedValues[binding.environmentName] = value
             }
@@ -185,7 +200,13 @@ struct AgenticFortressCoreDaemon {
     private static func trustRefreshCLI(_ args: [String]) throws {
         let name = try requiredValue(after: "--name", in: args)
         let layout = AgenticFortressStateLayout(stateDirectory: stateDirectory(from: args))
-        let registration = try layout.registrationService.refreshTargetTrust(name: name)
+        let registration = try layout.registrationService.refreshTargetTrust(name: name) { request in
+            fputs("AgenticFortress: requesting local authentication to update trusted target identity for \(request.name).\n", stderr)
+            fputs("AgenticFortress: current identity \(request.currentIdentity ?? "missing"), proposed identity \(request.proposedIdentity).\n", stderr)
+            try LocalAuthenticationPolicyGate().authorize(
+                reason: "AgenticFortress wants to update trusted target identity for \(request.name)."
+            )
+        }
         print(try AgenticFortressJSON.encodePretty(CLITrustRefreshCommandResponse(
             status: "trust-refreshed",
             name: registration.name,
@@ -203,7 +224,10 @@ struct AgenticFortressCoreDaemon {
         let socket = try requiredValue(after: "--socket", in: args)
         let manifestPath = try requiredValue(after: "--manifest", in: args)
         let manifest = try InstallManifestStore.load(path: manifestPath)
-        let handler = CoreIPCHandler(authorizer: CoreIPCAuthorizer(installManifest: manifest))
+        let handler = CoreIPCHandler(
+            authorizer: CoreIPCAuthorizer(installManifest: manifest),
+            management: CoreManagementService(stateDirectory: stateDirectory(from: args))
+        )
         try UnixDomainSocketIPCServer(socketPath: socket, handler: handler).serveOnce()
     }
 
@@ -283,6 +307,16 @@ struct AgenticFortressCoreDaemon {
         return AgenticFortressStateLayout.defaultStateDirectory()
     }
 
+    private static func cliUnlockTTL(from args: [String]) throws -> TimeInterval {
+        let raw = value(after: "--unlock-ttl-seconds", in: args)
+            ?? ProcessInfo.processInfo.environment["AGENTIC_FORTRESS_CLI_UNLOCK_TTL_SECONDS"]
+            ?? "300"
+        guard let seconds = TimeInterval(raw), seconds >= 0, seconds <= 900 else {
+            throw CoreDaemonError.invalidArguments("--unlock-ttl-seconds must be between 0 and 900")
+        }
+        return seconds
+    }
+
     private static func argumentsAfterRunSeparator(in args: [String]) -> [String] {
         guard let separator = args.firstIndex(of: "--") else {
             return []
@@ -311,6 +345,9 @@ struct AgenticFortressCoreDaemon {
     }
 
     private static func readSingleSecretFromStdin() throws -> SecretMaterial {
+        guard isatty(STDIN_FILENO) != 1 else {
+            throw CoreDaemonError.invalidArguments("--secret-stdin reads from a pipe and does not prompt. Use --secret-prompt for interactive entry, or pipe a value into stdin.")
+        }
         let data = FileHandle.standardInput.readDataToEndOfFile()
         let trimmed = trimTrailingNewlines(data)
         guard !trimmed.isEmpty else {
@@ -320,6 +357,9 @@ struct AgenticFortressCoreDaemon {
     }
 
     private static func readSecretJSONFromStdin(allowedEnvironmentNames: [String]) throws -> [String: SecretMaterial] {
+        guard isatty(STDIN_FILENO) != 1 else {
+            throw CoreDaemonError.invalidArguments("--secrets-json-stdin reads JSON from a pipe and does not prompt. Pipe JSON into stdin or use --secret-prompt for one secret.")
+        }
         let data = FileHandle.standardInput.readDataToEndOfFile()
         let raw = try JSONDecoder().decode([String: String].self, from: data)
         let allowed = Set(allowedEnvironmentNames)

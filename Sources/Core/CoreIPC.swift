@@ -8,6 +8,19 @@ public enum CoreIPC {
 
 public enum CoreIPCOperation: String, Codable, CaseIterable, Sendable {
     case health
+    case loadManagementSnapshot = "load-management-snapshot"
+    case registerCLI = "register-cli-management"
+    case unregisterCLI = "unregister-cli-management"
+    case refreshCLITrust = "refresh-cli-trust-management"
+    case replaceSecret = "replace-secret-management"
+    case deleteSecret = "delete-secret-management"
+    case upsertProxyProfile = "upsert-proxy-profile"
+    case upsertMCPProfile = "upsert-mcp-profile"
+    case createManagedProxySession = "create-managed-proxy-session"
+    case installAdapter = "install-adapter-management"
+    case revokeAdapter = "revoke-adapter-management"
+    case clearUnlockGrants = "clear-unlock-grants"
+    case exportRedactedAudit = "export-redacted-audit"
     case classifyCommand = "classify-command"
     case createDecisionManifest = "create-decision-manifest"
     case createApprovalSession = "create-approval-session"
@@ -101,9 +114,11 @@ public enum InstallManifestStore {
 
 public struct CoreIPCHandler: Sendable {
     public var authorizer: CoreIPCAuthorizer
+    public var management: CoreManagementService
 
-    public init(authorizer: CoreIPCAuthorizer) {
+    public init(authorizer: CoreIPCAuthorizer, management: CoreManagementService = CoreManagementService()) {
         self.authorizer = authorizer
+        self.management = management
     }
 
     public func handle(_ request: CoreIPCRequest) throws -> CoreIPCResponse {
@@ -116,9 +131,53 @@ public struct CoreIPCHandler: Sendable {
                 "protocolVersion": "\(CoreIPC.protocolVersion)"
             ])
             return CoreIPCResponse(requestID: request.requestID, ok: true, payload: Data(payload.utf8))
+        case .loadManagementSnapshot:
+            return try encodeResponse(requestID: request.requestID, management.snapshot())
+        case .registerCLI:
+            return try encodeResponse(requestID: request.requestID, management.registerCLI(decodePayload(request.payload, as: ManagementCLIRegistrationRequest.self)))
+        case .unregisterCLI:
+            return try encodeResponse(requestID: request.requestID, management.unregisterCLI(decodePayload(request.payload, as: ManagementNameRequest.self)))
+        case .refreshCLITrust:
+            return try encodeResponse(requestID: request.requestID, management.refreshCLITrust(decodePayload(request.payload, as: ManagementNameRequest.self)))
+        case .replaceSecret:
+            return try encodeResponse(requestID: request.requestID, management.replaceSecret(decodePayload(request.payload, as: ManagementSecretReplacementRequest.self)))
+        case .deleteSecret:
+            try management.deleteSecret(decodePayload(request.payload, as: ManagementSecretDeletionRequest.self))
+            return CoreIPCResponse(requestID: request.requestID, ok: true)
+        case .upsertProxyProfile:
+            return try encodeResponse(requestID: request.requestID, management.upsertProxyProfile(decodePayload(request.payload, as: ProxyProfile.self)))
+        case .upsertMCPProfile:
+            return try encodeResponse(requestID: request.requestID, management.upsertMCPProfile(decodePayload(request.payload, as: MCPUpstreamProfile.self)))
+        case .createManagedProxySession:
+            return try encodeResponse(requestID: request.requestID, management.createProxySession(decodePayload(request.payload, as: ManagementProxySessionRequest.self)))
+        case .installAdapter:
+            return try encodeResponse(requestID: request.requestID, management.installAdapter(decodePayload(request.payload, as: AdapterPackPayload.self)))
+        case .revokeAdapter:
+            try management.revokeAdapter(decodePayload(request.payload, as: ManagementNameRequest.self))
+            return CoreIPCResponse(requestID: request.requestID, ok: true)
+        case .clearUnlockGrants:
+            try management.clearUnlockGrants()
+            return CoreIPCResponse(requestID: request.requestID, ok: true)
+        case .exportRedactedAudit:
+            return try encodeResponse(requestID: request.requestID, ["audit": management.exportRedactedAuditJSON()])
         default:
             throw CoreIPCError.unsupportedOperation(request.operation)
         }
+    }
+
+    private func decodePayload<T: Decodable>(_ data: Data, as type: T.Type) throws -> T {
+        do {
+            return try JSONDecoder().decode(type, from: data)
+        } catch {
+            throw CoreIPCError.malformedPayload
+        }
+    }
+
+    private func encodeResponse<T: Encodable>(requestID: String, _ payload: T) throws -> CoreIPCResponse {
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.sortedKeys, .withoutEscapingSlashes]
+        encoder.dateEncodingStrategy = .iso8601
+        return CoreIPCResponse(requestID: requestID, ok: true, payload: try encoder.encode(payload))
     }
 }
 

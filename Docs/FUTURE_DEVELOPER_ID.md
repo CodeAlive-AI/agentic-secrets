@@ -23,14 +23,17 @@ Developer ID signing and notarization are optional future distribution improveme
 
 ### Release Packaging
 
-- Produce a notarizable archive from `build/AgenticFortress.app`.
+- Produce a notarizable archive from `build/AgenticFortress.app`; `scripts/sign_notarize_release.sh` builds a submission zip with `ditto --norsrc`, submits it, staples the app, rebuilds the final zip, then validates the expanded zip with `spctl` and `stapler validate`.
 - Sign every executable, XPC service, login item, and bundle with `Developer ID Application`.
 - Preserve hardened runtime across the full bundle.
 - Staple notarization tickets to released artifacts.
-- Add a release CI job that fails if notarization, stapling, or Gatekeeper assessment fails.
+- Build universal binaries with `ARCHS="arm64 x86_64" ./scripts/package_release.sh` and validate them with `REQUIRED_ARCHS="arm64 x86_64" ./scripts/validate_release_artifact.sh build/AgenticFortress.app`.
+- Use `scripts/setup_dev_signing.sh` for stable local development signing when maintainers want repeatable cdhash behavior before Developer ID is available.
+- Add a release CI job that fails if notarization, stapling, final zip validation, or Gatekeeper assessment fails.
 
 ### Bundle Layout
 
+- Keep `CFBundleIconFile` populated and ship `Contents/Resources/AgenticFortress.icns`.
 - Move XPC services to `Contents/XPCServices`.
 - Move login items or launch agents to their standard bundle locations.
 - Keep CLI shims and user-facing command tools in stable install paths.

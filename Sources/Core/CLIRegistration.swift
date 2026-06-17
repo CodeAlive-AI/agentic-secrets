@@ -57,12 +57,38 @@ public struct CLIRegistrationDocument: Codable, Equatable, Sendable {
     }
 }
 
+public struct CLITrustRefreshAuthorizationRequest: Codable, Equatable, Sendable {
+    public var name: String
+    public var targetPath: String
+    public var currentIdentity: String?
+    public var proposedIdentity: String
+    public var currentDesignatedRequirement: String?
+    public var proposedDesignatedRequirement: String?
+
+    public init(
+        name: String,
+        targetPath: String,
+        currentIdentity: String?,
+        proposedIdentity: String,
+        currentDesignatedRequirement: String?,
+        proposedDesignatedRequirement: String?
+    ) {
+        self.name = name
+        self.targetPath = targetPath
+        self.currentIdentity = currentIdentity
+        self.proposedIdentity = proposedIdentity
+        self.currentDesignatedRequirement = currentDesignatedRequirement
+        self.proposedDesignatedRequirement = proposedDesignatedRequirement
+    }
+}
+
 public enum CLIRegistrationError: Error, Equatable, CustomStringConvertible {
     case invalidCLIName(String)
     case invalidEnvironmentName(String)
     case missingEnvironmentValue(String)
     case targetNotExecutable(String)
     case targetIdentityChanged(name: String, expected: String, actual: String)
+    case targetChangedDuringTrustRefresh(name: String)
     case unsupportedSchema(Int)
     case registrationMissing(String)
 
@@ -78,6 +104,8 @@ public enum CLIRegistrationError: Error, Equatable, CustomStringConvertible {
             "Target is not executable: \(path)"
         case .targetIdentityChanged(let name, let expected, let actual):
             "Registered target identity changed for '\(name)'. Expected \(expected), got \(actual). Verify the target binary, then run `agentic-fortress cli trust-refresh \(name)`."
+        case .targetChangedDuringTrustRefresh(let name):
+            "Registered target changed while refreshing trust for '\(name)'. Re-run trust-refresh after verifying the target binary."
         case .unsupportedSchema(let schema):
             "Unsupported CLI registry schema version: \(schema)"
         case .registrationMissing(let name):
@@ -114,6 +142,9 @@ public struct CLIRegistrationStore: Sendable {
         }
         if let integrityProtector {
             guard FileManager.default.fileExists(atPath: integrityURL.path) else {
+                if document.registrations.isEmpty {
+                    return document
+                }
                 throw CLIRegistryIntegrityError.missingSignature(integrityURL.path)
             }
             let integrity = try decoder.decode(CLIRegistryIntegrity.self, from: Data(contentsOf: integrityURL))
@@ -213,23 +244,56 @@ public struct CLIRegistrationService: Sendable {
         return registration
     }
 
-    public func refreshTargetTrust(name: String) throws -> CLIAppRegistration {
+    public func refreshTargetTrust(
+        name: String,
+        authorize: (CLITrustRefreshAuthorizationRequest) throws -> Void
+    ) throws -> CLIAppRegistration {
         var document = try registryStore.load()
         guard var registration = document.registrations[name] else {
             throw CLIRegistrationError.registrationMissing(name)
         }
-        try validateExecutable(registration.targetPath)
-        let target = try TargetAssessor().assess(path: registration.targetPath)
-        let signature = CodeSignatureInspector.assess(path: target.resolvedPath)
-        registration.targetResolvedPath = target.resolvedPath
-        registration.targetIdentity = target.identity
-        registration.targetCDHash = signature.cdHash
-        registration.targetDesignatedRequirement = signature.designatedRequirement
-        registration.targetSigningIdentifier = signature.signingIdentifier
-        registration.targetTeamIdentifier = signature.teamIdentifier
+        let proposed = try refreshedRegistration(from: registration)
+        try authorize(CLITrustRefreshAuthorizationRequest(
+            name: registration.name,
+            targetPath: registration.targetPath,
+            currentIdentity: registration.targetIdentity,
+            proposedIdentity: proposed.targetIdentity ?? "",
+            currentDesignatedRequirement: registration.targetDesignatedRequirement,
+            proposedDesignatedRequirement: proposed.targetDesignatedRequirement
+        ))
+        let confirmed = try refreshedRegistration(from: registration)
+        guard trustFingerprint(proposed) == trustFingerprint(confirmed) else {
+            throw CLIRegistrationError.targetChangedDuringTrustRefresh(name: name)
+        }
+        registration = confirmed
         document.registrations[name] = registration
         try registryStore.save(document)
         return registration
+    }
+
+    private func refreshedRegistration(from registration: CLIAppRegistration) throws -> CLIAppRegistration {
+        var refreshed = registration
+        try validateExecutable(refreshed.targetPath)
+        let target = try TargetAssessor().assess(path: refreshed.targetPath)
+        let signature = CodeSignatureInspector.assess(path: target.resolvedPath)
+        refreshed.targetResolvedPath = target.resolvedPath
+        refreshed.targetIdentity = target.identity
+        refreshed.targetCDHash = signature.cdHash
+        refreshed.targetDesignatedRequirement = signature.designatedRequirement
+        refreshed.targetSigningIdentifier = signature.signingIdentifier
+        refreshed.targetTeamIdentifier = signature.teamIdentifier
+        return refreshed
+    }
+
+    private func trustFingerprint(_ registration: CLIAppRegistration) -> String {
+        [
+            registration.targetResolvedPath ?? "",
+            registration.targetIdentity ?? "",
+            registration.targetCDHash ?? "",
+            registration.targetDesignatedRequirement ?? "",
+            registration.targetSigningIdentifier ?? "",
+            registration.targetTeamIdentifier ?? ""
+        ].joined(separator: "\u{1F}")
     }
 
     public func validateTargetIdentity(registration: CLIAppRegistration, assessedTarget: TargetAssessment) throws {
@@ -301,6 +365,14 @@ public struct AgenticFortressStateLayout: Sendable {
 
     public var secretKeyURL: URL {
         stateDirectory.appendingPathComponent("secrets/secret-store.key")
+    }
+
+    public var cliUnlockGrantsURL: URL {
+        stateDirectory.appendingPathComponent("cli-unlock-grants.json")
+    }
+
+    public var cliUnlockKeyURL: URL {
+        stateDirectory.appendingPathComponent("secrets/cli-unlock-grants.key")
     }
 
     public var registrationService: CLIRegistrationService {

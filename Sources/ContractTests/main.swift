@@ -10,6 +10,22 @@ struct ContractTestFailure: Error, CustomStringConvertible {
     var description: String { message }
 }
 
+enum ContractTrustRefreshError: Error, Equatable {
+    case denied
+}
+
+enum ContractDeliveryWitnessError: Error, Equatable {
+    case blocked
+}
+
+struct BlockingDeliveryWitness: DeliveryWitness {
+    func willReplaceSecret(alias: String, environment: String) throws {
+        throw ContractDeliveryWitnessError.blocked
+    }
+
+    func didReplaceSecret(alias: String, environment: String) {}
+}
+
 final class ErrorBox: @unchecked Sendable {
     private var value: Error?
     private let lock = NSLock()
@@ -203,8 +219,60 @@ func runContracts() throws {
     let ipcReport = IPCConformanceReport()
     try expect(ipcReport.protocolVersion == CoreIPC.protocolVersion, "IPC conformance must report current protocol version")
     try expect(ipcReport.messageTypes.contains(CoreIPCOperation.createShimExecPlan.rawValue), "IPC conformance must list shim exec plan operation")
+    try expect(ipcReport.messageTypes.contains(CoreIPCOperation.loadManagementSnapshot.rawValue), "IPC conformance must list management snapshot operation")
     try expect(ipcReport.authorizationModel.contains("binary-sha256"), "IPC conformance must include hash-based self-build authorization")
     try? FileManager.default.removeItem(at: helperRoot)
+
+    let managementRoot = URL(fileURLWithPath: NSTemporaryDirectory())
+        .appendingPathComponent("agentic-fortress-management-\(UUID().uuidString)", isDirectory: true)
+    defer { try? FileManager.default.removeItem(at: managementRoot) }
+    let managementService = CoreManagementService(stateDirectory: managementRoot)
+    let replaced = try managementService.replaceSecret(ManagementSecretReplacementRequest(
+        alias: "cli.demo.demo_secret",
+        value: "synthetic-management-value",
+        label: "Demo Secret",
+        environment: "cli:demo"
+    ))
+    try expect(replaced.alias == "cli.demo.demo_secret", "management secret replacement must return alias only")
+    let managementSnapshot = try managementService.snapshot(now: Date(timeIntervalSince1970: 100))
+    try expect(managementSnapshot.secrets.contains(where: { $0.alias == "cli.demo.demo_secret" }), "management snapshot must include secret summary")
+    let encodedSnapshot = try AgenticFortressJSON.encodePretty(managementSnapshot)
+    try expect(!encodedSnapshot.contains("synthetic-management-value"), "management snapshot must not contain raw secret value")
+    try expect(!encodedSnapshot.contains("Bearer "), "management snapshot must not contain bearer tokens")
+    try expectThrows(ManagementError.deleteSecretMaterialNotConfirmed, {
+        try managementService.deleteSecret(ManagementSecretDeletionRequest(alias: "cli.demo.demo_secret", deleteSecretMaterial: false))
+    }, "management secret deletion must require explicit material confirmation")
+    try managementService.deleteSecret(ManagementSecretDeletionRequest(alias: "cli.demo.demo_secret", deleteSecretMaterial: true))
+    let deletedSnapshot = try managementService.snapshot(now: Date(timeIntervalSince1970: 101))
+    try expect(!deletedSnapshot.secrets.contains(where: { $0.alias == "cli.demo.demo_secret" }), "confirmed management secret deletion must remove secret summary")
+    try expectThrows(ContractDeliveryWitnessError.blocked, {
+        _ = try CoreManagementService(stateDirectory: managementRoot, witness: BlockingDeliveryWitness()).replaceSecret(ManagementSecretReplacementRequest(
+            alias: "cli.demo.blocked",
+            value: "synthetic-blocked-value",
+            label: "Blocked",
+            environment: "cli:demo"
+        ))
+    }, "delivery witness must be able to block management secret replacement")
+    let proxyResponse = try managementService.createProxySession(ManagementProxySessionRequest(profileName: "openai", bindPort: 48177))
+    try expect(!proxyResponse.oneTimeToken.isEmpty, "managed proxy session must return one-time token to caller")
+    try expect(proxyResponse.session.tokenHash == stableDigest(proxyResponse.oneTimeToken), "managed proxy session must persist token hash only")
+    let proxySnapshot = try managementService.snapshot(now: Date(timeIntervalSince1970: 102))
+    let encodedProxySnapshot = try AgenticFortressJSON.encodePretty(proxySnapshot)
+    try expect(!encodedProxySnapshot.contains(proxyResponse.oneTimeToken), "management snapshot must not persist one-time proxy token")
+
+    let managementHandler = CoreIPCHandler(authorizer: ipcAuthorizer, management: managementService)
+    let managementIPCResponse = try managementHandler.handle(CoreIPCRequest(requestID: "req_management", operation: .loadManagementSnapshot, peer: selfBuildPeer))
+    try expect(managementIPCResponse.ok, "authorized management IPC snapshot must succeed")
+    let managementDecoder = JSONDecoder()
+    managementDecoder.dateDecodingStrategy = .iso8601
+    let decodedManagementSnapshot = try managementDecoder.decode(ManagementSnapshot.self, from: managementIPCResponse.payload)
+    try expect(decodedManagementSnapshot.securityHealth.protocolVersion == CoreIPC.protocolVersion, "management IPC snapshot must decode typed payload")
+    try expectThrows(CoreIPCError.unauthorizedPeer("wrongHash"), {
+        _ = try managementHandler.handle(CoreIPCRequest(requestID: "req_management_bad_peer", operation: .loadManagementSnapshot, peer: wrongHashPeer))
+    }, "management IPC must reject unauthorized peers")
+    let fixedFixture = ManagementCLIRegistrationRequest(name: "demo", targetPath: "/bin/echo", environmentSecrets: ["DEMO_SECRET": "synthetic-management-value"])
+    let decodedFixture = try JSONDecoder().decode(ManagementCLIRegistrationRequest.self, from: JSONEncoder().encode(fixedFixture))
+    try expect(decodedFixture == fixedFixture, "management request fixtures must preserve typed Codable shape")
 
     let authReason = LocalAuthenticationGate.reason(for: approvalManifest)
     try expect(authReason.contains(approvalManifest.digest), "LocalAuthentication reason must include manifest digest")
@@ -221,6 +289,48 @@ func runContracts() throws {
     try expectThrows(LocalAuthenticationError.digestMismatch, {
         try LocalAuthenticationGate.validate(proof: LocalAuthenticationProof(manifestDigest: "wrong", actionClass: approvalManifest.actionClass, reason: authReason, authenticatedAt: Date(timeIntervalSince1970: 0)), manifest: approvalManifest, now: Date(timeIntervalSince1970: 1))
     }, "LocalAuthentication proof must bind manifest digest")
+
+    let unlockRoot = URL(fileURLWithPath: NSTemporaryDirectory()).appendingPathComponent("agentic-fortress-unlock-\(UUID().uuidString)", isDirectory: true)
+    let unlockStore = CLIUnlockGrantStore(
+        url: unlockRoot.appendingPathComponent("cli-unlock-grants.json"),
+        keyURL: unlockRoot.appendingPathComponent("cli-unlock-grants.key"),
+        maxTTL: 300
+    )
+    let unlockScope = CLIUnlockScope(manifest: approvalManifest).withParentApp("Codex")
+    let unlockGrant = try unlockStore.grant(scope: unlockScope, ttl: 120, now: Date(timeIntervalSince1970: 100))
+    let validUnlockGrant = try unlockStore.validGrant(scope: unlockScope, now: Date(timeIntervalSince1970: 150))
+    try expect(validUnlockGrant == unlockGrant, "CLI unlock grant must validate within TTL")
+    let expiredUnlockGrant = try unlockStore.validGrant(scope: unlockScope, now: Date(timeIntervalSince1970: 221))
+    try expect(expiredUnlockGrant == nil, "CLI unlock grant must expire")
+    try expectThrows(CLIUnlockGrantError.invalidTTL, {
+        _ = try unlockStore.grant(scope: unlockScope, ttl: 301, now: Date(timeIntervalSince1970: 100))
+    }, "CLI unlock grant must cap TTL")
+    let secondGrant = try unlockStore.grant(scope: unlockScope, ttl: 120, now: Date(timeIntervalSince1970: 300))
+    let unlockDecoder = JSONDecoder()
+    unlockDecoder.dateDecodingStrategy = .iso8601
+    var tamperedUnlockDocument = try unlockDecoder.decode(CLIUnlockGrantDocument.self, from: Data(contentsOf: unlockStore.url))
+    tamperedUnlockDocument.grants[secondGrant.scopeDigest]?.expiresAt = Date(timeIntervalSince1970: 999999)
+    let unlockEncoder = JSONEncoder()
+    unlockEncoder.dateEncodingStrategy = .iso8601
+    unlockEncoder.outputFormatting = [.prettyPrinted, .sortedKeys, .withoutEscapingSlashes]
+    try unlockEncoder.encode(tamperedUnlockDocument).write(to: unlockStore.url, options: [.atomic])
+    try expectThrows(CLIUnlockGrantError.signatureMismatch, {
+        _ = try unlockStore.validGrant(scope: unlockScope, now: Date(timeIntervalSince1970: 301))
+    }, "CLI unlock grant must reject tampered expiry")
+    let otherUnlockScope = CLIUnlockScope(
+        subject: unlockScope.subject,
+        secretAlias: unlockScope.secretAlias,
+        environmentName: unlockScope.environmentName,
+        actionClass: "hcloud.server.create",
+        workspaceHash: unlockScope.workspaceHash,
+        parentApp: unlockScope.parentApp,
+        deliveryMode: unlockScope.deliveryMode,
+        targetIdentity: unlockScope.targetIdentity,
+        targetResolvedPath: unlockScope.targetResolvedPath
+    )
+    let otherActionUnlockGrant = try unlockStore.validGrant(scope: otherUnlockScope, now: Date(timeIntervalSince1970: 301))
+    try expect(otherActionUnlockGrant == nil, "CLI unlock grant must not apply to another action class")
+    try? FileManager.default.removeItem(at: unlockRoot)
 
     let secretStore = InMemorySecretStore()
     let secretAlias = SecretAlias("cloud.hcloud.dev")
@@ -302,6 +412,17 @@ func runContracts() throws {
         registryStore: CLIRegistrationStore(registryURL: registrationLayout.registryURL, integrityProtector: registrationProtector),
         secretStore: LocalEncryptedSecretStore(storeURL: registrationLayout.secretStoreURL, keyURL: registrationLayout.secretKeyURL)
     )
+    let legacyRegistryRoot = registrationRoot.appendingPathComponent("legacy-empty-registry", isDirectory: true)
+    try FileManager.default.createDirectory(at: legacyRegistryRoot, withIntermediateDirectories: true)
+    let legacyRegistryStore = CLIRegistrationStore(
+        registryURL: legacyRegistryRoot.appendingPathComponent("cli-registry.json"),
+        integrityProtector: registrationProtector
+    )
+    try Data(#"{"registrations":{},"schemaVersion":1}"#.utf8).write(to: legacyRegistryStore.registryURL, options: [.atomic])
+    let legacyRegistryDocument = try legacyRegistryStore.load()
+    try expect(legacyRegistryDocument == CLIRegistrationDocument(), "empty legacy CLI registry without sidecar must bootstrap for first registration")
+    try legacyRegistryStore.save(CLIRegistrationDocument())
+    try expect(FileManager.default.fileExists(atPath: legacyRegistryStore.integrityURL.path), "empty legacy CLI registry bootstrap must write integrity sidecar on save")
     let registration = try registrationService.register(
         name: "hcloud",
         targetPath: registeredTarget.path,
@@ -361,11 +482,39 @@ func runContracts() throws {
     try expectThrows(CLIRegistrationError.targetIdentityChanged(name: "hcloud-symlink", expected: symlinkRegistration.targetIdentity ?? "", actual: changedSymlinkTarget.identity), {
         try registrationService.validateTargetIdentity(registration: symlinkRegistration, assessedTarget: changedSymlinkTarget)
     }, "CLI run path must deny target binary replacement before resolving secrets")
-    let refreshedSymlinkRegistration = try registrationService.refreshTargetTrust(name: "hcloud-symlink")
+    let registrationBeforeDeniedRefresh = try registrationService.registration(named: "hcloud-symlink")
+    var deniedRefreshRequest: CLITrustRefreshAuthorizationRequest?
+    try expectThrows(ContractTrustRefreshError.denied, {
+        _ = try registrationService.refreshTargetTrust(name: "hcloud-symlink") { request in
+            deniedRefreshRequest = request
+            throw ContractTrustRefreshError.denied
+        }
+    }, "trust refresh must require authorization before updating target identity")
+    try expect(deniedRefreshRequest?.currentIdentity == symlinkRegistration.targetIdentity, "trust refresh authorization must include current identity")
+    try expect(deniedRefreshRequest?.proposedIdentity == changedSymlinkTarget.identity, "trust refresh authorization must include proposed identity")
+    let registrationAfterDeniedRefresh = try registrationService.registration(named: "hcloud-symlink")
+    try expect(registrationAfterDeniedRefresh == registrationBeforeDeniedRefresh, "denied trust refresh must not modify registry metadata")
+
+    let raceCellarRoot = symlinkRoot.appendingPathComponent("Cellar/hcloud/1.67.0/bin", isDirectory: true)
+    try FileManager.default.createDirectory(at: raceCellarRoot, withIntermediateDirectories: true)
+    let raceHcloud = raceCellarRoot.appendingPathComponent("hcloud")
+    try "#!/bin/sh\nexit 0\n# changed again\n".data(using: .utf8)!.write(to: raceHcloud)
+    try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: raceHcloud.path)
+    try expectThrows(CLIRegistrationError.targetChangedDuringTrustRefresh(name: "hcloud-symlink"), {
+        _ = try registrationService.refreshTargetTrust(name: "hcloud-symlink") { _ in
+            try FileManager.default.removeItem(at: stableHcloud)
+            try FileManager.default.createSymbolicLink(atPath: stableHcloud.path, withDestinationPath: "../Cellar/hcloud/1.67.0/bin/hcloud")
+        }
+    }, "trust refresh must fail closed if target changes between authorization and write")
+    let racedSymlinkTarget = try TargetAssessor().assess(path: symlinkRegistration.targetPath)
+    let refreshedSymlinkRegistration = try registrationService.refreshTargetTrust(name: "hcloud-symlink") { request in
+        try expect(request.currentIdentity == symlinkRegistration.targetIdentity, "authorized trust refresh must show old target identity")
+        try expect(request.proposedIdentity == racedSymlinkTarget.identity, "authorized trust refresh must show current replacement identity")
+    }
     try expect(refreshedSymlinkRegistration.environmentBindings == symlinkRegistration.environmentBindings, "trust refresh must not change secret bindings")
     try expect(refreshedSymlinkRegistration.targetPath == stableHcloud.path, "trust refresh must keep stable invocation path")
-    try expect(refreshedSymlinkRegistration.targetIdentity == changedSymlinkTarget.identity, "trust refresh must update pinned target identity")
-    try registrationService.validateTargetIdentity(registration: refreshedSymlinkRegistration, assessedTarget: changedSymlinkTarget)
+    try expect(refreshedSymlinkRegistration.targetIdentity == racedSymlinkTarget.identity, "trust refresh must update pinned target identity")
+    try registrationService.validateTargetIdentity(registration: refreshedSymlinkRegistration, assessedTarget: racedSymlinkTarget)
     try expectThrows(CLIRegistrationError.invalidEnvironmentName("HCLOUD_TOKEN=leak"), {
         _ = try registrationService.register(
             name: "hcloud",
@@ -395,6 +544,14 @@ func runContracts() throws {
     try expectThrows(EnvironmentScrubError.targetAlreadyPresent("HCLOUD_TOKEN"), {
         _ = try EnvironmentScrubber().scrub(parent: ["HCLOUD_TOKEN": "ambient"], injectedValues: ["HCLOUD_TOKEN": "fresh"])
     }, "multi-env scrub must fail closed on ambient target collision")
+
+    try expect(CLIShimPolicy.isGlobalPassThrough(arguments: ["--help"]), "shim must pass global --help without secret delivery")
+    try expect(CLIShimPolicy.isGlobalPassThrough(arguments: ["server", "--help"]), "shim must pass nested --help without secret delivery")
+    try expect(CLIShimPolicy.isGlobalPassThrough(arguments: ["help", "server"]), "shim must pass help subcommands without secret delivery")
+    try expect(CLIShimPolicy.isGlobalPassThrough(arguments: ["--version"]), "shim must pass --version without secret delivery")
+    try expect(CLIShimPolicy.isGlobalPassThrough(arguments: ["version"]), "shim must pass version subcommand without secret delivery")
+    try expect(!CLIShimPolicy.isGlobalPassThrough(arguments: ["-v"]), "shim must not treat ambiguous -v as a global version exception")
+    try expect(!CLIShimPolicy.isGlobalPassThrough(arguments: ["server", "list"]), "shim must route normal commands through AgenticFortress")
 
     let shimRoot = URL(fileURLWithPath: NSTemporaryDirectory()).appendingPathComponent("agentic-fortress-shim-\(UUID().uuidString)")
     let shimTarget = shimRoot.appendingPathComponent("hcloud")

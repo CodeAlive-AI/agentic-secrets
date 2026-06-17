@@ -1,86 +1,93 @@
 # AgenticFortress
 
-AgenticFortress is a macOS lower-leakage secret delivery system for developer machines.
+Version: `0.1.0 alpha`
 
-It does not make execution safe. It makes delivery of secrets explicit, narrow, approved, bounded, auditable, and lower-leakage than `.env`, shell environment, MCP configs, or plaintext provider tokens.
+AgenticFortress is a macOS self-build tool for lower-leakage secret delivery on developer machines.
 
-Implemented delivery contracts:
+It keeps provider tokens out of `.env` files, shell startup files, MCP configs, and native CLI config files such as `hcloud`'s `cli.toml`. It does not make arbitrary command execution safe; it makes secret delivery explicit, narrow, locally approved, auditable, and fail-closed.
 
-- Signed shim model through one `agentic-fortress-shim` binary and symlink-style invocation.
-- CLI env delivery with signed/versioned dynamic command adapter packs and deterministic decision manifests.
-- Local API proxy profiles with per-session localhost capability tokens.
-- BWS provider split where runtime fetch is one approved secret per invocation.
-- Remote MCP bridge contracts with pinned upstream profile and session propagation.
-- Rollback detection that locks policy use and clears remembered leases.
-- Structured audit with redaction gates.
-- Release gate checklist backed by executable contract tests.
+This is an alpha release: expect breaking changes while the CLI, storage format, and trust model settle.
 
-Adapter packs are dynamic but not trust-by-configuration. External packs must verify under a trusted P-256 signing key, publisher allowlist, CLI allowlist, schema version, expiry, rule validation, and rollback checks before registration. Lease scope includes adapter identity, version, and hash.
+## How It Works
 
-Runtime policy is configurable through `AgenticFortressConfig`; the default JSON lives at `config/default.agentic-fortress.json`. Configuration covers adapter trust, delivery defaults, proxy profiles, MCP profiles, and macOS compatibility gates.
+- You register a CLI app once, for example `hcloud`, and pass the token through stdin.
+- AgenticFortress stores the secret in a local encrypted store and keeps non-secret CLI metadata in its registry.
+- Each run validates the registered target binary identity before resolving the secret.
+- macOS LocalAuthentication is required before secret delivery. Depending on system state, macOS may ask for Touch ID, Apple Watch, or the local account password.
+- Successful CLI authentication creates a short scoped unlock grant for matching runs. The default TTL is 5 minutes and is bound to the CLI, target identity, workspace, action class, parent app, and secret alias.
+- Trust changes, such as `trust-refresh` after a CLI upgrade, also require LocalAuthentication.
+- Registry tampering and target replacement fail closed before any secret is read.
 
-The default distribution model is open-source self-build with local ad-hoc signing. Downloadable Developer ID-signed and notarized binaries are an optional future maintainer channel, not a requirement for contributors or local use.
+## Quick Install
 
-See:
-
-- `Docs/THREAT_MODEL.md`
-- `Docs/INSTALLATION.md`
-- `Docs/ACCEPTANCE_CRITERIA.md`
-- `Docs/OPERATIONS.md`
-- `Docs/IMPLEMENTATION_MAP.md`
-- `Docs/IMPLEMENTATION_PLAN.md`
-- `Docs/FUTURE_DEVELOPER_ID.md`
-- `Docs/THIRD_PARTY_NOTICES.md`
-
-## Build
+Requirements: macOS Tahoe 26.x, SwiftPM, Xcode Command Line Tools or Xcode with the macOS 26 SDK.
 
 ```sh
-swift build
-./scripts/ci.sh
-./scripts/tahoe_compatibility_check.sh
+git clone https://github.com/<owner>/agentic-fortress.git
+cd agentic-fortress
+./scripts/install_local.sh --load --configure-shell
 ```
 
-## Package
+Open a new terminal, or load the PATH change in the current one:
 
 ```sh
-./scripts/package_release.sh
+source "$HOME/.zshrc"
+command -v agentic-fortress
 ```
 
-By default, the package script ad-hoc signs for local validation and self-build installs.
-
-## Install
+Verify the local build:
 
 ```sh
-./scripts/install_local.sh --prefix "$HOME/Library/Application Support/AgenticFortress/LocalInstall"
-./scripts/uninstall_local.sh --prefix "$HOME/Library/Application Support/AgenticFortress/LocalInstall" --keep-secrets
+agentic-fortress release-gates
 ```
 
-The full install, update, uninstall, launchd, LocalAuthentication, Tahoe, and troubleshooting guide is in `Docs/INSTALLATION.md`.
+## hcloud Example
 
-The local installer writes an install manifest with helper paths, owners, permissions, versions, SHA-256 hashes, and cdhash values. Runtime IPC authorization uses that manifest instead of requiring a Developer ID Team ID.
-
-The core daemon serves the local control plane over a Unix domain socket. Helpers authenticate to core with the install manifest and do not read local secret material directly.
-
-On macOS Tahoe, the self-build track avoids restricted entitlements so ad-hoc signed binaries can execute normally. The core daemon stores local secret material in an owner-only encrypted file store gated by LocalAuthentication; no shared Keychain access group is required for the self-build track. Registered CLI trust metadata is protected by a device-local macOS Keychain integrity key so hand-edited registry files fail closed before any secret is resolved.
-
-## Release Evidence
+Register `hcloud` without writing the token to `cli.toml`:
 
 ```sh
-swift run agentic-fortress release-gates
-swift run agentic-fortress ipc-conformance
-./scripts/check_secret_authority.sh
-./scripts/check_entitlements_diff.sh build/AgenticFortress.app
-./scripts/create_release_evidence.sh
+agentic-fortress cli register hcloud \
+  --env HCLOUD_TOKEN \
+  --secret-prompt
 ```
 
-`release-gates` reports `canRunLocal` separately from optional `canDistributeBinary`.
-
-Optional future maintainer distribution signing and notarization:
+Run `hcloud` through AgenticFortress:
 
 ```sh
-CODESIGN_IDENTITY="Developer ID Application: ..." \
-NOTARYTOOL_PROFILE="agentic-fortress-notary" \
-./scripts/sign_notarize_release.sh
+agentic-fortress cli run hcloud -- server list
 ```
 
-The notarization script requires credentials to be stored in the macOS keychain via `xcrun notarytool store-credentials`; it never reads or prints credential values.
+Disable the short unlock window for one run:
+
+```sh
+agentic-fortress cli run hcloud --unlock-ttl-seconds 0 -- server list
+```
+
+Optional: install a shim so `hcloud ...` itself routes through AgenticFortress. This does not replace the Homebrew binary; it creates an AgenticFortress shim directory that is placed before the native CLI on `PATH`.
+
+```sh
+agentic-fortress cli shim install hcloud --configure-shell
+```
+
+Open a new terminal, then use:
+
+```sh
+hcloud server list
+hcloud --version
+```
+
+Normal commands go through AgenticFortress secret delivery. Global help/version commands pass through without secret delivery.
+
+After a Homebrew upgrade of `hcloud`, verify the new binary and refresh trust:
+
+```sh
+agentic-fortress cli trust-refresh hcloud
+```
+
+## More
+
+- Full install and troubleshooting: [Docs/INSTALLATION.md](Docs/INSTALLATION.md)
+- Operations guide: [Docs/OPERATIONS.md](Docs/OPERATIONS.md)
+- Acceptance criteria: [Docs/ACCEPTANCE_CRITERIA.md](Docs/ACCEPTANCE_CRITERIA.md)
+- Threat model: [Docs/THREAT_MODEL.md](Docs/THREAT_MODEL.md)
+- Developer/agent notes: [AGENTS.md](AGENTS.md)

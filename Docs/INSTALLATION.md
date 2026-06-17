@@ -50,10 +50,18 @@ codesign --verify --strict --deep --verbose=4 build/AgenticFortress.app
 
 ## Install
 
-The default prefix is user-local and contains spaces, so keep the quotes:
+The default prefix is `~/Library/Application Support/AgenticFortress/LocalInstall`, so the common install command is short:
 
 ```sh
-./scripts/install_local.sh --prefix "$HOME/Library/Application Support/AgenticFortress/LocalInstall"
+./scripts/install_local.sh --load --configure-shell
+```
+
+This recommended command installs the app, loads the LaunchAgent, and appends a guarded PATH block to your user shell config so future shell sessions can run `agentic-fortress` directly. Open a new terminal after installation, or run `source "$HOME/.zshrc"` in the current one.
+
+For automation or CI where shell startup files must not be touched, omit `--configure-shell`:
+
+```sh
+./scripts/install_local.sh --load
 ```
 
 The installer rebuilds, packages, validates, copies the app bundle, creates command symlinks, writes a LaunchAgent plist, and writes an install manifest at:
@@ -69,6 +77,21 @@ To add the installed commands to your current shell:
 ```sh
 export PATH="$HOME/Library/Application Support/AgenticFortress/LocalInstall/bin:$PATH"
 ```
+
+To make the command available in future zsh sessions, add the same directory to your user shell config:
+
+```sh
+cat >> "$HOME/.zshrc" <<'EOF'
+
+# AgenticFortress PATH
+case ":$PATH:" in
+  *":$HOME/Library/Application Support/AgenticFortress/LocalInstall/bin:"*) ;;
+  *) export PATH="$HOME/Library/Application Support/AgenticFortress/LocalInstall/bin:$PATH" ;;
+esac
+EOF
+```
+
+The installer prints these next steps after every install. It only edits shell startup files when `--configure-shell` is passed, and it appends without reading existing shell rc contents. It does not write to `/etc/paths.d`; this keeps the self-build installer user-local, reviewable, and reversible.
 
 Do not put raw provider secrets into shell rc files. Configure secret aliases through reviewed product tooling, not through environment variables.
 
@@ -128,22 +151,32 @@ AGENTIC_FORTRESS_INTERACTIVE=1 AGENTIC_FORTRESS_EXPECT_CANCEL=1 ./scripts/intera
 
 For cancellation, press Deny or Cancel in the macOS prompt. The command passes only when core reports `userCanceled` and no secret is resolved.
 
+LocalAuthentication is the macOS security mechanism. The visible prompt may offer Touch ID, Apple Watch, or the local account password depending on hardware, session state, policy, and current macOS behavior. AgenticFortress requires successful local user presence; it does not guarantee that the UI will be Touch ID-only.
+
 The script name is kept for compatibility with older acceptance scripts, but the default self-build runtime path uses an owner-only encrypted local file store gated by LocalAuthentication. It does not require shared Keychain access groups.
 
 ## Register hcloud Without cli.toml
 
 Do not use `hcloud context create` for the AgenticFortress flow. That official hcloud mode stores the token in `~/.config/hcloud/cli.toml`.
 
-Instead, copy the Hetzner Cloud project token to the clipboard and register `hcloud` through AgenticFortress:
+Instead, register `hcloud` through AgenticFortress and enter the token at the hidden prompt:
 
 ```sh
 PREFIX="$HOME/Library/Application Support/AgenticFortress/LocalInstall"
+"$PREFIX/bin/agentic-fortress" cli register hcloud \
+  --env HCLOUD_TOKEN \
+  --secret-prompt
+```
+
+The token is read by the core-owned registration command and stored in the local encrypted secret store. Do not pass token values as command-line arguments.
+
+For clipboard or automation use, pipe the value explicitly:
+
+```sh
 pbpaste | "$PREFIX/bin/agentic-fortress" cli register hcloud \
   --env HCLOUD_TOKEN \
   --secret-stdin
 ```
-
-The token is read by the core-owned registration command from stdin and stored in the local encrypted secret store. Do not pass token values as command-line arguments.
 
 Run `hcloud` through AgenticFortress with arguments after `--`:
 
@@ -157,15 +190,76 @@ AgenticFortress prints its own diagnostics to stderr, requests local authenticat
 "$PREFIX/bin/agentic-fortress" cli run hcloud --quiet -- server list
 ```
 
-The default flow does not create a separate `hcloud` shim symlink. The registration stores metadata in AgenticFortress state and keeps the stable invocation path discovered from `PATH`, such as `/opt/homebrew/bin/hcloud`, plus the target binary identity captured at registration time. The registry JSON is paired with `cli-registry.integrity.json`, an HMAC-SHA256 integrity sidecar whose key is stored in the user's macOS Keychain with `WhenUnlockedThisDeviceOnly` accessibility. Hand-editing either file fails closed before AgenticFortress asks for local authentication or resolves any secret.
+After a successful prompt, AgenticFortress writes a short local unlock grant so repeated matching runs do not prompt every time. The default CLI unlock TTL is 300 seconds. The grant stores no secret value; it is an HMAC-signed scope record bound to CLI name, target identity, workspace hash, action class, parent app, delivery mode, and secret alias.
 
-Each run validates the current target against the captured macOS designated requirement when available and otherwise falls back to SHA-256 identity pinning. Homebrew upgrades therefore fail closed until you verify the new binary and refresh target trust through AgenticFortress; this does not require entering the token again:
+Override the TTL for one run:
+
+```sh
+"$PREFIX/bin/agentic-fortress" cli run hcloud --unlock-ttl-seconds 60 -- server list
+```
+
+Disable the unlock window and require local authentication every time:
+
+```sh
+"$PREFIX/bin/agentic-fortress" cli run hcloud --unlock-ttl-seconds 0 -- server list
+```
+
+The maximum accepted TTL is 900 seconds. Changing target identity, workspace, action class, parent app, or secret alias produces a different unlock scope and requires a fresh local authentication prompt.
+
+### Optional hcloud Shim
+
+If you want the normal `hcloud ...` command to route through AgenticFortress, install an opt-in shim after registration:
+
+```sh
+agentic-fortress cli shim install hcloud --configure-shell
+```
+
+Open a new terminal so the shell picks up the shim PATH block, then verify command resolution:
+
+```sh
+command -v hcloud
+hcloud --version
+```
+
+Expected: `command -v hcloud` points under `~/Library/Application Support/AgenticFortress/LocalInstall/shims/hcloud`.
+
+The shim does not replace or modify the Homebrew binary. It is a symlink to the installed `agentic-fortress-shim` binary. The registered target remains the stable native CLI path, such as `/opt/homebrew/bin/hcloud`.
+
+Normal commands are routed through the same core-owned secret delivery path:
+
+```sh
+hcloud server list
+```
+
+Global help/version commands pass through to the registered target without resolving or injecting secrets:
+
+```sh
+hcloud --help
+hcloud server --help
+hcloud --version
+```
+
+The pass-through environment is scrubbed of inherited secret-like variables. This keeps basic inspection commands usable while avoiding token delivery for help/version output.
+
+Pass-through help/version reads only non-secret registry metadata and intentionally avoids the registry Keychain integrity key so it does not prompt for local authentication just to show help or version output. Commands that can receive secrets still verify registry integrity in core before any secret-store read.
+
+Remove only the shim:
+
+```sh
+agentic-fortress cli shim uninstall hcloud
+```
+
+Registration metadata and secret records remain intact until you run `agentic-fortress cli unregister hcloud --delete-secrets`.
+
+The default explicit flow does not require a separate `hcloud` shim symlink. The registration stores metadata in AgenticFortress state and keeps the stable invocation path discovered from `PATH`, such as `/opt/homebrew/bin/hcloud`, plus the target binary identity captured at registration time. The registry JSON is paired with `cli-registry.integrity.json`, an HMAC-SHA256 integrity sidecar whose key is stored in the user's macOS Keychain with `WhenUnlockedThisDeviceOnly` accessibility. Hand-editing either file fails closed before AgenticFortress asks for local authentication or resolves any secret.
+
+Each run validates the current target against the captured macOS designated requirement when available and otherwise falls back to SHA-256 identity pinning. Homebrew upgrades therefore fail closed until you verify the new binary and refresh target trust through AgenticFortress; this does not require entering the token again, but it does require local authentication because it changes trusted CLI identity metadata:
 
 ```sh
 "$PREFIX/bin/agentic-fortress" cli trust-refresh hcloud
 ```
 
-A manually registered versioned Cellar path is also pinned and must be trust-refreshed or registered again after that version is removed.
+If the LocalAuthentication prompt is canceled or the target changes between the prompt and the registry write, the trust refresh fails closed and the existing registration remains unchanged. A manually registered versioned Cellar path is also pinned and must be trust-refreshed or registered again after that version is removed.
 
 To remove the registration and its local secret record:
 

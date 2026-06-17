@@ -9,6 +9,7 @@ let package = Package(
     ],
     products: [
         .library(name: "AgenticFortressCore", targets: ["AgenticFortressCore"]),
+        .executable(name: "AgenticFortress", targets: ["AgenticFortressApp"]),
         .executable(name: "agentic-fortress", targets: ["AgenticFortressCLI"]),
         .executable(name: "agentic-fortress-shim", targets: ["AgenticFortressShim"]),
         .executable(name: "agentic-fortressd-core", targets: ["AgenticFortressCoreDaemon"]),
@@ -21,6 +22,11 @@ let package = Package(
         .target(
             name: "AgenticFortressCore",
             path: "Sources/Core"
+        ),
+        .executableTarget(
+            name: "AgenticFortressApp",
+            dependencies: ["AgenticFortressCore"],
+            path: "Sources/App"
         ),
         .executableTarget(
             name: "AgenticFortressCLI",
