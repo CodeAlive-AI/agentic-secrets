@@ -43,7 +43,7 @@ public enum BoundedSafetyProfiles {
                 "Does not prevent child processes from inheriting an approved environment variable.",
                 "Does not defend against root or kernel compromise."
             ],
-            tcb: ["agentic-fortress-shim", "agentic-fortressd-core", "Keychain", "approved target CLI"]
+            tcb: ["agentic-fortress-shim", "agentic-fortressd-core", "core-owned local secret store", "approved target CLI"]
         ),
         DeliveryClaim(
             profile: .apiProxy,
@@ -61,7 +61,7 @@ public enum BoundedSafetyProfiles {
                 "BWS machine account blast radius remains equal to its upstream scope.",
                 "A compromised provider helper can use approved scope during an active lease."
             ],
-            tcb: ["agentic-fortress-bwsd", "BWS SDK/CLI", "Keychain", "agentic-fortressd-core authorization"]
+            tcb: ["agentic-fortress-bwsd", "BWS SDK/CLI", "core-owned local secret store", "agentic-fortressd-core authorization"]
         ),
         DeliveryClaim(
             profile: .remoteMCP,
@@ -89,4 +89,3 @@ public enum AgenticFortressInvariant: String, CaseIterable, Codable, Sendable {
     case mcpPinnedProfileOnly = "I11.mcp-pinned-profile-only"
     case releaseGatesRequired = "I12.release-gates-required"
 }
-

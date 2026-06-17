@@ -482,13 +482,13 @@ func runContracts() throws {
     let proxyRuntime = ProxyRuntime()
     let upstreamRequest = try proxyRuntime.prepareUpstreamRequest(
         session: session,
-        request: ProxyHTTPRequest(method: "POST", path: "/v1/responses", headers: ["KEYGATE_PROXY_TOKEN": token], body: Data("{}".utf8), sessionToken: token),
+        request: ProxyHTTPRequest(method: "POST", path: "/v1/responses", headers: ["AGENTIC_FORTRESS_PROXY_TOKEN": token], body: Data("{}".utf8), sessionToken: token),
         upstreamSecret: SecretMaterial(utf8: "real-upstream-secret"),
         now: Date(timeIntervalSince1970: 1)
     )
     try expect(upstreamRequest.url.absoluteString == "https://api.openai.com/v1/responses", "proxy runtime must pin upstream origin and append allowed path")
     try expect(upstreamRequest.headers["Authorization"] == "Bearer real-upstream-secret", "proxy runtime must inject upstream authorization only in upstream request")
-    try expect(upstreamRequest.headers["KEYGATE_PROXY_TOKEN"] == nil, "proxy runtime must not forward local proxy capability token upstream")
+    try expect(upstreamRequest.headers["AGENTIC_FORTRESS_PROXY_TOKEN"] == nil, "proxy runtime must not forward local proxy capability token upstream")
     try expect(upstreamRequest.auditMetadata["authorization"] == "present-redacted", "proxy runtime audit metadata must not include upstream secret")
     try expectThrows(ProxyError.bodyLoggingDisabled, {
         _ = try proxyRuntime.bodyForAudit(Data("secret-body".utf8))
@@ -531,7 +531,7 @@ func runContracts() throws {
     }
     try expect(rotation.isComplete, "BWS rotation workflow must complete after all ordered steps")
     try expectThrows(BWSProviderError.rotationOutOfOrder, {
-        _ = try BWSRotationWorkflow.advance(BWSRotationState(binding: bwsBinding), completing: .storedInKeychain)
+        _ = try BWSRotationWorkflow.advance(BWSRotationState(binding: bwsBinding), completing: .storedInLocalSecretStore)
     }, "BWS rotation workflow must reject out-of-order steps")
 
     let mcpProfile = MCPUpstreamProfile(name: "prod-mcp", origin: URL(string: "https://mcp.example.test")!, allowedPathPrefixes: ["/mcp"])

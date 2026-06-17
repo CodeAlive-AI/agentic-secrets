@@ -15,7 +15,7 @@ It does not make arbitrary execution safe. It narrows how secrets are delivered,
 - Rollback detection locks policy use and clears remembered leases.
 - Proxy and MCP paths pin profiles and block cross-origin redirects by default.
 - Self-build IPC authorization uses an install manifest with resolved helper paths, owner user id, permissions, minimum version, SHA-256 hash, and optional cdhash. Developer ID Team ID checks are optional for future binary distribution, not required for source builds.
-- Keychain reads are device-local, user-presence bound, and use LocalAuthentication reasons derived from the full decision manifest.
+- Local secret reads are device-local, user-presence bound, and use LocalAuthentication reasons derived from the full decision manifest.
 
 ## Non-Claims
 
@@ -33,7 +33,7 @@ It does not make arbitrary execution safe. It narrows how secrets are delivered,
 - `agentic-fortress-bwsd`: BWS token owner and one-secret provider helper.
 - `agentic-fortress-proxyd`: profile-pinned local API proxy.
 - `agentic-fortress-mcpd`: stdio to Streamable HTTP MCP credential bridge.
-- macOS Keychain and LocalAuthentication for production secret unlock and user presence.
+- Core-owned local encrypted secret store and LocalAuthentication for production self-build secret unlock and user presence. Optional future Keychain-backed storage is tracked separately for provisioned signing.
 - Signed adapter packs that classify commands.
 
 ## Primary Attack Surfaces

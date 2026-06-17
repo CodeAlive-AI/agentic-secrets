@@ -9,7 +9,7 @@ The no-Developer-ID production track is implemented as source self-build plus lo
 - `swift run agentic-fortress release-gates` reports `canRunLocal` for the default release track and `canDistributeBinary` only for optional future Developer ID distribution.
 - `swift run agentic-fortress ipc-conformance` reports the versioned local IPC control plane and helper authorization model.
 - `./scripts/install_local.sh` and `./scripts/uninstall_local.sh` cover local install, update-by-reinstall, uninstall, launch-agent cleanup, symlink cleanup, and explicit local-state purge.
-- `./scripts/interactive_keychain_prompt_check.sh` covers non-interactive contracts by default and a real prompt-producing Keychain smoke check when `AGENTIC_FORTRESS_INTERACTIVE=1`.
+- `./scripts/interactive_keychain_prompt_check.sh` covers non-interactive contracts by default and a real prompt-producing LocalAuthentication/local-secret smoke check when `AGENTIC_FORTRESS_INTERACTIVE=1`. The script name is retained for compatibility with earlier acceptance scripts.
 - `./scripts/create_release_evidence.sh` generates release evidence with commit, OS, SDK, Swift version, gate output, package validation, and residual risks.
 
 ## Step 1: Local Secret Store and Approval Session Core
@@ -37,7 +37,7 @@ Scope:
 - Add a policy repository abstraction.
 - Add encrypted/MACed file format scaffolding with explicit no-plaintext-secret invariant.
 - Persist policy epoch/hash and remembered leases.
-- Persist or simulate Keychain rollback anchor state.
+- Persist or simulate rollback anchor state without storing provider secrets in plaintext.
 - Add recovery bundle export/import model without provider token plaintext.
 
 Verification:
@@ -141,14 +141,14 @@ Commit:
 
 - `Implement MCP bridge runtime contracts`
 
-## Step 8: macOS App, XPC, Keychain, and Touch ID Integration
+## Step 8: macOS App, IPC, Local Secret Store, and LocalAuthentication Integration
 
 Scope:
 
 - Add macOS app bundle structure for approval renderer.
 - Add XPC interface definitions for core/shim/helper communication.
 - Add peer identity model for signed clients.
-- Add Keychain access-control implementation notes and compile-time boundaries.
+- Add local secret store access-control implementation notes and compile-time boundaries.
 - Add LocalAuthentication approval service boundary.
 
 Verification:

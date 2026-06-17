@@ -10,11 +10,11 @@ AgenticFortress reviewed and adapted macOS Keychain and access-control design pa
 
 Relevant adapted ideas:
 
-- Use the data-protection Keychain for local secret material.
-- Use `kSecAttrAccessibleWhenUnlockedThisDeviceOnly`.
+- Treat data-protection Keychain storage as a provisioned-signing backend, not the default self-build backend.
+- Prefer device-local, owner-only secret material and avoid shared access groups in the self-build track.
 - Require explicit access-control flags for user presence or current biometric set.
-- Carry an `LAContext` with a deterministic localized reason into Keychain reads.
-- Keep code-signing and bundle identity stable because Keychain access is tied to app identity.
+- Carry a deterministic LocalAuthentication reason derived from the decision manifest into secret reads.
+- Keep code-signing and bundle identity stable when using any future Keychain-backed backend.
 - Isolate risky parsing/IPC behind XPC-style boundaries.
 
 The full MIT license text is reproduced below.

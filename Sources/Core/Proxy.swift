@@ -100,7 +100,7 @@ public struct ProxyRuntime: Sendable {
         let upstreamURL = session.profile.upstreamOrigin.appendingPathComponent(String(request.path.drop(while: { $0 == "/" })))
         var headers = request.headers
         headers["Authorization"] = upstreamSecret.withUTF8String { "Bearer \($0)" }
-        headers.removeValue(forKey: "KEYGATE_PROXY_TOKEN")
+        headers.removeValue(forKey: "AGENTIC_FORTRESS_PROXY_TOKEN")
         let metadata = [
             "profile": session.profile.name,
             "method": request.method.uppercased(),

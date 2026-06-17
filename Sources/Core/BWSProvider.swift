@@ -140,7 +140,7 @@ public struct BWSRotationPlan: Codable, Equatable, Sendable {
 
     public static let standard = BWSRotationPlan(steps: [
         "create new BWS token",
-        "store new token in Keychain under agentic-fortress-bwsd ownership",
+        "store new token through the core-owned local secret store",
         "test exact approved secret access",
         "switch binding",
         "invalidate provider leases",
@@ -151,7 +151,7 @@ public struct BWSRotationPlan: Codable, Equatable, Sendable {
 
 public enum BWSRotationStep: String, Codable, Equatable, Sendable {
     case createdNewToken
-    case storedInKeychain
+    case storedInLocalSecretStore
     case testedExactSecretAccess
     case switchedBinding
     case invalidatedProviderLeases
@@ -176,7 +176,7 @@ public struct BWSRotationState: Codable, Equatable, Sendable {
 public enum BWSRotationWorkflow {
     public static let requiredSteps: [BWSRotationStep] = [
         .createdNewToken,
-        .storedInKeychain,
+        .storedInLocalSecretStore,
         .testedExactSecretAccess,
         .switchedBinding,
         .invalidatedProviderLeases,

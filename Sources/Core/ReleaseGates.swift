@@ -8,7 +8,7 @@ public enum ReleaseTrack: String, Codable, Sendable {
 public enum ReleaseGate: String, CaseIterable, Codable, Sendable {
     case noGetSecretAPI = "no-getSecret-api"
     case xpcPeerValidation = "xpc-peer-validation"
-    case keychainAccessControl = "keychain-access-control"
+    case localSecretAccessControl = "local-secret-access-control"
     case invocationHandleBinding = "invocation-handle-binding"
     case redaction = "redaction"
     case commandAdapterGolden = "command-adapter-golden"
@@ -86,7 +86,7 @@ public struct ReleaseGateRunner: Sendable {
             results: [
                 .init(gate: .noGetSecretAPI, passed: true, detail: "Public API tripwire rejects getSecret-style secret extraction APIs."),
                 .init(gate: .xpcPeerValidation, passed: true, detail: "Self-build IPC peer validation uses Unix domain socket requests plus install manifest path, owner, permissions, version, binary hash/cdhash; Team ID is optional."),
-                .init(gate: .keychainAccessControl, passed: true, detail: "Self-build local secret storage uses owner-only encrypted files, LocalAuthentication user-presence gating, and decision-bound reasons without restricted entitlements."),
+                .init(gate: .localSecretAccessControl, passed: true, detail: "Self-build local secret storage uses owner-only encrypted files, LocalAuthentication user-presence gating, and decision-bound reasons without restricted entitlements."),
                 .init(gate: .invocationHandleBinding, passed: true, detail: "Invocation handles are single-use and bound to peer, injector, target, action, workspace, policy epoch, and delivery mode."),
                 .init(gate: .redaction, passed: true, detail: "Audit and CLI redaction contracts reject secret-like material in exported state."),
                 .init(gate: .commandAdapterGolden, passed: true, detail: "Built-in and dynamic adapter classification contracts cover signatures, rollback, unknown flags, and lease invalidation."),

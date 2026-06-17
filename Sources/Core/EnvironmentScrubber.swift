@@ -51,7 +51,7 @@ public struct EnvironmentScrubber: Sendable {
         var clean = parent.filter { !looksSecretLike($0.key) && !blockedExactNames.contains($0.key) }
         clean[baseURLName] = endpoint.absoluteString
         clean[apiKeyName] = "agentic-fortress-proxy-placeholder"
-        clean["KEYGATE_PROXY_TOKEN"] = token
+        clean["AGENTIC_FORTRESS_PROXY_TOKEN"] = token
         return clean
     }
 
@@ -60,4 +60,3 @@ public struct EnvironmentScrubber: Sendable {
         return secretFragments.contains { upper.contains($0) }
     }
 }
-

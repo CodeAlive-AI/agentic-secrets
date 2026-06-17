@@ -6,7 +6,7 @@ AgenticFortress defaults to an open-source self-build distribution model:
 - users build locally with SwiftPM;
 - local packaging uses ad-hoc signing;
 - no Apple Developer Program membership is required;
-- Keychain secret material is owned only by `agentic-fortressd-core`;
+- local secret material is owned only by `agentic-fortressd-core`;
 - helpers communicate with core through local IPC and do not need shared Keychain access groups.
 
 Developer ID signing and notarization are optional future distribution improvements for maintainers who want frictionless downloadable binaries.
@@ -42,9 +42,10 @@ Developer ID signing and notarization are optional future distribution improveme
 - Validate Team ID, bundle identifier, minimum version, hardened runtime, and debug-signing status.
 - Keep local self-build mode available with pinned hash/cdhash validation when Developer ID is absent.
 
-### Keychain Model
+### Secret Storage Model
 
-- Keep the default invariant: only `agentic-fortressd-core` reads Keychain secret material.
+- Keep the default invariant: only `agentic-fortressd-core` reads local secret material.
+- If a future Developer ID build enables a Keychain-backed backend, keep that backend core-owned.
 - Do not introduce shared Keychain access groups unless a future multi-app design truly requires it.
 - If access groups are introduced, make them optional and Developer ID-only.
 - Add interactive end-to-end tests for LocalAuthentication prompts against the signed bundle identity.
