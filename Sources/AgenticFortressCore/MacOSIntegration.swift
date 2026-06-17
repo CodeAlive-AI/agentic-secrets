@@ -91,7 +91,13 @@ public enum LocalAuthenticationGate {
     }
 
     public static func reason(for manifest: DecisionManifest) -> String {
-        "AgenticFortress approval \(manifest.digest) for \(manifest.actionClass)"
+        let delivery = manifest.secret.environmentName.map { "\(manifest.secret.delivery.rawValue):\($0)" } ?? manifest.secret.delivery.rawValue
+        return [
+            "AgenticFortress approval \(manifest.digest)",
+            "Action: \(manifest.actionClass)",
+            "Target: \(manifest.target.display)",
+            "Workspace: \(manifest.workspace.display)",
+            "Secret: \(manifest.secret.alias) via \(delivery)"
+        ].joined(separator: "\n")
     }
 }
-

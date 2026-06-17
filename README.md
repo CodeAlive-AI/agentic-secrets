@@ -27,6 +27,7 @@ See:
 - `Docs/OPERATIONS.md`
 - `Docs/IMPLEMENTATION_MAP.md`
 - `Docs/IMPLEMENTATION_PLAN.md`
+- `Docs/THIRD_PARTY_NOTICES.md`
 
 ## Build
 

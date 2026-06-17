@@ -1,4 +1,6 @@
 import Foundation
+import LocalAuthentication
+import Security
 
 public struct SecretAlias: Codable, Equatable, Hashable, Sendable {
     public var rawValue: String
@@ -35,6 +37,10 @@ public struct SecretMaterial: Equatable, Sendable {
 
     public func withUTF8String<T>(_ body: (String) throws -> T) rethrows -> T {
         try body(String(decoding: bytes, as: UTF8.self))
+    }
+
+    public func withData<T>(_ body: (Data) throws -> T) rethrows -> T {
+        try body(bytes)
     }
 
     public var redactedDescription: String {
@@ -96,15 +102,151 @@ public final class InMemorySecretStore: LocalSecretStore, @unchecked Sendable {
     }
 }
 
+public enum KeychainAuthenticationRequirement: String, Codable, Equatable, Sendable {
+    case notRequired
+    case presenceRequired
+    case biometryCurrent
+
+    public var requiresUserPresence: Bool {
+        self == .presenceRequired || self == .biometryCurrent
+    }
+}
+
+public struct KeychainSecretDescriptor: Codable, Equatable, Sendable {
+    public var alias: SecretAlias
+    public var service: String
+    public var account: String
+    public var label: String
+    public var authentication: KeychainAuthenticationRequirement
+
+    public init(alias: SecretAlias, service: String, account: String, label: String, authentication: KeychainAuthenticationRequirement) {
+        self.alias = alias
+        self.service = service
+        self.account = account
+        self.label = label
+        self.authentication = authentication
+    }
+}
+
+public enum KeychainSecretStoreError: Error, Equatable {
+    case accessControlCreationFailed
+    case unexpectedItemShape
+    case keychainStatus(OSStatus)
+}
+
+public enum KeychainSecretQueryFactory {
+    public static func accessControlFlags(for authentication: KeychainAuthenticationRequirement) -> SecAccessControlCreateFlags {
+        switch authentication {
+        case .notRequired:
+            []
+        case .presenceRequired:
+            [.userPresence]
+        case .biometryCurrent:
+            [.biometryCurrentSet]
+        }
+    }
+
+    public static func makeAccessControl(authentication: KeychainAuthenticationRequirement) throws -> SecAccessControl {
+        var error: Unmanaged<CFError>?
+        guard let access = SecAccessControlCreateWithFlags(
+            kCFAllocatorDefault,
+            kSecAttrAccessibleWhenUnlockedThisDeviceOnly,
+            accessControlFlags(for: authentication),
+            &error
+        ) else {
+            if let error {
+                throw error.takeRetainedValue() as Error
+            }
+            throw KeychainSecretStoreError.accessControlCreationFailed
+        }
+        return access
+    }
+
+    public static func addQuery(descriptor: KeychainSecretDescriptor, material: SecretMaterial) throws -> [CFString: Any] {
+        var query: [CFString: Any] = [
+            kSecClass: kSecClassGenericPassword,
+            kSecAttrService: descriptor.service,
+            kSecAttrAccount: descriptor.account,
+            kSecAttrLabel: descriptor.label,
+            kSecUseDataProtectionKeychain: true
+        ]
+        if descriptor.authentication == .notRequired {
+            query[kSecAttrAccessible] = kSecAttrAccessibleWhenUnlockedThisDeviceOnly
+        } else {
+            query[kSecAttrAccessControl] = try makeAccessControl(authentication: descriptor.authentication)
+        }
+        material.withData { data in
+            query[kSecValueData] = data
+        }
+        return query
+    }
+
+    public static func readQuery(descriptor: KeychainSecretDescriptor, context: LAContext) -> [CFString: Any] {
+        [
+            kSecClass: kSecClassGenericPassword,
+            kSecAttrService: descriptor.service,
+            kSecAttrAccount: descriptor.account,
+            kSecUseDataProtectionKeychain: true,
+            kSecUseAuthenticationContext: context,
+            kSecReturnData: true,
+            kSecMatchLimit: kSecMatchLimitOne
+        ]
+    }
+
+    public static func deleteQuery(descriptor: KeychainSecretDescriptor) -> [CFString: Any] {
+        [
+            kSecClass: kSecClassGenericPassword,
+            kSecAttrService: descriptor.service,
+            kSecAttrAccount: descriptor.account,
+            kSecUseDataProtectionKeychain: true
+        ]
+    }
+}
+
 public struct KeychainSecretStore: LocalSecretStore {
-    public init() {}
+    public var service: String
+    public var descriptors: [SecretAlias: KeychainSecretDescriptor]
+
+    public init(service: String = "com.agenticfortress.secrets", descriptors: [KeychainSecretDescriptor] = []) {
+        self.service = service
+        self.descriptors = Dictionary(uniqueKeysWithValues: descriptors.map { ($0.alias, $0) })
+    }
+
+    public func store(alias: SecretAlias, material: SecretMaterial, label: String, authentication: KeychainAuthenticationRequirement) throws {
+        let descriptor = KeychainSecretDescriptor(alias: alias, service: service, account: alias.rawValue, label: label, authentication: authentication)
+        _ = SecItemDelete(KeychainSecretQueryFactory.deleteQuery(descriptor: descriptor) as CFDictionary)
+        let status = SecItemAdd(try KeychainSecretQueryFactory.addQuery(descriptor: descriptor, material: material) as CFDictionary, nil)
+        guard status == errSecSuccess else {
+            throw KeychainSecretStoreError.keychainStatus(status)
+        }
+    }
 
     public func binding(for alias: SecretAlias) throws -> SecretBinding {
-        throw SecretStoreError.unsupported("Keychain binding lookup requires macOS Security framework integration and must not be simulated as plaintext config.")
+        let descriptor = descriptors[alias] ?? KeychainSecretDescriptor(alias: alias, service: service, account: alias.rawValue, label: alias.rawValue, authentication: .presenceRequired)
+        return SecretBinding(alias: alias, storeKind: "keychain", externalID: "\(descriptor.service):\(descriptor.account)", environment: "local")
     }
 
     public func resolve(alias: SecretAlias, approvedFor session: ApprovalSession) throws -> SecretMaterial {
-        throw SecretStoreError.unsupported("Keychain secret resolution must occur behind LocalAuthentication/Keychain access-control in the macOS integration layer.")
+        guard session.secretAlias == alias else {
+            throw SecretStoreError.accessDenied("approval-session-secret-mismatch")
+        }
+        let descriptor = descriptors[alias] ?? KeychainSecretDescriptor(alias: alias, service: service, account: alias.rawValue, label: alias.rawValue, authentication: .presenceRequired)
+        let context = LAContext()
+        context.localizedReason = [
+            "AgenticFortress approval \(session.manifestDigest)",
+            "Action: \(session.actionClass)",
+            "Secret: \(alias.rawValue)"
+        ].joined(separator: "\n")
+        context.localizedCancelTitle = "Deny"
+        var item: CFTypeRef?
+        let status = SecItemCopyMatching(KeychainSecretQueryFactory.readQuery(descriptor: descriptor, context: context) as CFDictionary, &item)
+        guard status == errSecSuccess else {
+            throw KeychainSecretStoreError.keychainStatus(status)
+        }
+        guard let data = item as? Data else {
+            throw KeychainSecretStoreError.unexpectedItemShape
+        }
+        return SecretMaterial(bytes: data)
     }
 }
 
@@ -184,4 +326,3 @@ public final class ApprovalSessionStore: @unchecked Sendable {
         }
     }
 }
-

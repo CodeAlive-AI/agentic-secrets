@@ -1,6 +1,8 @@
 import AgenticFortressCore
 import CryptoKit
 import Foundation
+import LocalAuthentication
+import Security
 
 struct ContractTestFailure: Error, CustomStringConvertible {
     var message: String
@@ -127,6 +129,18 @@ func runContracts() throws {
     try expectThrows(SecretStoreError.accessDenied("approval-session-secret-mismatch"), {
         _ = try secretStore.resolve(alias: SecretAlias("other.alias"), approvedFor: validatedApproval)
     }, "secret store must bind secret resolution to approval session alias")
+    let keychainDescriptor = KeychainSecretDescriptor(alias: secretAlias, service: "com.agenticfortress.test", account: "cloud.hcloud.dev", label: "HCloud dev", authentication: .presenceRequired)
+    let keychainAddQuery = try KeychainSecretQueryFactory.addQuery(descriptor: keychainDescriptor, material: SecretMaterial(utf8: "query-secret"))
+    try expect(keychainAddQuery[kSecUseDataProtectionKeychain] as? Bool == true, "Keychain add query must use data-protection keychain")
+    try expect(keychainAddQuery[kSecAttrAccessControl] != nil, "Keychain add query must use access control when user presence is required")
+    try expect(KeychainSecretQueryFactory.accessControlFlags(for: .presenceRequired).contains(.userPresence), "presence-required Keychain policy must require user presence")
+    try expect(KeychainSecretQueryFactory.accessControlFlags(for: .biometryCurrent).contains(.biometryCurrentSet), "biometry-current Keychain policy must bind current biometric set")
+    let keychainContext = LAContext()
+    keychainContext.localizedReason = LocalAuthenticationGate.reason(for: approvalManifest)
+    let keychainReadQuery = KeychainSecretQueryFactory.readQuery(descriptor: keychainDescriptor, context: keychainContext)
+    try expect(keychainReadQuery[kSecUseAuthenticationContext] != nil, "Keychain read query must carry LAContext for approval prompt reason")
+    let keychainBinding = try KeychainSecretStore(service: "com.agenticfortress.test").binding(for: secretAlias)
+    try expect(keychainBinding.storeKind == "keychain", "Keychain secret store must expose keychain binding metadata without plaintext")
 
     let shimRoot = URL(fileURLWithPath: NSTemporaryDirectory()).appendingPathComponent("agentic-fortress-shim-\(UUID().uuidString)")
     let shimTarget = shimRoot.appendingPathComponent("hcloud")
