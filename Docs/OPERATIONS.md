@@ -180,12 +180,24 @@ Normal shimmed commands route to `agentic-fortress cli run hcloud -- ...`. Globa
 ```sh
 hcloud --help
 hcloud server --help
-hcloud --version
+hcloud version
 ```
 
 The pass-through environment is still scrubbed of inherited secret-like variables.
 
 Pass-through help/version reads only non-secret registry metadata and avoids the registry Keychain integrity key. Secret-bearing commands still verify registry integrity inside core before resolving local secret material.
+
+If `hcloud server list` works through `agentic-fortress cli run hcloud -- ...`
+but fails inside Codex App with `no active context or token`, verify that Codex
+resolves `hcloud` to the AgenticFortress shim:
+
+```sh
+command -v hcloud
+agentic-fortress cli shim install hcloud --force
+```
+
+Do not fix this by adding `HCLOUD_TOKEN` to `~/.codex/.env`; keep provider
+tokens out of Codex process environment and route through AgenticFortress.
 
 ## Adapter Management
 

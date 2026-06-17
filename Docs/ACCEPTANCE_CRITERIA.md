@@ -491,7 +491,7 @@ Required evidence:
 Failure examples:
 
 - Installing a shim overwrites `/opt/homebrew/bin/hcloud`.
-- `hcloud --version` asks for LocalAuthentication or receives `HCLOUD_TOKEN`.
+- `hcloud version` passes through without resolving or receiving `HCLOUD_TOKEN`.
 - A generated shell wrapper contains product logic or a secret value.
 
 ### AC-SHIM-004: Exec Plan Is Single-Use and Bound

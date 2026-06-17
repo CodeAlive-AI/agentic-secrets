@@ -94,15 +94,26 @@ struct AgenticFortressShim {
         if let override = ProcessInfo.processInfo.environment["AGENTIC_FORTRESS_CLI_BINARY"], !override.isEmpty {
             return override
         }
-        for candidate in executableCandidateURLs().flatMap({ executable in
-            [
-                executable.deletingLastPathComponent().appendingPathComponent("agentic-fortress"),
-                executable.deletingLastPathComponent().appendingPathComponent("AgenticFortress")
-            ]
-        }) where FileManager.default.isExecutableFile(atPath: candidate.path) {
+        for candidate in cliCandidateURLs() where FileManager.default.isExecutableFile(atPath: candidate.path) {
             return candidate.path
         }
         throw ShimCLIError.missingArgument("agentic-fortress sibling binary or AGENTIC_FORTRESS_CLI_BINARY")
+    }
+
+    private static func cliCandidateURLs() -> [URL] {
+        var candidates: [URL] = []
+        for executable in executableCandidateURLs() {
+            let directory = executable.deletingLastPathComponent()
+            candidates.append(directory.appendingPathComponent("agentic-fortress"))
+            candidates.append(directory.appendingPathComponent("AgenticFortress"))
+            if directory.lastPathComponent == "shims" {
+                let prefix = directory.deletingLastPathComponent()
+                candidates.append(prefix.appendingPathComponent("bin/agentic-fortress"))
+                candidates.append(prefix.appendingPathComponent("bin/AgenticFortress"))
+            }
+        }
+        var seen = Set<String>()
+        return candidates.filter { seen.insert($0.path).inserted }
     }
 
     private static func defaultStateDirectory() -> URL {

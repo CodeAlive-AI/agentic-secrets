@@ -222,7 +222,7 @@ Open a new terminal so the shell picks up the shim PATH block, then verify comma
 
 ```sh
 command -v hcloud
-hcloud --version
+hcloud version
 ```
 
 Expected: `command -v hcloud` points under `~/Library/Application Support/AgenticFortress/LocalInstall/shims/hcloud`.
@@ -240,12 +240,34 @@ Global help/version commands pass through to the registered target without resol
 ```sh
 hcloud --help
 hcloud server --help
-hcloud --version
+hcloud version
 ```
 
 The pass-through environment is scrubbed of inherited secret-like variables. This keeps basic inspection commands usable while avoiding token delivery for help/version output.
 
 Pass-through help/version reads only non-secret registry metadata and intentionally avoids the registry Keychain integrity key so it does not prompt for local authentication just to show help or version output. Commands that can receive secrets still verify registry integrity in core before any secret-store read.
+
+### Codex App hcloud Use
+
+Codex App may not inherit the same shell startup environment as Terminal. Avoid
+putting provider tokens such as `HCLOUD_TOKEN` into `~/.codex/.env`; that would
+move secret delivery back into Codex process environment. Instead, keep the token
+registered in AgenticFortress and install the per-CLI shim:
+
+```sh
+"$PREFIX/bin/agentic-fortress" cli shim install hcloud --force
+```
+
+Then verify from inside Codex App or a Codex-spawned command:
+
+```sh
+command -v hcloud
+hcloud server list
+```
+
+Expected: `command -v hcloud` resolves to
+`~/Library/Application Support/AgenticFortress/LocalInstall/shims/hcloud`, and
+normal commands route through AgenticFortress secret delivery.
 
 Remove only the shim:
 

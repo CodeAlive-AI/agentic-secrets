@@ -295,7 +295,7 @@ struct AgenticFortressCLI {
         If \(name) is not registered yet, the first non-help command will fail closed with a registration error.
         Global help/version commands pass through without secret delivery:
           \(name) --help
-          \(name) --version
+          \(name) version
         """)
         if configureShell {
             print("Shell PATH configured for future sessions.")

@@ -73,7 +73,7 @@ Open a new terminal, then use:
 
 ```sh
 hcloud server list
-hcloud --version
+hcloud version
 ```
 
 Normal commands go through AgenticFortress secret delivery. Global help/version commands pass through without secret delivery.
@@ -82,6 +82,24 @@ After a Homebrew upgrade of `hcloud`, verify the new binary and refresh trust:
 
 ```sh
 agentic-fortress cli trust-refresh hcloud
+```
+
+### Codex App
+
+Codex App may not inherit the same shell startup environment as Terminal. Do not
+put `HCLOUD_TOKEN` into `~/.codex/.env`; that bypasses AgenticFortress secret
+delivery. Instead, install the AgenticFortress shim and make sure Codex resolves
+`hcloud` to the local shim path:
+
+```sh
+agentic-fortress cli shim install hcloud --force
+command -v hcloud
+```
+
+Expected path:
+
+```text
+~/Library/Application Support/AgenticFortress/LocalInstall/shims/hcloud
 ```
 
 ## More
