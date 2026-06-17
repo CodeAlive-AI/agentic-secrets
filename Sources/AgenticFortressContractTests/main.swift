@@ -106,6 +106,89 @@ func runContracts() throws {
         _ = try secretStore.resolve(alias: SecretAlias("other.alias"), approvedFor: validatedApproval)
     }, "secret store must bind secret resolution to approval session alias")
 
+    let shimRoot = URL(fileURLWithPath: NSTemporaryDirectory()).appendingPathComponent("agentic-fortress-shim-\(UUID().uuidString)")
+    let shimTarget = shimRoot.appendingPathComponent("hcloud")
+    try FileManager.default.createDirectory(at: shimRoot, withIntermediateDirectories: true)
+    try "fake hcloud".data(using: .utf8)!.write(to: shimTarget)
+    try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: shimRoot.path)
+    let shimPolicy = TargetPolicy(commandName: "hcloud", targetPath: shimTarget.path, secretAlias: "cloud.hcloud.dev", environmentName: "HCLOUD_TOKEN")
+    let shimRequest = ShimRequest(invokedName: "/tmp/spoofable/hcloud", arguments: ["server", "list"], parentEnvironment: ["PATH": "/usr/bin", "BWS_ACCESS_TOKEN": "drop-me"], workspace: "/tmp/infra", parentApp: "Codex", peerIdentity: "peer:agentic-fortress-shim", injectorIdentity: "sig:agentic-fortress-shim")
+    let shimCommand = classifier.classify(executableName: "hcloud", arguments: ["server", "list"])
+    let shimTargetAssessment = try TargetAssessor().assess(path: shimTarget.path)
+    let shimManifest = DecisionManifestFactory().make(
+        command: shimCommand,
+        intent: DeliveryIntent(flow: .cliEnv, secretAlias: "cloud.hcloud.dev", delivery: .env, environmentName: "HCLOUD_TOKEN", workspace: "/tmp/infra", parentApp: "Codex"),
+        target: shimTargetAssessment
+    )
+    let shimApprovals = ApprovalSessionStore()
+    let shimApproval = shimApprovals.create(manifest: shimManifest, policyEpoch: 1, ttl: 30, now: Date(timeIntervalSince1970: 0))
+    let shimHandles = InvocationHandleStore()
+    let execPlan = try ShimExecutionPlanner().plan(
+        request: shimRequest,
+        targetPolicies: [shimPolicy],
+        policyState: PolicyState(epoch: 1),
+        approvalSessionID: shimApproval.id,
+        approvalSessions: shimApprovals,
+        secrets: secretStore,
+        handles: shimHandles,
+        now: Date(timeIntervalSince1970: 1)
+    )
+    try expect(execPlan.targetPath == shimTarget.path, "shim planner must resolve target from policy, not argv")
+    try expect(execPlan.environment["BWS_ACCESS_TOKEN"] == nil, "shim planner must scrub inherited secret-like env")
+    try expect(execPlan.environment["HCLOUD_TOKEN"] == "super-secret-token", "shim planner must inject approved secret into fresh env")
+    let execBinding = InvocationBinding(peerIdentity: "peer:agentic-fortress-shim", injectorIdentity: "sig:agentic-fortress-shim", targetIdentity: execPlan.target.identity, actionClass: "hcloud.server.list", workspace: "/tmp/infra", parentApp: "Codex", policyEpoch: 1, injectionMode: .env)
+    try shimHandles.consume(execPlan.invocationHandle, expectedBinding: execBinding, now: Date(timeIntervalSince1970: 2))
+    try expectThrows(InvocationHandleError.unknown, {
+        try shimHandles.consume(execPlan.invocationHandle, expectedBinding: execBinding, now: Date(timeIntervalSince1970: 3))
+    }, "shim invocation handle must be single-use")
+    try expectThrows(EnvironmentScrubError.targetAlreadyPresent("HCLOUD_TOKEN"), {
+        _ = try ShimExecutionPlanner().plan(
+            request: ShimRequest(invokedName: "hcloud", arguments: ["server", "list"], parentEnvironment: ["HCLOUD_TOKEN": "ambient"], workspace: "/tmp/infra", parentApp: "Codex", peerIdentity: "peer:agentic-fortress-shim", injectorIdentity: "sig:agentic-fortress-shim"),
+            targetPolicies: [shimPolicy],
+            policyState: PolicyState(epoch: 1),
+            approvalSessionID: shimApproval.id,
+            approvalSessions: shimApprovals,
+            secrets: secretStore,
+            handles: InvocationHandleStore(),
+            now: Date(timeIntervalSince1970: 1)
+        )
+    }, "shim planner must fail closed on ambient target env collision")
+    try expectThrows(ShimPlannerError.unknownTarget("unknown"), {
+        _ = try ShimExecutionPlanner().plan(
+            request: ShimRequest(invokedName: "unknown", arguments: [], parentEnvironment: [:], workspace: "/tmp/infra", parentApp: "Codex", peerIdentity: "peer", injectorIdentity: "sig"),
+            targetPolicies: [shimPolicy],
+            policyState: PolicyState(epoch: 1),
+            approvalSessionID: shimApproval.id,
+            approvalSessions: shimApprovals,
+            secrets: secretStore,
+            handles: InvocationHandleStore(),
+            now: Date(timeIntervalSince1970: 1)
+        )
+    }, "shim planner must reject unknown symlink command names")
+    let npmTarget = shimRoot.appendingPathComponent("npm")
+    try "fake npm".data(using: .utf8)!.write(to: npmTarget)
+    let npmPolicy = TargetPolicy(commandName: "npm", targetPath: npmTarget.path, secretAlias: "cloud.hcloud.dev", environmentName: "OPENAI_API_KEY")
+    let npmCommand = CommandClassifier().classify(executableName: "npm", arguments: ["run", "dev"])
+    let npmManifest = DecisionManifestFactory().make(
+        command: npmCommand,
+        intent: DeliveryIntent(flow: .cliEnv, secretAlias: "cloud.hcloud.dev", delivery: .env, environmentName: "OPENAI_API_KEY", workspace: "/tmp/infra", parentApp: "Codex"),
+        target: try TargetAssessor().assess(path: npmTarget.path)
+    )
+    let npmApproval = shimApprovals.create(manifest: npmManifest, policyEpoch: 1, ttl: 30, now: Date(timeIntervalSince1970: 0))
+    try expectThrows(PolicyError.genericEnvDenied, {
+        _ = try ShimExecutionPlanner().plan(
+            request: ShimRequest(invokedName: "npm", arguments: ["run", "dev"], parentEnvironment: [:], workspace: "/tmp/infra", parentApp: "Codex", peerIdentity: "peer", injectorIdentity: "sig"),
+            targetPolicies: [npmPolicy],
+            policyState: PolicyState(epoch: 1),
+            approvalSessionID: npmApproval.id,
+            approvalSessions: shimApprovals,
+            secrets: secretStore,
+            handles: InvocationHandleStore(),
+            now: Date(timeIntervalSince1970: 1)
+        )
+    }, "shim planner must deny raw env delivery to generic runners")
+    try? FileManager.default.removeItem(at: shimRoot)
+
     let unknownFlag = classifier.classify(executableName: "hcloud", arguments: ["--plugin-mode", "server", "list"], observedVersion: "1.52.0")
     try expect(unknownFlag.risk == .unknown, "unknown adapter flags must classify as unknown")
     try expect(unknownFlag.leaseInvalidators.contains("unknown-flag"), "unknown adapter flags must invalidate remembered leases")
