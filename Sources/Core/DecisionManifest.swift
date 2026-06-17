@@ -77,10 +77,8 @@ public struct DecisionManifestFactory: Sendable {
         let options: [ApprovalOption] = switch command.risk {
         case .readOnly:
             [.once, .readOnlyInWorkspace1h, .deny]
-        case .mutating:
+        case .mutating, .destructive, .unknown:
             [.once, .deny]
-        case .destructive, .unknown:
-            [.deny]
         }
 
         let seed = [
@@ -118,4 +116,3 @@ public struct DecisionManifestFactory: Sendable {
         return "\(digest[..<split])-\(digest[split...])"
     }
 }
-

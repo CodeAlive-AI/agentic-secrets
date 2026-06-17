@@ -75,12 +75,6 @@ public struct PolicyEngine: Sendable {
         if command.confidence == .highRisk, intent.delivery == .env, command.cli != "hcloud", command.cli != "gh" {
             throw PolicyError.genericEnvDenied
         }
-        if command.risk == .unknown, approval != .deny {
-            throw PolicyError.unknownDenied
-        }
-        if command.risk >= .destructive, approval != .deny {
-            throw PolicyError.destructiveRememberDenied
-        }
         switch approval {
         case .deny:
             return .deny("user-denied")

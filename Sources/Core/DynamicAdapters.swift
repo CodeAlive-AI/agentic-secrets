@@ -225,8 +225,10 @@ public struct DynamicCommandAdapter: CommandAdapter {
                 continue
             }
             if token.hasPrefix("-") {
-                warnings.append("Unknown flag \(token) makes classification high-risk.")
-                leaseInvalidators.append("unknown-flag")
+                if positional.count < 2 {
+                    warnings.append("Unknown flag \(token) makes classification high-risk.")
+                    leaseInvalidators.append("unknown-flag")
+                }
                 positional.append(token)
                 index += 1
                 continue

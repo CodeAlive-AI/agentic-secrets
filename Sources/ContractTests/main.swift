@@ -90,13 +90,25 @@ func runContracts() throws {
     let customConfig = classifier.classify(executableName: "hcloud", arguments: ["--config", "./custom.toml", "server", "list"], observedVersion: "1.52.0")
     try expect(customConfig.leaseInvalidators.contains("config"), "custom hcloud config must invalidate remembered lease")
 
+    let hcloudServerCreate = classifier.classify(executableName: "hcloud", arguments: ["server", "create", "--name", "codex-test", "--type", "cax11", "--image", "ubuntu-26.04", "--location", "fsn1"], observedVersion: "1.52.0")
+    try expect(hcloudServerCreate.risk == .mutating, "hcloud server create with command flags must be mutating")
+    try expect(hcloudServerCreate.confidence == .highRisk, "unknown hcloud mutating command must still require one-time approval")
+    try expect(!hcloudServerCreate.leaseInvalidators.contains("unknown-flag"), "hcloud command-local flags must not invalidate unlock grants")
+
+    let hcloudFirewallRule = classifier.classify(executableName: "hcloud", arguments: ["firewall", "add-rule", "codex-test", "--direction", "in", "--protocol", "tcp", "--port", "22", "--source-ips", "178.88.45.241/32"], observedVersion: "1.52.0")
+    try expect(hcloudFirewallRule.risk == .mutating, "hcloud firewall add-rule with command flags must be mutating")
+
+    let hcloudUnknownGlobal = classifier.classify(executableName: "hcloud", arguments: ["--plugin-mode", "server", "list"], observedVersion: "1.52.0")
+    try expect(hcloudUnknownGlobal.risk == .unknown, "unknown hcloud global flags must remain high-risk unknown")
+
     let destructive = classifier.classify(executableName: "hcloud", arguments: ["server", "delete", "prod-db-01"], observedVersion: "1.52.0")
     let destructiveManifest = DecisionManifestFactory().make(
         command: destructive,
         intent: DeliveryIntent(flow: .cliEnv, secretAlias: "cloud.hcloud.dev", delivery: .env, environmentName: "HCLOUD_TOKEN", workspace: "/tmp/infra", parentApp: "Codex"),
         target: TargetAssessor().synthetic(path: "/opt/homebrew/bin/hcloud")
     )
-    try expect(destructiveManifest.approvalOptions == [.deny], "destructive actions must not offer remembered approval")
+    try expect(destructiveManifest.approvalOptions == [.once, .deny], "destructive actions must offer one-time approval only")
+    try expect(!destructiveManifest.approvalOptions.contains(.readOnlyInWorkspace1h), "destructive actions must not offer remembered approval")
     try expect(destructiveManifest.typedChallenge == destructiveManifest.digest, "destructive manifest must expose typed challenge digest")
 
     let approvalManifest = DecisionManifestFactory().make(
@@ -306,6 +318,16 @@ func runContracts() throws {
         _ = try unlockStore.grant(scope: unlockScope, ttl: 301, now: Date(timeIntervalSince1970: 100))
     }, "CLI unlock grant must cap TTL")
     let secondGrant = try unlockStore.grant(scope: unlockScope, ttl: 120, now: Date(timeIntervalSince1970: 300))
+    let otherReadCommand = classifier.classify(executableName: "hcloud", arguments: ["location", "list"], observedVersion: "1.52.0")
+    let otherReadManifest = DecisionManifestFactory().make(
+        command: otherReadCommand,
+        intent: DeliveryIntent(flow: .cliEnv, secretAlias: "cloud.hcloud.dev", delivery: .env, environmentName: "HCLOUD_TOKEN", workspace: "/tmp/infra", parentApp: "Codex"),
+        target: TargetAssessor().synthetic(path: "/opt/homebrew/bin/hcloud")
+    )
+    try expect(otherReadManifest.actionClass != approvalManifest.actionClass, "test setup must use a different hcloud action class")
+    let otherUnlockScope = CLIUnlockScope(manifest: otherReadManifest).withParentApp("Codex")
+    let otherActionUnlockGrant = try unlockStore.validGrant(scope: otherUnlockScope, now: Date(timeIntervalSince1970: 301))
+    try expect(otherActionUnlockGrant == secondGrant, "CLI unlock grant must apply across policy-authorized action classes for the same CLI secret scope")
     let unlockDecoder = JSONDecoder()
     unlockDecoder.dateDecodingStrategy = .iso8601
     var tamperedUnlockDocument = try unlockDecoder.decode(CLIUnlockGrantDocument.self, from: Data(contentsOf: unlockStore.url))
@@ -317,19 +339,6 @@ func runContracts() throws {
     try expectThrows(CLIUnlockGrantError.signatureMismatch, {
         _ = try unlockStore.validGrant(scope: unlockScope, now: Date(timeIntervalSince1970: 301))
     }, "CLI unlock grant must reject tampered expiry")
-    let otherUnlockScope = CLIUnlockScope(
-        subject: unlockScope.subject,
-        secretAlias: unlockScope.secretAlias,
-        environmentName: unlockScope.environmentName,
-        actionClass: "hcloud.server.create",
-        workspaceHash: unlockScope.workspaceHash,
-        parentApp: unlockScope.parentApp,
-        deliveryMode: unlockScope.deliveryMode,
-        targetIdentity: unlockScope.targetIdentity,
-        targetResolvedPath: unlockScope.targetResolvedPath
-    )
-    let otherActionUnlockGrant = try unlockStore.validGrant(scope: otherUnlockScope, now: Date(timeIntervalSince1970: 301))
-    try expect(otherActionUnlockGrant == nil, "CLI unlock grant must not apply to another action class")
     try? FileManager.default.removeItem(at: unlockRoot)
 
     let secretStore = InMemorySecretStore()
@@ -620,23 +629,27 @@ func runContracts() throws {
             now: Date(timeIntervalSince1970: 1)
         )
     }, "shim planner must reject unknown symlink command names")
-    let destructiveApproval = shimApprovals.create(manifest: destructiveManifest, policyEpoch: 1, ttl: 30, now: Date(timeIntervalSince1970: 0))
-    let denyAudit = AuditLog()
-    try expectThrows(ShimPlannerError.approvalDenied, {
-        _ = try ShimExecutionPlanner().plan(
-            request: ShimRequest(invokedName: "hcloud", arguments: ["server", "delete", "prod-db-01"], parentEnvironment: [:], workspace: "/tmp/infra", parentApp: "Codex", peerIdentity: "peer:agentic-fortress-shim", injectorIdentity: "sig:agentic-fortress-shim"),
-            targetPolicies: [shimPolicy],
-            policyState: PolicyState(epoch: 1),
-            approvalSessionID: destructiveApproval.id,
-            approvalSessions: shimApprovals,
-            secrets: secretStore,
-            handles: InvocationHandleStore(),
-            audit: denyAudit,
-            now: Date(timeIntervalSince1970: 1)
-        )
-    }, "shim planner must fail closed when policy returns deny")
-    try expect(denyAudit.snapshot().first?.decision == "deny", "denied delivery must write an audit event")
-    try expect(denyAudit.snapshot().first?.decisionDigest.isEmpty == false, "denied audit event must include decision digest")
+    let destructiveShimCommand = classifier.classify(executableName: "hcloud", arguments: ["server", "delete", "prod-db-01"])
+    let destructiveShimManifest = DecisionManifestFactory().make(
+        command: destructiveShimCommand,
+        intent: DeliveryIntent(flow: .cliEnv, secretAlias: "cloud.hcloud.dev", delivery: .env, environmentName: "HCLOUD_TOKEN", workspace: "/tmp/infra", parentApp: "Codex"),
+        target: shimTargetAssessment
+    )
+    let destructiveApproval = shimApprovals.create(manifest: destructiveShimManifest, policyEpoch: 1, ttl: 30, now: Date(timeIntervalSince1970: 0))
+    let destructiveAudit = AuditLog()
+    let destructivePlan = try ShimExecutionPlanner().plan(
+        request: ShimRequest(invokedName: "hcloud", arguments: ["server", "delete", "prod-db-01"], parentEnvironment: [:], workspace: "/tmp/infra", parentApp: "Codex", peerIdentity: "peer:agentic-fortress-shim", injectorIdentity: "sig:agentic-fortress-shim"),
+        targetPolicies: [shimPolicy],
+        policyState: PolicyState(epoch: 1),
+        approvalSessionID: destructiveApproval.id,
+        approvalSessions: shimApprovals,
+        secrets: secretStore,
+        handles: InvocationHandleStore(),
+        audit: destructiveAudit,
+        now: Date(timeIntervalSince1970: 1)
+    )
+    try expect(destructivePlan.environment["HCLOUD_TOKEN"] == "super-secret-token", "shim planner must inject approved secret for destructive registered hcloud commands")
+    try expect(destructiveAudit.snapshot().first?.decision == "allow", "destructive registered hcloud delivery must write an allow audit event")
     let npmTarget = shimRoot.appendingPathComponent("npm")
     try "fake npm".data(using: .utf8)!.write(to: npmTarget)
     let npmPolicy = TargetPolicy(commandName: "npm", targetPath: npmTarget.path, secretAlias: "cloud.hcloud.dev", environmentName: "OPENAI_API_KEY")

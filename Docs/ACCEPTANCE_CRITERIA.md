@@ -388,7 +388,7 @@ Pass condition:
 - The prompt reason includes manifest digest, action class, target command, workspace, secret alias, and delivery mode.
 - Approval proof expires quickly and is bound to the decision manifest.
 - Prompt cancellation denies the operation without reading the secret.
-- Repeated CLI runs may use a short signed unlock grant only when CLI name, target identity, workspace hash, action class, parent app, delivery mode, and secret alias match.
+- Repeated CLI runs may use a short signed unlock grant only when CLI name, target identity, workspace hash, parent app, delivery mode, and secret alias match. Action-level command policy is still evaluated before each secret delivery.
 - CLI unlock grants store no secret material, expire by default after 300 seconds, and cannot exceed 900 seconds.
 
 Verification:
@@ -402,7 +402,7 @@ AGENTIC_FORTRESS_INTERACTIVE=1 AGENTIC_FORTRESS_EXPECT_CANCEL=1 ./scripts/intera
 Required evidence:
 
 - Automated tests cover prompt reason construction and proof expiry.
-- Automated tests cover CLI unlock grant TTL, expiry, tamper rejection, and scope mismatch.
+- Automated tests cover CLI unlock grant TTL, expiry, tamper rejection, scope mismatch, and reuse across policy-authorized action classes in the same CLI secret scope.
 - The interactive script uses the packaged, ad-hoc signed core binary so the Tahoe no-Developer-ID runtime path is exercised.
 - Interactive transcript confirms the macOS prompt appears before secret resolution and cancellation denies access with `userCanceled`.
 

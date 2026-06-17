@@ -117,7 +117,6 @@ struct AgenticFortressCoreDaemon {
                 parentApp: parentApp
             )
             let manifest = DecisionManifestFactory().make(command: command, intent: intent, target: target)
-            try authorizeCLIRun(command: command, intent: intent, target: target)
             let unlockScope = CLIUnlockScope(manifest: manifest).withParentApp(parentApp)
             let cachedGrant = unlockTTL > 0 ? try unlockGrants.validGrant(scope: unlockScope) : nil
             let session = ApprovalSession(

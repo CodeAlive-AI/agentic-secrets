@@ -5,7 +5,6 @@ public struct CLIUnlockScope: Codable, Equatable, Sendable {
     public var subject: String
     public var secretAlias: String
     public var environmentName: String?
-    public var actionClass: String
     public var workspaceHash: String
     public var parentApp: String
     public var deliveryMode: DeliveryMode
@@ -16,7 +15,6 @@ public struct CLIUnlockScope: Codable, Equatable, Sendable {
         subject: String,
         secretAlias: String,
         environmentName: String?,
-        actionClass: String,
         workspaceHash: String,
         parentApp: String,
         deliveryMode: DeliveryMode,
@@ -26,7 +24,6 @@ public struct CLIUnlockScope: Codable, Equatable, Sendable {
         self.subject = subject
         self.secretAlias = secretAlias
         self.environmentName = environmentName
-        self.actionClass = actionClass
         self.workspaceHash = workspaceHash
         self.parentApp = parentApp
         self.deliveryMode = deliveryMode
@@ -39,7 +36,6 @@ public struct CLIUnlockScope: Codable, Equatable, Sendable {
             subject: manifest.target.display,
             secretAlias: manifest.secret.alias,
             environmentName: manifest.secret.environmentName,
-            actionClass: manifest.actionClass,
             workspaceHash: manifest.workspace.canonicalHash,
             parentApp: "",
             deliveryMode: manifest.secret.delivery,
