@@ -2,6 +2,8 @@
 
 This file is for coding agents and maintainers working in this repository. Keep user-facing onboarding short in `README.md`; put implementation, verification, and release workflow details here or in `Docs/`.
 
+`AGENTS.md` is the source of truth for agent instructions. `CLAUDE.md` should remain a symlink to this file, not a separate copy.
+
 Current release metadata: `0.1.0 alpha`. This is a pre-stable product; breaking changes to local install state, registry format, CLI UX, and trust policy are acceptable when they improve security or clarity.
 
 ## Product Boundary
@@ -11,6 +13,30 @@ AgenticFortress is a macOS lower-leakage secret delivery system for developer ma
 It does not make execution safe. It makes delivery of secrets explicit, narrow, approved, bounded, auditable, and lower-leakage than `.env`, shell environment, MCP configs, or plaintext provider tokens.
 
 The default distribution model is open-source self-build with local ad-hoc signing. Downloadable Developer ID-signed and notarized binaries are optional future maintainer work, not a requirement for contributors or local use.
+
+## Native macOS UI And UX
+
+When working on the native macOS UI, agents must actively think about good UX, not only whether the Swift code compiles. Follow current Apple Human Interface Guidelines and keep the app boring, clear, auditable, and native.
+
+Required Apple references for UI work:
+
+- [Designing for macOS](https://developer.apple.com/design/human-interface-guidelines/designing-for-macos)
+- [Sidebars](https://developer.apple.com/design/human-interface-guidelines/sidebars)
+- [Toolbars](https://developer.apple.com/design/human-interface-guidelines/toolbars)
+- [Sheets](https://developer.apple.com/design/human-interface-guidelines/sheets)
+- [The menu bar](https://developer.apple.com/design/human-interface-guidelines/the-menu-bar)
+- [Apple Design Resources](https://developer.apple.com/design/resources/)
+
+UI changes must preserve native macOS expectations:
+
+- Keep sidebar navigation stable, scannable, and selection-driven.
+- Keep toolbar actions contextual to the current page.
+- Keep menu bar commands and MenuBarExtra actions synchronized with the same app state and disabled states as visible UI controls.
+- Keep one clear best next action in each empty, error, repair, and onboarding state.
+- Use sheets for focused tasks that can complete before returning to the parent window; split complex security workflows into short steps.
+- Prefer inline, non-blocking feedback for routine success/error states; reserve alerts for blocking, destructive, or system-level failures.
+- Add explicit accessibility labels/help for icon-heavy controls, external links, toolbar items, and security-sensitive actions.
+- After UI changes, inspect every page in the running app, not only `swift build`.
 
 ## Implemented Delivery Contracts
 

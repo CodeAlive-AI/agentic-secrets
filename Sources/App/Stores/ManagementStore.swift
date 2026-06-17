@@ -28,6 +28,43 @@ enum ManagementSection: String, CaseIterable, Identifiable {
     }
 }
 
+enum DaemonNextAction: Equatable {
+    case check
+    case installOrRepair
+    case restart
+    case openInstalledApp
+
+    var title: String {
+        switch self {
+        case .check:
+            "Check Again"
+        case .installOrRepair:
+            "Repair Local Daemon"
+        case .restart:
+            "Restart Daemon"
+        case .openInstalledApp:
+            "Open Installed App"
+        }
+    }
+
+    func title(plan: DaemonInstallPlan?) -> String {
+        self == .installOrRepair ? (plan?.primaryActionTitle ?? "Install Local Daemon") : title
+    }
+
+    var systemImage: String {
+        switch self {
+        case .check:
+            "arrow.clockwise"
+        case .installOrRepair:
+            "wrench.and.screwdriver"
+        case .restart:
+            "restart"
+        case .openInstalledApp:
+            "arrow.up.forward.app"
+        }
+    }
+}
+
 @Observable
 @MainActor
 final class ManagementStore {
@@ -38,6 +75,7 @@ final class ManagementStore {
         socketPath: IPCAgenticFortressClient.defaultPaths().socketPath,
         launchAgentPath: IPCAgenticFortressClient.installPrefixFromBundle()?.appendingPathComponent("Library/LaunchAgents/com.agenticfortress.core.plist").path,
         message: "Daemon status has not been checked yet.",
+        detail: nil,
         recoveryCommand: "scripts/install_local.sh --load",
         checkedAt: Date(timeIntervalSince1970: 0)
     )
@@ -48,6 +86,8 @@ final class ManagementStore {
     var errorMessage: String?
     var successMessage: String?
     var showingRegisterCLI = false
+    var showingProxyProfileEditor = false
+    var showingMCPProfileEditor = false
     var exportedAudit: String?
     var oneTimeProxyToken: String?
 
@@ -85,6 +125,45 @@ final class ManagementStore {
         return "\(snapshot.securityHealth.status.rawValue.capitalized) · \(snapshot.unlockGrants.count) grants"
     }
 
+    var canRegisterCLI: Bool {
+        daemonStatus.state == .healthy
+    }
+
+    var canManageCoreState: Bool {
+        daemonStatus.state == .healthy
+    }
+
+    var canExportAudit: Bool {
+        snapshot != nil
+    }
+
+    var canClearUnlockGrants: Bool {
+        snapshot?.unlockGrants.isEmpty == false
+    }
+
+    var bestDaemonAction: DaemonNextAction? {
+        switch daemonStatus.state {
+        case .healthy, .installing, .repairing:
+            return nil
+        case .unknown:
+            return .check
+        case .unavailable:
+            guard let plan = daemonInstallPlan else {
+                return daemonStatus.canRepair ? .restart : .check
+            }
+            if !plan.currentAppIsInstalledCopy && FileManager.default.fileExists(atPath: plan.appDestinationPath) {
+                return .openInstalledApp
+            }
+            if plan.canInstall {
+                return .installOrRepair
+            }
+            if daemonStatus.canRepair {
+                return .restart
+            }
+            return .check
+        }
+    }
+
     var filteredCLIRegistrations: [CLIRegistrationSummary] {
         let items = snapshot?.cliRegistrations ?? []
         guard !searchText.isEmpty else { return items }
@@ -105,6 +184,25 @@ final class ManagementStore {
         showingRegisterCLI = true
     }
 
+    func presentProxyProfileEditor() {
+        selectedSection = .proxy
+        showingProxyProfileEditor = true
+    }
+
+    func presentMCPProfileEditor() {
+        selectedSection = .mcp
+        showingMCPProfileEditor = true
+    }
+
+    func presentDiagnostics() {
+        selectedSection = .diagnostics
+    }
+
+    func clearFeedback() {
+        errorMessage = nil
+        successMessage = nil
+    }
+
     func refresh() async {
         isLoading = true
         defer { isLoading = false }
@@ -112,12 +210,21 @@ final class ManagementStore {
         daemonStatus = await daemonController.status()
         do {
             snapshot = try await client.loadSnapshot()
+            if daemonStatus.state != .healthy {
+                daemonStatus = await daemonController.status()
+            }
             if selectedCLI == nil {
                 selectedCLI = snapshot?.cliRegistrations.first?.name
             }
             errorMessage = nil
         } catch {
-            errorMessage = String(describing: error)
+            if daemonStatus.state == .unavailable || daemonStatus.state == .installing || daemonStatus.state == .repairing {
+                errorMessage = nil
+            } else if isDaemonReachabilityError(error) {
+                await recoverFromTransientDaemonRefreshError()
+            } else {
+                errorMessage = userFacingError(error)
+            }
         }
     }
 
@@ -133,6 +240,7 @@ final class ManagementStore {
             socketPath: daemonStatus.socketPath,
             launchAgentPath: daemonStatus.launchAgentPath,
             message: "Restarting core daemon...",
+            detail: nil,
             recoveryCommand: daemonStatus.recoveryCommand,
             checkedAt: Date()
         )
@@ -156,6 +264,7 @@ final class ManagementStore {
             socketPath: plan.socketPath,
             launchAgentPath: plan.launchAgentPath,
             message: plan.currentAppIsInstalledCopy ? "Repairing local daemon install..." : "Installing local daemon...",
+            detail: nil,
             recoveryCommand: plan.commandPreview,
             checkedAt: Date()
         )
@@ -224,6 +333,12 @@ final class ManagementStore {
         }
     }
 
+    func installAdapter(payload: AdapterPackPayload) async {
+        await runAction("Adapter pack installed") {
+            _ = try await client.installAdapter(payload)
+        }
+    }
+
     func createProxySession(profileName: String, bindPort: Int) async {
         await runAction("Proxy session created") {
             let response = try await client.createProxySession(ManagementProxySessionRequest(profileName: profileName, bindPort: bindPort))
@@ -252,7 +367,31 @@ final class ManagementStore {
             errorMessage = nil
             snapshot = try await client.loadSnapshot()
         } catch {
-            errorMessage = String(describing: error)
+            errorMessage = userFacingError(error)
+        }
+    }
+
+    private func userFacingError(_ error: Error) -> String {
+        let description = String(describing: error)
+        if isDaemonReachabilityError(error) {
+            return "Local daemon is not reachable. Open Diagnostics to install or repair it."
+        }
+        return description
+    }
+
+    private func isDaemonReachabilityError(_ error: Error) -> Bool {
+        let description = String(describing: error)
+        return description.contains("socket(") || description.contains("connect:")
+    }
+
+    private func recoverFromTransientDaemonRefreshError() async {
+        errorMessage = nil
+        daemonStatus = await daemonController.status()
+        guard daemonStatus.state == .healthy else { return }
+        do {
+            snapshot = try await client.loadSnapshot()
+        } catch {
+            errorMessage = isDaemonReachabilityError(error) ? nil : userFacingError(error)
         }
     }
 

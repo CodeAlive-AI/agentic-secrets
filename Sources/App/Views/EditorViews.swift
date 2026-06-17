@@ -3,6 +3,7 @@ import SwiftUI
 struct RegisterCLIView: View {
     @Bindable var store: ManagementStore
     @Environment(\.dismiss) private var dismiss
+    @State private var step: RegisterCLIStep = .target
     @State private var name = ""
     @State private var targetPath = ""
     @State private var bindings = [SecretDraft()]
@@ -12,56 +13,170 @@ struct RegisterCLIView: View {
     }
 
     var body: some View {
-        VStack(alignment: .trailing) {
-            Form {
-                Section("Target") {
-                    TextField("CLI name", text: $name, prompt: Text("hcloud"))
-                    TextField("Executable path", text: $targetPath, prompt: Text("/opt/homebrew/bin/hcloud"))
+        VStack(alignment: .leading, spacing: 16) {
+            RegisterCLIStepHeader(step: step)
+            Form { stepContent }
+            HStack {
+                if step != .target {
+                    Button("Back") { step = step.previous }
                 }
-                Section("Write-only secrets") {
-                    ForEach($bindings) { $binding in
-                        HStack {
-                            TextField("ENV_NAME", text: $binding.environmentName)
-                            SecureField("Secret value", text: $binding.secretValue)
-                            Button {
-                                bindings.removeAll { $0.id == binding.id }
-                                if bindings.isEmpty { bindings.append(SecretDraft()) }
-                            } label: {
-                                Image(systemName: "minus.circle")
-                            }
-                            .buttonStyle(.borderless)
+                Spacer()
+                Button("Cancel", role: .cancel) { dismiss() }
+                if step == .review {
+                    Button("Register") {
+                        let secrets = RegisterCLIFormValidation.environmentSecrets(bindings)
+                        Task {
+                            await store.registerCLI(name: name, targetPath: targetPath, environmentSecrets: secrets)
+                            dismiss()
                         }
                     }
-                    Button("Add Environment Binding") {
-                        bindings.append(SecretDraft())
+                    .keyboardShortcut(.return)
+                    .buttonStyle(.borderedProminent)
+                    .disabled(!canSubmit)
+                } else {
+                    Button("Next") {
+                        step = step.next
                     }
-                    if RegisterCLIFormValidation.hasDuplicateEnvironmentNames(bindings) {
-                        Text("Environment names must be unique.")
-                            .foregroundStyle(.red)
-                    }
+                    .keyboardShortcut(.return)
+                    .buttonStyle(.borderedProminent)
+                    .disabled(!canAdvance)
                 }
-                Section {
-                    Text("Saved values are never revealed. Agentic Fortress stores encrypted material through core-owned local state and returns only aliases.")
-                        .foregroundStyle(.secondary)
-                }
-            }
-            HStack {
-                Button("Cancel", role: .cancel) { dismiss() }
-                Button("Register") {
-                    let secrets = RegisterCLIFormValidation.environmentSecrets(bindings)
-                    Task {
-                        await store.registerCLI(name: name, targetPath: targetPath, environmentSecrets: secrets)
-                        dismiss()
-                    }
-                }
-                .keyboardShortcut(.return)
-                .buttonStyle(.borderedProminent)
-                .disabled(!canSubmit)
             }
             .padding()
         }
-        .frame(width: 560)
+        .frame(width: 600)
         .padding()
+    }
+
+    @ViewBuilder
+    private var stepContent: some View {
+        switch step {
+        case .target:
+            Section("Target") {
+                TextField("CLI name", text: $name, prompt: Text("hcloud"))
+                    .accessibilityLabel("CLI name")
+                TextField("Executable path", text: $targetPath, prompt: Text("/opt/homebrew/bin/hcloud"))
+                    .accessibilityLabel("Executable path")
+                Text("Use the resolved executable path for the CLI you want Agentic Fortress to verify before delivery.")
+                    .foregroundStyle(.secondary)
+            }
+        case .bindings:
+            Section("Environment bindings") {
+                ForEach($bindings) { $binding in
+                    HStack {
+                        TextField("ENV_NAME", text: $binding.environmentName)
+                            .accessibilityLabel("Environment variable name")
+                        Button {
+                            bindings.removeAll { $0.id == binding.id }
+                            if bindings.isEmpty { bindings.append(SecretDraft()) }
+                        } label: {
+                            Image(systemName: "minus.circle")
+                        }
+                        .buttonStyle(.borderless)
+                        .help("Remove binding")
+                        .accessibilityLabel("Remove environment binding")
+                    }
+                }
+                Button {
+                    bindings.append(SecretDraft())
+                } label: {
+                    Label("Add Environment Binding", systemImage: "plus")
+                }
+                if RegisterCLIFormValidation.hasDuplicateEnvironmentNames(bindings) {
+                    Text("Environment names must be unique.")
+                        .foregroundStyle(.red)
+                }
+            }
+        case .secrets:
+            Section("Write-only secrets") {
+                ForEach($bindings) { $binding in
+                    SecureField(binding.environmentName.isEmpty ? "Secret value" : binding.environmentName, text: $binding.secretValue)
+                        .accessibilityLabel("Secret value for \(binding.environmentName.isEmpty ? "environment binding" : binding.environmentName)")
+                }
+                Text("Values are written once through core-owned local state. Saved values are never displayed in the UI.")
+                    .foregroundStyle(.secondary)
+            }
+        case .review:
+            Section("Trust review") {
+                LabeledContent("CLI name", value: name.trimmingCharacters(in: .whitespacesAndNewlines))
+                LabeledContent("Executable", value: targetPath.trimmingCharacters(in: .whitespacesAndNewlines))
+                LabeledContent("Environment bindings", value: bindings.map(\.environmentName).filter { !$0.isEmpty }.joined(separator: ", "))
+                Text("Registration stores only aliases and target trust metadata in management responses. Secret values remain write-only.")
+                    .foregroundStyle(.secondary)
+            }
+        }
+    }
+
+    private var canAdvance: Bool {
+        switch step {
+        case .target:
+            !name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                && !targetPath.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        case .bindings:
+            bindings.contains { !$0.environmentName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
+                && !RegisterCLIFormValidation.hasDuplicateEnvironmentNames(bindings)
+        case .secrets:
+            bindings.allSatisfy {
+                !$0.environmentName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                    && !$0.secretValue.isEmpty
+            }
+        case .review:
+            canSubmit
+        }
+    }
+}
+
+private enum RegisterCLIStep: Int, CaseIterable {
+    case target
+    case bindings
+    case secrets
+    case review
+
+    var title: String {
+        switch self {
+        case .target: "Target"
+        case .bindings: "Bindings"
+        case .secrets: "Secrets"
+        case .review: "Review"
+        }
+    }
+
+    var subtitle: String {
+        switch self {
+        case .target: "Choose the CLI executable to verify."
+        case .bindings: "Name the environment variables Agentic Fortress may deliver."
+        case .secrets: "Enter secret material once; it will not be shown again."
+        case .review: "Confirm the target and write-only bindings."
+        }
+    }
+
+    var next: RegisterCLIStep {
+        RegisterCLIStep(rawValue: rawValue + 1) ?? .review
+    }
+
+    var previous: RegisterCLIStep {
+        RegisterCLIStep(rawValue: rawValue - 1) ?? .target
+    }
+}
+
+private struct RegisterCLIStepHeader: View {
+    var step: RegisterCLIStep
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text("Register CLI")
+                .font(.title2.bold())
+            Text(step.subtitle)
+                .foregroundStyle(.secondary)
+            HStack(spacing: 8) {
+                ForEach(RegisterCLIStep.allCases, id: \.self) { item in
+                    Label(item.title, systemImage: item.rawValue <= step.rawValue ? "checkmark.circle.fill" : "circle")
+                        .font(.caption)
+                        .foregroundStyle(item == step ? .primary : .secondary)
+                }
+            }
+        }
+        .padding(.horizontal)
     }
 }
 

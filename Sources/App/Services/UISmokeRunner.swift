@@ -24,6 +24,7 @@ enum UISmokeRunner {
         try testRegisterWizardValidation()
         try await testDaemonUnavailableState()
         try await testDaemonInstallPlanState()
+        try await testContextActions()
         try await testSelectionSurvivesRefresh()
         try await testMenuBarStatusReflectsDaemonHealth()
     }
@@ -63,18 +64,24 @@ enum UISmokeRunner {
         )
         await store.refresh()
         try expect(store.daemonStatus.state == .unavailable, "daemon unavailable is surfaced")
-        try expect(store.errorMessage != nil, "IPC failure shows an error")
+        try expect(store.errorMessage == nil, "expected daemon unavailability does not show a raw alert")
         try expect(store.menuBarSummary == "Daemon unavailable", "menu bar summary reflects daemon failure")
+        try expect(!store.daemonStatus.message.contains("socket("), "daemon status hides raw socket error")
+        try expect(store.daemonStatus.detail != nil, "daemon status keeps technical detail for diagnostics")
+        try expect(!store.canRegisterCLI, "CLI registration is unavailable until daemon is healthy")
+        try expect(store.bestDaemonAction == .installOrRepair, "daemon unavailable state highlights install or repair as the next action")
     }
 
     @MainActor
     private static func testDaemonInstallPlanState() async throws {
         let plan = smokeInstallPlan(supported: true, missingExecutables: [])
+        try? FileManager.default.removeItem(atPath: plan.prefixPath)
         let installed = DaemonStatus(
             state: .unavailable,
             socketPath: plan.socketPath,
             launchAgentPath: plan.launchAgentPath,
             message: "Local daemon was installed. Open the installed app copy so the authenticated IPC manifest matches the running UI.",
+            detail: nil,
             recoveryCommand: nil,
             checkedAt: Date()
         )
@@ -89,7 +96,10 @@ enum UISmokeRunner {
         await store.refresh()
         try expect(store.daemonInstallPlan?.canInstall == true, "supported install plan can install")
         await store.installOrRepairDaemon()
+        try FileManager.default.createDirectory(atPath: plan.appDestinationPath, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(atPath: plan.prefixPath) }
         try expect(store.daemonStatus.message.contains("Open the installed app"), "install result explains installed app handoff")
+        try expect(store.bestDaemonAction == .openInstalledApp, "installed-app handoff highlights open installed app as the next action")
 
         let unsupported = ManagementStore(
             client: ThrowingAgenticFortressClient(),
@@ -100,6 +110,26 @@ enum UISmokeRunner {
         )
         await unsupported.refresh()
         try expect(unsupported.daemonInstallPlan?.canInstall == false, "missing helper blocks install action")
+    }
+
+    @MainActor
+    private static func testContextActions() async throws {
+        let store = ManagementStore(
+            client: SequenceAgenticFortressClient(snapshots: [emptySnapshot()]),
+            daemonController: StubDaemonStatusController(statusValue: healthyDaemonStatus())
+        )
+        await store.refresh()
+        try expect(store.canRegisterCLI, "register CLI action is available when daemon is healthy")
+        try expect(store.canExportAudit, "audit export is available after snapshot load")
+        store.presentProxyProfileEditor()
+        try expect(store.selectedSection == .proxy, "proxy editor action selects proxy section")
+        try expect(store.showingProxyProfileEditor, "proxy editor action opens proxy sheet")
+        store.showingProxyProfileEditor = false
+        store.presentMCPProfileEditor()
+        try expect(store.selectedSection == .mcp, "MCP editor action selects MCP section")
+        try expect(store.showingMCPProfileEditor, "MCP editor action opens MCP sheet")
+        store.clearFeedback()
+        try expect(store.errorMessage == nil && store.successMessage == nil, "feedback can be dismissed")
     }
 
     @MainActor
@@ -129,6 +159,7 @@ enum UISmokeRunner {
         )
         await healthy.refresh()
         try expect(healthy.menuBarSummary == "Ok · 0 grants", "healthy menu summary includes health and grants")
+        try expect(healthy.canRegisterCLI, "CLI registration is available when daemon is healthy")
 
         let broken = ManagementStore(
             client: ThrowingAgenticFortressClient(),
@@ -146,6 +177,7 @@ enum UISmokeRunner {
             socketPath: "/tmp/agentic-fortress-ui-smoke.sock",
             launchAgentPath: "/tmp/com.agenticfortress.core.plist",
             message: "Installing local daemon...",
+            detail: nil,
             recoveryCommand: nil,
             checkedAt: Date()
         )
@@ -205,6 +237,7 @@ enum UISmokeRunner {
             socketPath: "/tmp/agentic-fortress-ui-smoke.sock",
             launchAgentPath: "/tmp/com.agenticfortress.core.plist",
             message: "Core daemon is reachable.",
+            detail: nil,
             recoveryCommand: nil,
             checkedAt: Date()
         )
@@ -215,7 +248,8 @@ enum UISmokeRunner {
             state: .unavailable,
             socketPath: "/tmp/missing-agentic-fortress-ui-smoke.sock",
             launchAgentPath: "/tmp/com.agenticfortress.core.plist",
-            message: "Core daemon is not reachable.",
+            message: "Local daemon is not installed yet.",
+            detail: "socket(\"connect: No such file or directory\")",
             recoveryCommand: "scripts/install_local.sh --load",
             checkedAt: Date()
         )
@@ -298,6 +332,10 @@ private actor SequenceAgenticFortressClient: AgenticFortressClient {
         MCPProfileSummary(profile: profile)
     }
 
+    func installAdapter(_ payload: AdapterPackPayload) async throws -> AdapterSummary {
+        AdapterSummary(payload: payload, adapterHash: AdapterCanonicalizer.hash(payload), installedAt: Date())
+    }
+
     func createProxySession(_ request: ManagementProxySessionRequest) async throws -> ManagementProxySessionResponse {
         let profile = ProxyProfile(
             name: request.profileName,
@@ -330,6 +368,7 @@ private struct ThrowingAgenticFortressClient: AgenticFortressClient {
     func deleteSecret(_ request: ManagementSecretDeletionRequest) async throws { throw SmokeError.failed("unexpected delete") }
     func upsertProxyProfile(_ profile: ProxyProfile) async throws -> ProxyProfileSummary { throw SmokeError.failed("unexpected proxy") }
     func upsertMCPProfile(_ profile: MCPUpstreamProfile) async throws -> MCPProfileSummary { throw SmokeError.failed("unexpected mcp") }
+    func installAdapter(_ payload: AdapterPackPayload) async throws -> AdapterSummary { throw SmokeError.failed("unexpected adapter install") }
     func createProxySession(_ request: ManagementProxySessionRequest) async throws -> ManagementProxySessionResponse { throw SmokeError.failed("unexpected proxy session") }
     func clearUnlockGrants() async throws { throw SmokeError.failed("unexpected grants") }
     func exportRedactedAuditJSON() async throws -> String { throw SmokeError.failed("unexpected audit") }

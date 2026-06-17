@@ -14,6 +14,7 @@ struct DaemonStatus: Codable, Equatable, Sendable {
     var socketPath: String
     var launchAgentPath: String?
     var message: String
+    var detail: String?
     var recoveryCommand: String?
     var checkedAt: Date
 
@@ -71,11 +72,12 @@ struct LocalDaemonStatusController: DaemonStatusControlling {
                 socketPath: paths.socketPath,
                 launchAgentPath: paths.launchAgentPath,
                 message: "Core daemon is reachable.",
+                detail: nil,
                 recoveryCommand: nil,
                 checkedAt: Date()
             )
         } catch {
-            return unavailableStatus(paths: paths, message: "Core daemon is not reachable: \(error)")
+            return unavailableStatus(paths: paths, reason: daemonUnavailableReason(error), detail: String(describing: error))
         }
     }
 
@@ -116,6 +118,7 @@ struct LocalDaemonStatusController: DaemonStatusControlling {
                 socketPath: plan.socketPath,
                 launchAgentPath: plan.launchAgentPath,
                 message: plan.summary,
+                detail: plan.missingExecutables.isEmpty ? nil : "Missing helpers: \(plan.missingExecutables.joined(separator: ", "))",
                 recoveryCommand: plan.commandPreview,
                 checkedAt: Date()
             )
@@ -133,6 +136,7 @@ struct LocalDaemonStatusController: DaemonStatusControlling {
                 socketPath: plan.socketPath,
                 launchAgentPath: plan.launchAgentPath,
                 message: "Local daemon was installed. Open the installed app copy so the authenticated IPC manifest matches the running UI.",
+                detail: nil,
                 recoveryCommand: nil,
                 checkedAt: Date()
             )
@@ -141,7 +145,8 @@ struct LocalDaemonStatusController: DaemonStatusControlling {
                 state: .unavailable,
                 socketPath: plan.socketPath,
                 launchAgentPath: plan.launchAgentPath,
-                message: "Install failed: \(error)",
+                message: "Install failed. Review Diagnostics and try again.",
+                detail: String(describing: error),
                 recoveryCommand: plan.commandPreview,
                 checkedAt: Date()
             )
@@ -316,15 +321,35 @@ struct LocalDaemonStatusController: DaemonStatusControlling {
         try encoder.encode(manifest).write(to: manifestURL, options: [.atomic])
     }
 
-    private func unavailableStatus(paths: (socketPath: String, launchAgentPath: String?, recoveryCommand: String), message: String) -> DaemonStatus {
+    private func unavailableStatus(paths: (socketPath: String, launchAgentPath: String?, recoveryCommand: String), message: String, detail: String? = nil) -> DaemonStatus {
         DaemonStatus(
             state: .unavailable,
             socketPath: paths.socketPath,
             launchAgentPath: paths.launchAgentPath,
             message: message,
+            detail: detail,
             recoveryCommand: paths.recoveryCommand,
             checkedAt: Date()
         )
+    }
+
+    private func unavailableStatus(paths: (socketPath: String, launchAgentPath: String?, recoveryCommand: String), reason: DaemonUnavailableReason, detail: String?) -> DaemonStatus {
+        unavailableStatus(paths: paths, message: reason.message, detail: detail)
+    }
+
+    private func daemonUnavailableReason(_ error: Error) -> DaemonUnavailableReason {
+        let description = String(describing: error)
+        let plan = makeInstallPlan()
+        if !plan.currentAppIsInstalledCopy && FileManager.default.fileExists(atPath: plan.appDestinationPath) {
+            return .wrongAppCopy
+        }
+        if description.contains("No such file or directory") || description.contains("connect") {
+            return FileManager.default.fileExists(atPath: plan.launchAgentPath) ? .notRunning : .notInstalled
+        }
+        if description.contains("unauthorizedPeer") || description.contains("wrongHash") || description.contains("wrongPath") || description.contains("wrongCDHash") {
+            return .manifestMismatch
+        }
+        return .unreachable
     }
 
     private func runLaunchctl(_ arguments: [String]) -> (exitCode: Int32, output: String) {
@@ -380,6 +405,29 @@ private extension String {
             .replacingOccurrences(of: "'", with: "&apos;")
             .replacingOccurrences(of: "<", with: "&lt;")
             .replacingOccurrences(of: ">", with: "&gt;")
+    }
+}
+
+private enum DaemonUnavailableReason {
+    case notInstalled
+    case notRunning
+    case wrongAppCopy
+    case manifestMismatch
+    case unreachable
+
+    var message: String {
+        switch self {
+        case .notInstalled:
+            "Local daemon is not installed yet."
+        case .notRunning:
+            "Local daemon is installed but not running."
+        case .wrongAppCopy:
+            "Open the installed app copy so the authenticated IPC manifest matches the running UI."
+        case .manifestMismatch:
+            "Local daemon trust manifest does not match this app copy."
+        case .unreachable:
+            "Local daemon is not reachable."
+        }
     }
 }
 

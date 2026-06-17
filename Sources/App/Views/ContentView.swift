@@ -1,4 +1,5 @@
 import AgenticFortressCore
+import AppKit
 import SwiftUI
 
 struct ContentView: View {
@@ -13,34 +14,131 @@ struct ContentView: View {
         .navigationSplitViewStyle(.balanced)
         .searchable(text: $store.searchText, placement: .toolbar, prompt: "Search CLIs, aliases, targets")
         .toolbar {
-            ToolbarItem {
-                Button {
+            ToolbarItemGroup {
+                ToolbarIconButton(
+                    title: "Refresh",
+                    systemImage: "arrow.clockwise",
+                    help: "Refresh local Agentic Fortress state",
+                    isEnabled: !store.isLoading
+                ) {
                     Task { await store.refresh() }
-                } label: {
-                    Label("Refresh", systemImage: "arrow.clockwise")
                 }
-                .disabled(store.isLoading)
-            }
-            ToolbarItem {
-                Button {
-                    store.presentRegisterCLI()
-                } label: {
-                    Label("Register CLI", systemImage: "plus")
-                }
+                ContextToolbarActionSlot(store: store)
             }
         }
         .sheet(isPresented: $store.showingRegisterCLI) {
             RegisterCLIView(store: store)
         }
-        .alert("Agentic Fortress", isPresented: Binding(
-            get: { store.errorMessage != nil },
-            set: { if !$0 { store.errorMessage = nil } }
-        )) {
-            Button("OK", role: .cancel) {}
-        } message: {
-            Text(store.errorMessage ?? "")
+        .sheet(isPresented: $store.showingProxyProfileEditor) {
+            ProxyProfileEditor(store: store)
+        }
+        .sheet(isPresented: $store.showingMCPProfileEditor) {
+            MCPProfileEditor(store: store)
         }
     }
+}
+
+private struct ToolbarIconButton: View {
+    var title: String
+    var systemImage: String
+    var help: String
+    var isEnabled: Bool
+    var action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            Label(title, systemImage: systemImage)
+                .labelStyle(.iconOnly)
+                .frame(width: 28, height: 24)
+                .contentShape(Rectangle())
+        }
+        .help(help)
+        .accessibilityLabel(title)
+        .disabled(!isEnabled)
+    }
+}
+
+private struct ContextToolbarActionSlot: View {
+    @Bindable var store: ManagementStore
+
+    var body: some View {
+        if let action = action {
+            ToolbarIconButton(
+                title: action.title,
+                systemImage: action.systemImage,
+                help: action.help,
+                isEnabled: action.isEnabled
+            ) {
+                action.perform()
+            }
+        } else {
+            Label("No Context Action", systemImage: "plus")
+                .labelStyle(.iconOnly)
+                .frame(width: 28, height: 24)
+                .hidden()
+                .accessibilityHidden(true)
+        }
+    }
+
+    private var action: ContextToolbarAction? {
+        switch store.selectedSection {
+        case .overview, .cliSecrets, .bws:
+            ContextToolbarAction(
+                title: "Register CLI",
+                systemImage: "plus",
+                help: "Register a CLI and bind write-only secrets",
+                isEnabled: store.canRegisterCLI
+            ) {
+                store.presentRegisterCLI()
+            }
+        case .proxy:
+            ContextToolbarAction(
+                title: "Add Proxy Profile",
+                systemImage: "plus",
+                help: "Add a bounded proxy profile",
+                isEnabled: store.canManageCoreState
+            ) {
+                store.presentProxyProfileEditor()
+            }
+        case .mcp:
+            ContextToolbarAction(
+                title: "Add MCP Profile",
+                systemImage: "plus",
+                help: "Add a pinned MCP upstream profile",
+                isEnabled: store.canManageCoreState
+            ) {
+                store.presentMCPProfileEditor()
+            }
+        case .audit:
+            ContextToolbarAction(
+                title: "Export Redacted Audit",
+                systemImage: "square.and.arrow.up",
+                help: "Export redacted audit JSON",
+                isEnabled: store.canExportAudit
+            ) {
+                Task { await store.exportAudit() }
+            }
+        case .adapters:
+            ContextToolbarAction(
+                title: "Install Adapter Pack",
+                systemImage: "square.and.arrow.down",
+                help: "Install a signed adapter pack JSON payload",
+                isEnabled: store.canManageCoreState
+            ) {
+                AdapterPackInstaller.presentOpenPanel(store: store)
+            }
+        case .diagnostics:
+            nil
+        }
+    }
+}
+
+private struct ContextToolbarAction {
+    var title: String
+    var systemImage: String
+    var help: String
+    var isEnabled: Bool
+    var perform: () -> Void
 }
 
 struct SidebarView: View {
@@ -54,9 +152,78 @@ struct SidebarView: View {
                         .tag(section)
                 }
             }
+            Section {
+                SidebarDivider()
+                ExternalSidebarLink(
+                    title: "SSH",
+                    subtitle: "secretive.dev",
+                    systemImage: "key",
+                    destination: URL(string: "https://secretive.dev/")!
+                )
+            }
         }
         .listStyle(.sidebar)
         .frame(minWidth: 190)
+    }
+}
+
+private struct SidebarDivider: View {
+    var body: some View {
+        Rectangle()
+            .fill(Color(nsColor: .separatorColor))
+            .frame(height: 1)
+            .padding(.leading, 27)
+            .padding(.vertical, 8)
+            .accessibilityHidden(true)
+    }
+}
+
+private struct ExternalSidebarLink: View {
+    var title: String
+    var subtitle: String
+    var systemImage: String
+    var destination: URL
+    @State private var isHovering = false
+
+    var body: some View {
+        Button {
+            NSWorkspace.shared.open(destination)
+        } label: {
+            HStack(spacing: 10) {
+                Image(systemName: systemImage)
+                    .foregroundStyle(.secondary)
+                    .frame(width: 18)
+                VStack(alignment: .leading, spacing: 1) {
+                    HStack(spacing: 5) {
+                        Text(title)
+                            .foregroundStyle(.link)
+                        Image(systemName: "arrow.up.right.square")
+                            .font(.caption)
+                            .foregroundStyle(.link)
+                    }
+                    Text(subtitle)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                }
+                Spacer()
+            }
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .help("Open Secretive for SSH key management")
+        .accessibilityLabel("\(title), external link to \(subtitle)")
+        .onHover { hovering in
+            guard hovering != isHovering else { return }
+            isHovering = hovering
+            hovering ? NSCursor.pointingHand.push() : NSCursor.pop()
+        }
+        .onDisappear {
+            if isHovering {
+                NSCursor.pop()
+                isHovering = false
+            }
+        }
     }
 }
 
@@ -85,12 +252,43 @@ struct DetailView: View {
             }
         }
         .overlay(alignment: .bottom) {
-            if store.isLoading {
-                ProgressView()
-                    .padding(10)
-                    .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 8))
-                    .padding()
+            VStack(spacing: 8) {
+                if store.isLoading {
+                    ProgressView()
+                        .padding(10)
+                        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 8))
+                }
+                if store.successMessage != nil || store.errorMessage != nil {
+                    FeedbackBanner(store: store)
+                }
             }
+            .padding()
         }
+    }
+}
+
+private struct FeedbackBanner: View {
+    @Bindable var store: ManagementStore
+
+    var body: some View {
+        HStack(spacing: 10) {
+            Image(systemName: store.errorMessage == nil ? "checkmark.circle" : "exclamationmark.triangle")
+                .foregroundStyle(store.errorMessage == nil ? .green : .orange)
+            Text(store.errorMessage ?? store.successMessage ?? "")
+                .lineLimit(2)
+            Button {
+                store.clearFeedback()
+            } label: {
+                Image(systemName: "xmark")
+            }
+            .buttonStyle(.borderless)
+            .help("Dismiss")
+            .accessibilityLabel("Dismiss status message")
+        }
+        .font(.callout)
+        .padding(.horizontal, 12)
+        .padding(.vertical, 10)
+        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 8))
+        .accessibilityElement(children: .contain)
     }
 }

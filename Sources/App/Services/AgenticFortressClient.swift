@@ -11,6 +11,7 @@ protocol AgenticFortressClient: Sendable {
     func deleteSecret(_ request: ManagementSecretDeletionRequest) async throws
     func upsertProxyProfile(_ profile: ProxyProfile) async throws -> ProxyProfileSummary
     func upsertMCPProfile(_ profile: MCPUpstreamProfile) async throws -> MCPProfileSummary
+    func installAdapter(_ payload: AdapterPackPayload) async throws -> AdapterSummary
     func createProxySession(_ request: ManagementProxySessionRequest) async throws -> ManagementProxySessionResponse
     func clearUnlockGrants() async throws
     func exportRedactedAuditJSON() async throws -> String
@@ -66,6 +67,10 @@ struct IPCAgenticFortressClient: AgenticFortressClient {
 
     func upsertMCPProfile(_ profile: MCPUpstreamProfile) async throws -> MCPProfileSummary {
         try await send(operation: .upsertMCPProfile, payload: profile, response: MCPProfileSummary.self)
+    }
+
+    func installAdapter(_ payload: AdapterPackPayload) async throws -> AdapterSummary {
+        try await send(operation: .installAdapter, payload: payload, response: AdapterSummary.self)
     }
 
     func createProxySession(_ request: ManagementProxySessionRequest) async throws -> ManagementProxySessionResponse {
@@ -181,6 +186,9 @@ struct StubAgenticFortressClient: AgenticFortressClient {
     func deleteSecret(_ request: ManagementSecretDeletionRequest) async throws {}
     func upsertProxyProfile(_ profile: ProxyProfile) async throws -> ProxyProfileSummary { ProxyProfileSummary(profile: profile) }
     func upsertMCPProfile(_ profile: MCPUpstreamProfile) async throws -> MCPProfileSummary { MCPProfileSummary(profile: profile) }
+    func installAdapter(_ payload: AdapterPackPayload) async throws -> AdapterSummary {
+        AdapterSummary(payload: payload, adapterHash: AdapterCanonicalizer.hash(payload), installedAt: Date())
+    }
     func createProxySession(_ request: ManagementProxySessionRequest) async throws -> ManagementProxySessionResponse {
         let profile = ProxyProfile(name: request.profileName, upstreamOrigin: URL(string: "https://api.example.com")!, allowedPathPrefixes: ["/v1/"], allowedMethods: ["GET"], secretAlias: "example.secret")
         let (session, token) = ProxyAuthorizer().createSession(profile: profile, bindPort: request.bindPort)
