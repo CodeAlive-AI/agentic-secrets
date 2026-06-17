@@ -19,7 +19,7 @@ Adapter packs are dynamic but not trust-by-configuration. External packs must ve
 
 Runtime policy is configurable through `AgenticFortressConfig`; the default JSON lives at `config/default.agentic-fortress.json`. Configuration covers adapter trust, delivery defaults, proxy profiles, MCP profiles, and macOS compatibility gates.
 
-The current package includes packaging/signing scaffolding and runnable contract gates. Production distribution is intentionally blocked by release gates until real Developer ID signing, notarization credentials, XPC listener wiring, hardened runtime validation, and end-to-end Keychain access-control prompts are proven.
+The default distribution model is open-source self-build with local ad-hoc signing. Downloadable Developer ID-signed and notarized binaries are an optional future maintainer channel, not a requirement for contributors or local use.
 
 See:
 
@@ -27,6 +27,7 @@ See:
 - `Docs/OPERATIONS.md`
 - `Docs/IMPLEMENTATION_MAP.md`
 - `Docs/IMPLEMENTATION_PLAN.md`
+- `Docs/FUTURE_DEVELOPER_ID.md`
 - `Docs/THIRD_PARTY_NOTICES.md`
 
 ## Build
@@ -43,9 +44,9 @@ swift build
 ./scripts/package_release.sh
 ```
 
-Set `CODESIGN_IDENTITY` to sign with a Developer ID identity. Without it, the script ad-hoc signs for local validation only.
+By default, the package script ad-hoc signs for local validation and self-build installs.
 
-Distribution signing and notarization:
+Optional future maintainer distribution signing and notarization:
 
 ```sh
 CODESIGN_IDENTITY="Developer ID Application: ..." \

@@ -100,7 +100,9 @@ Local package validation:
 ./scripts/validate_release_artifact.sh build/AgenticFortress.app
 ```
 
-Distribution signing and notarization:
+The default supported distribution path is source checkout plus local ad-hoc signing. Developer ID signing and notarization are optional future maintainer steps for downloadable binaries.
+
+Optional distribution signing and notarization:
 
 ```sh
 CODESIGN_IDENTITY="Developer ID Application: ..." \
@@ -110,3 +112,4 @@ NOTARYTOOL_PROFILE="agentic-fortress-notary" \
 
 Credentials must be stored in the macOS keychain via `xcrun notarytool store-credentials`. Do not put signing or notarization secrets in repository files.
 
+See `Docs/FUTURE_DEVELOPER_ID.md` for the optional Developer ID roadmap.
