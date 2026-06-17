@@ -36,3 +36,13 @@ swift build
 ```
 
 Set `CODESIGN_IDENTITY` to sign with a Developer ID identity. Without it, the script ad-hoc signs for local validation only.
+
+Distribution signing and notarization:
+
+```sh
+CODESIGN_IDENTITY="Developer ID Application: ..." \
+NOTARYTOOL_PROFILE="agentic-fortress-notary" \
+./scripts/sign_notarize_release.sh
+```
+
+The notarization script requires credentials to be stored in the macOS keychain via `xcrun notarytool store-credentials`; it never reads or prints credential values.
