@@ -157,7 +157,13 @@ AgenticFortress prints its own diagnostics to stderr, requests local authenticat
 "$PREFIX/bin/agentic-fortress" cli run hcloud --quiet -- server list
 ```
 
-The default flow does not create a separate `hcloud` shim symlink. The registration stores metadata in AgenticFortress state and keeps the stable invocation path discovered from `PATH`, such as `/opt/homebrew/bin/hcloud`, plus the target binary identity captured at registration time. Each run validates the current target against the captured macOS designated requirement when available and otherwise falls back to SHA-256 identity pinning. Homebrew upgrades therefore fail closed until you verify and re-register the new binary. A manually registered versioned Cellar path is also pinned and must be registered again after that version is removed.
+The default flow does not create a separate `hcloud` shim symlink. The registration stores metadata in AgenticFortress state and keeps the stable invocation path discovered from `PATH`, such as `/opt/homebrew/bin/hcloud`, plus the target binary identity captured at registration time. Each run validates the current target against the captured macOS designated requirement when available and otherwise falls back to SHA-256 identity pinning. Homebrew upgrades therefore fail closed until you verify the new binary and refresh target trust; this does not require entering the token again:
+
+```sh
+"$PREFIX/bin/agentic-fortress" cli trust-refresh hcloud
+```
+
+A manually registered versioned Cellar path is also pinned and must be trust-refreshed or registered again after that version is removed.
 
 To remove the registration and its local secret record:
 

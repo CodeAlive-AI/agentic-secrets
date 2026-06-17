@@ -343,6 +343,11 @@ func runContracts() throws {
     try expectThrows(CLIRegistrationError.targetIdentityChanged(name: "hcloud-symlink", expected: symlinkRegistration.targetIdentity ?? "", actual: changedSymlinkTarget.identity), {
         try registrationLayout.registrationService.validateTargetIdentity(registration: symlinkRegistration, assessedTarget: changedSymlinkTarget)
     }, "CLI run path must deny target binary replacement before resolving secrets")
+    let refreshedSymlinkRegistration = try registrationLayout.registrationService.refreshTargetTrust(name: "hcloud-symlink")
+    try expect(refreshedSymlinkRegistration.environmentBindings == symlinkRegistration.environmentBindings, "trust refresh must not change secret bindings")
+    try expect(refreshedSymlinkRegistration.targetPath == stableHcloud.path, "trust refresh must keep stable invocation path")
+    try expect(refreshedSymlinkRegistration.targetIdentity == changedSymlinkTarget.identity, "trust refresh must update pinned target identity")
+    try registrationLayout.registrationService.validateTargetIdentity(registration: refreshedSymlinkRegistration, assessedTarget: changedSymlinkTarget)
     try expectThrows(CLIRegistrationError.invalidEnvironmentName("HCLOUD_TOKEN=leak"), {
         _ = try registrationLayout.registrationService.register(
             name: "hcloud",

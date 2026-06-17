@@ -32,6 +32,9 @@ struct AgenticFortressCoreDaemon {
             case "run-cli":
                 try runCLI(args)
                 return
+            case "trust-refresh-cli":
+                try trustRefreshCLI(args)
+                return
             case "unregister-cli":
                 try unregisterCLI(args)
                 return
@@ -176,6 +179,23 @@ struct AgenticFortressCoreDaemon {
             name: registration.name,
             deletedSecrets: deleteSecrets,
             environments: registration.environmentBindings.map(\.environmentName)
+        )))
+    }
+
+    private static func trustRefreshCLI(_ args: [String]) throws {
+        let name = try requiredValue(after: "--name", in: args)
+        let layout = AgenticFortressStateLayout(stateDirectory: stateDirectory(from: args))
+        let registration = try layout.registrationService.refreshTargetTrust(name: name)
+        print(try AgenticFortressJSON.encodePretty(CLITrustRefreshCommandResponse(
+            status: "trust-refreshed",
+            name: registration.name,
+            targetPath: registration.targetPath,
+            targetResolvedPath: registration.targetResolvedPath,
+            targetIdentity: registration.targetIdentity,
+            targetCDHash: registration.targetCDHash,
+            targetDesignatedRequirement: registration.targetDesignatedRequirement,
+            targetSigningIdentifier: registration.targetSigningIdentifier,
+            targetTeamIdentifier: registration.targetTeamIdentifier
         )))
     }
 
@@ -380,4 +400,16 @@ private struct CLIUnregistrationCommandResponse: Codable {
     var name: String
     var deletedSecrets: Bool
     var environments: [String]
+}
+
+private struct CLITrustRefreshCommandResponse: Codable {
+    var status: String
+    var name: String
+    var targetPath: String
+    var targetResolvedPath: String?
+    var targetIdentity: String?
+    var targetCDHash: String?
+    var targetDesignatedRequirement: String?
+    var targetSigningIdentifier: String?
+    var targetTeamIdentifier: String?
 }

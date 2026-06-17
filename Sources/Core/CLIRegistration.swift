@@ -77,7 +77,7 @@ public enum CLIRegistrationError: Error, Equatable, CustomStringConvertible {
         case .targetNotExecutable(let path):
             "Target is not executable: \(path)"
         case .targetIdentityChanged(let name, let expected, let actual):
-            "Registered target identity changed for '\(name)'. Expected \(expected), got \(actual). Re-register the CLI after verifying the target binary."
+            "Registered target identity changed for '\(name)'. Expected \(expected), got \(actual). Verify the target binary, then run `agentic-fortress cli trust-refresh \(name)`."
         case .unsupportedSchema(let schema):
             "Unsupported CLI registry schema version: \(schema)"
         case .registrationMissing(let name):
@@ -187,6 +187,25 @@ public struct CLIRegistrationService: Sendable {
         guard let registration = document.registrations[name] else {
             throw CLIRegistrationError.registrationMissing(name)
         }
+        return registration
+    }
+
+    public func refreshTargetTrust(name: String) throws -> CLIAppRegistration {
+        var document = try registryStore.load()
+        guard var registration = document.registrations[name] else {
+            throw CLIRegistrationError.registrationMissing(name)
+        }
+        try validateExecutable(registration.targetPath)
+        let target = try TargetAssessor().assess(path: registration.targetPath)
+        let signature = CodeSignatureInspector.assess(path: target.resolvedPath)
+        registration.targetResolvedPath = target.resolvedPath
+        registration.targetIdentity = target.identity
+        registration.targetCDHash = signature.cdHash
+        registration.targetDesignatedRequirement = signature.designatedRequirement
+        registration.targetSigningIdentifier = signature.signingIdentifier
+        registration.targetTeamIdentifier = signature.teamIdentifier
+        document.registrations[name] = registration
+        try registryStore.save(document)
         return registration
     }
 
