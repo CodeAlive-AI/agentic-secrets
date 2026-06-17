@@ -21,6 +21,7 @@ This repository implements the V4 plan as enforceable delivery contracts.
 | macOS package/signing scaffolding | `packaging/AgenticFortress.entitlements`, `scripts/package_release.sh`, `scripts/inspect_signing.sh` |
 | Configuration | `AgenticFortressConfig`, `config/default.agentic-fortress.json`, `agentic-fortress default-config` |
 | Tahoe compatibility | `MacOSCompatibility`, `agentic-fortress check-macos`, `scripts/tahoe_compatibility_check.sh` |
+| Threat model and operations | `Docs/THREAT_MODEL.md`, `Docs/OPERATIONS.md` |
 
 Dynamic adapter boundary:
 

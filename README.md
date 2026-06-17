@@ -21,6 +21,13 @@ Runtime policy is configurable through `AgenticFortressConfig`; the default JSON
 
 The current package includes packaging/signing scaffolding, but production deployment still needs real Developer ID signing, notarization credentials, XPC listener wiring, hardened runtime validation, and Keychain access-control prompts.
 
+See:
+
+- `Docs/THREAT_MODEL.md`
+- `Docs/OPERATIONS.md`
+- `Docs/IMPLEMENTATION_MAP.md`
+- `Docs/IMPLEMENTATION_PLAN.md`
+
 ## Build
 
 ```sh
