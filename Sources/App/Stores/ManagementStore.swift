@@ -32,6 +32,7 @@ enum ManagementSection: String, CaseIterable, Identifiable {
 @MainActor
 final class ManagementStore {
     var snapshot: ManagementSnapshot?
+    var daemonInstallPlan: DaemonInstallPlan?
     var daemonStatus: DaemonStatus = DaemonStatus(
         state: .unknown,
         socketPath: IPCAgenticFortressClient.defaultPaths().socketPath,
@@ -61,6 +62,8 @@ final class ManagementStore {
     var menuBarSymbol: String {
         if daemonStatus.state == .unavailable {
             return "exclamationmark.triangle"
+        } else if daemonStatus.state == .installing || daemonStatus.state == .repairing {
+            return "arrow.clockwise"
         }
         return switch snapshot?.securityHealth.status {
         case .ok: "shield.checkered"
@@ -73,6 +76,10 @@ final class ManagementStore {
     var menuBarSummary: String {
         if daemonStatus.state == .unavailable {
             return "Daemon unavailable"
+        } else if daemonStatus.state == .installing {
+            return "Installing daemon"
+        } else if daemonStatus.state == .repairing {
+            return "Restarting daemon"
         }
         guard let snapshot else { return "Status unavailable" }
         return "\(snapshot.securityHealth.status.rawValue.capitalized) · \(snapshot.unlockGrants.count) grants"
@@ -101,6 +108,7 @@ final class ManagementStore {
     func refresh() async {
         isLoading = true
         defer { isLoading = false }
+        daemonInstallPlan = await daemonController.installPlan()
         daemonStatus = await daemonController.status()
         do {
             snapshot = try await client.loadSnapshot()
@@ -114,6 +122,7 @@ final class ManagementStore {
     }
 
     func checkDaemon() async {
+        daemonInstallPlan = await daemonController.installPlan()
         daemonStatus = await daemonController.status()
     }
 
@@ -128,6 +137,30 @@ final class ManagementStore {
             checkedAt: Date()
         )
         daemonStatus = await daemonController.repair()
+        isLoading = false
+        if daemonStatus.state == .healthy {
+            await refresh()
+        }
+    }
+
+    func installOrRepairDaemon() async {
+        isLoading = true
+        let plan: DaemonInstallPlan
+        if let daemonInstallPlan {
+            plan = daemonInstallPlan
+        } else {
+            plan = await daemonController.installPlan()
+        }
+        daemonStatus = DaemonStatus(
+            state: .installing,
+            socketPath: plan.socketPath,
+            launchAgentPath: plan.launchAgentPath,
+            message: plan.currentAppIsInstalledCopy ? "Repairing local daemon install..." : "Installing local daemon...",
+            recoveryCommand: plan.commandPreview,
+            checkedAt: Date()
+        )
+        daemonStatus = await daemonController.installOrRepair()
+        daemonInstallPlan = await daemonController.installPlan()
         isLoading = false
         if daemonStatus.state == .healthy {
             await refresh()

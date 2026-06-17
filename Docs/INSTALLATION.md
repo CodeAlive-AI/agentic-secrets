@@ -50,6 +50,10 @@ codesign --verify --strict --deep --verbose=4 build/AgenticFortress.app
 
 ## Install
 
+For a native guided install, open `build/AgenticFortress.app`, go to **Diagnostics**, review the daemon install plan, and choose **Install Local Daemon**. The app shows the app copy, helper links, state directory, run directory, install manifest, LaunchAgent, and socket path before writing files. It does not read or move local secret material.
+
+If you launched the app from `build/`, open the installed app copy after installation so authenticated IPC uses the installed bundle path recorded in the manifest.
+
 The default prefix is `~/Library/Application Support/AgenticFortress/LocalInstall`, so the common install command is short:
 
 ```sh

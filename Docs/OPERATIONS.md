@@ -266,6 +266,16 @@ The bridge propagates `MCP-Session-Id` when supplied by the upstream server. Too
 
 ## Diagnostics
 
+The native app is the preferred recovery path for ordinary users:
+
+- Open **Diagnostics**.
+- Review the **Daemon** section.
+- Use **Install Local Daemon** when the local self-build daemon has not been installed.
+- Use **Repair Local Daemon** when helper links, the install manifest, or the LaunchAgent need to be refreshed.
+- Use **Restart Daemon** when the LaunchAgent exists but IPC is unavailable.
+
+The UI shows the app copy, helper directory, state directory, run directory, install manifest, LaunchAgent, and socket before changing files. It does not read or move local secret material. If the app was launched from a temporary build location, open the installed app copy after installation so IPC authorization matches the install manifest.
+
 Run these checks before accepting a local production release:
 
 ```sh

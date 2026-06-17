@@ -1,4 +1,5 @@
 import AgenticFortressCore
+import AppKit
 import SwiftUI
 
 struct OverviewView: View {
@@ -275,6 +276,7 @@ struct AuditView: View {
 
 struct DiagnosticsView: View {
     @Bindable var store: ManagementStore
+    @State private var confirmingInstall = false
 
     var body: some View {
         Form {
@@ -288,13 +290,20 @@ struct DiagnosticsView: View {
                     Button("Check") {
                         Task { await store.checkDaemon() }
                     }
+                    if let plan = store.daemonInstallPlan {
+                        Button(plan.primaryActionTitle) {
+                            confirmingInstall = true
+                        }
+                        .buttonStyle(.borderedProminent)
+                        .disabled(!plan.canInstall || store.daemonStatus.state == .installing || store.daemonStatus.state == .repairing)
+                    }
                     Button("Restart Daemon") {
                         Task { await store.repairDaemon() }
                     }
-                    .disabled(!store.daemonStatus.canRepair || store.daemonStatus.state == .repairing)
+                    .disabled(!store.daemonStatus.canRepair || store.daemonStatus.state == .repairing || store.daemonStatus.state == .installing)
                 }
-                if store.daemonStatus.launchAgentPath == nil, let command = store.daemonStatus.recoveryCommand {
-                    LabeledContent("Install command", value: command)
+                if let plan = store.daemonInstallPlan {
+                    DaemonInstallPlanView(plan: plan)
                 }
             }
             Section("State") {
@@ -309,11 +318,24 @@ struct DiagnosticsView: View {
         }
         .formStyle(.grouped)
         .padding(24)
+        .confirmationDialog(
+            store.daemonInstallPlan?.primaryActionTitle ?? "Install Local Daemon",
+            isPresented: $confirmingInstall,
+            titleVisibility: .visible
+        ) {
+            Button(store.daemonInstallPlan?.primaryActionTitle ?? "Install Local Daemon") {
+                Task { await store.installOrRepairDaemon() }
+            }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("Agentic Fortress will update the local app copy, helper links, install manifest, and per-user LaunchAgent. Secret material is not read or moved.")
+        }
     }
 }
 
 struct DaemonStatusPanel: View {
     @Bindable var store: ManagementStore
+    @State private var confirmingInstall = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
@@ -321,7 +343,7 @@ struct DaemonStatusPanel: View {
                 Label(title, systemImage: symbol)
                     .font(.headline)
                 Spacer()
-                if store.daemonStatus.state == .repairing {
+                if store.daemonStatus.state == .repairing || store.daemonStatus.state == .installing {
                     ProgressView()
                         .controlSize(.small)
                 }
@@ -332,21 +354,47 @@ struct DaemonStatusPanel: View {
                 Button("Check") {
                     Task { await store.checkDaemon() }
                 }
-                Button("Restart Daemon") {
-                    Task { await store.repairDaemon() }
+                if let plan = store.daemonInstallPlan, store.daemonStatus.state != .healthy {
+                    Button(plan.primaryActionTitle) {
+                        confirmingInstall = true
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .disabled(!plan.canInstall || store.daemonStatus.state == .installing || store.daemonStatus.state == .repairing)
                 }
-                .disabled(!store.daemonStatus.canRepair || store.daemonStatus.state == .repairing)
-                if store.daemonStatus.launchAgentPath == nil, let command = store.daemonStatus.recoveryCommand {
-                    Text(command)
-                        .font(.system(.caption, design: .monospaced))
-                        .foregroundStyle(.secondary)
-                        .textSelection(.enabled)
+                if store.daemonStatus.state != .healthy {
+                    Button("Restart Daemon") {
+                        Task { await store.repairDaemon() }
+                    }
+                    .disabled(!store.daemonStatus.canRepair || store.daemonStatus.state == .repairing || store.daemonStatus.state == .installing)
                 }
+                if let plan = store.daemonInstallPlan, !plan.currentAppIsInstalledCopy {
+                    Button("Open Installed App") {
+                        NSWorkspace.shared.open(URL(fileURLWithPath: plan.appDestinationPath, isDirectory: true))
+                    }
+                    .disabled(!FileManager.default.fileExists(atPath: plan.appDestinationPath))
+                }
+            }
+            if let plan = store.daemonInstallPlan, !plan.canInstall {
+                Text(plan.summary)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
             }
         }
         .padding()
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 8))
+        .confirmationDialog(
+            store.daemonInstallPlan?.primaryActionTitle ?? "Install Local Daemon",
+            isPresented: $confirmingInstall,
+            titleVisibility: .visible
+        ) {
+            Button(store.daemonInstallPlan?.primaryActionTitle ?? "Install Local Daemon") {
+                Task { await store.installOrRepairDaemon() }
+            }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("This updates the local app copy, helper links, install manifest, and per-user LaunchAgent. Secret material is not read or moved.")
+        }
     }
 
     private var title: String {
@@ -354,6 +402,7 @@ struct DaemonStatusPanel: View {
         case .healthy: "Daemon Healthy"
         case .unavailable: "Daemon Unavailable"
         case .repairing: "Restarting Daemon"
+        case .installing: "Installing Daemon"
         case .unknown: "Daemon Status Unknown"
         }
     }
@@ -363,7 +412,53 @@ struct DaemonStatusPanel: View {
         case .healthy: "checkmark.circle"
         case .unavailable: "exclamationmark.triangle"
         case .repairing: "arrow.clockwise"
+        case .installing: "tray.and.arrow.down"
         case .unknown: "questionmark.circle"
+        }
+    }
+}
+
+struct DaemonInstallPlanView: View {
+    var plan: DaemonInstallPlan
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Label(plan.title, systemImage: plan.canInstall ? "checkmark.circle" : "exclamationmark.triangle")
+                .font(.headline)
+            Text(plan.summary)
+                .foregroundStyle(.secondary)
+            Grid(alignment: .leading, horizontalSpacing: 12, verticalSpacing: 6) {
+                pathRow("Install prefix", plan.prefixPath)
+                pathRow("App copy", plan.appDestinationPath)
+                pathRow("Helpers", plan.binDirectoryPath)
+                pathRow("LaunchAgent", plan.launchAgentPath)
+                pathRow("Manifest", plan.manifestPath)
+                pathRow("Socket", plan.socketPath)
+            }
+            if !plan.missingExecutables.isEmpty {
+                Text("Missing helpers: \(plan.missingExecutables.joined(separator: ", "))")
+                    .foregroundStyle(.red)
+            }
+            HStack {
+                Button("Open Install Folder") {
+                    NSWorkspace.shared.open(URL(fileURLWithPath: plan.prefixPath, isDirectory: true))
+                }
+                .disabled(!FileManager.default.fileExists(atPath: plan.prefixPath))
+                Button("Open Installed App") {
+                    NSWorkspace.shared.open(URL(fileURLWithPath: plan.appDestinationPath, isDirectory: true))
+                }
+                .disabled(!FileManager.default.fileExists(atPath: plan.appDestinationPath))
+            }
+        }
+    }
+
+    private func pathRow(_ label: String, _ value: String) -> some View {
+        GridRow {
+            Text(label)
+                .foregroundStyle(.secondary)
+            Text(value)
+                .font(.system(.caption, design: .monospaced))
+                .textSelection(.enabled)
         }
     }
 }

@@ -38,6 +38,10 @@ struct AgenticFortressApp: App {
                     Task { await store.repairDaemon() }
                 }
                 .keyboardShortcut("d", modifiers: [.command, .option])
+
+                Button("Install Local Daemon") {
+                    Task { await store.installOrRepairDaemon() }
+                }
             }
         }
 
@@ -64,10 +68,15 @@ private struct MenuBarActions: View {
         }
         Divider()
         Text(store.menuBarSummary)
-        if store.daemonStatus.state == .unavailable || store.daemonStatus.state == .repairing {
+        if store.daemonStatus.state == .unavailable || store.daemonStatus.state == .repairing || store.daemonStatus.state == .installing {
+            Button(store.daemonInstallPlan?.primaryActionTitle ?? "Install Daemon") {
+                Task { await store.installOrRepairDaemon() }
+            }
+            .disabled(store.daemonStatus.state == .installing || store.daemonStatus.state == .repairing)
             Button("Restart Daemon") {
                 Task { await store.repairDaemon() }
             }
+            .disabled(store.daemonStatus.state == .installing || store.daemonStatus.state == .repairing)
         }
         Button("Lock Grants") {
             Task { await store.clearUnlockGrants() }

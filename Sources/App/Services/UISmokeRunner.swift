@@ -23,6 +23,7 @@ enum UISmokeRunner {
         try await testEmptyState()
         try testRegisterWizardValidation()
         try await testDaemonUnavailableState()
+        try await testDaemonInstallPlanState()
         try await testSelectionSurvivesRefresh()
         try await testMenuBarStatusReflectsDaemonHealth()
     }
@@ -67,6 +68,41 @@ enum UISmokeRunner {
     }
 
     @MainActor
+    private static func testDaemonInstallPlanState() async throws {
+        let plan = smokeInstallPlan(supported: true, missingExecutables: [])
+        let installed = DaemonStatus(
+            state: .unavailable,
+            socketPath: plan.socketPath,
+            launchAgentPath: plan.launchAgentPath,
+            message: "Local daemon was installed. Open the installed app copy so the authenticated IPC manifest matches the running UI.",
+            recoveryCommand: nil,
+            checkedAt: Date()
+        )
+        let store = ManagementStore(
+            client: ThrowingAgenticFortressClient(),
+            daemonController: StubDaemonStatusController(
+                statusValue: unavailableDaemonStatus(),
+                installPlanValue: plan,
+                installValue: installed
+            )
+        )
+        await store.refresh()
+        try expect(store.daemonInstallPlan?.canInstall == true, "supported install plan can install")
+        await store.installOrRepairDaemon()
+        try expect(store.daemonStatus.message.contains("Open the installed app"), "install result explains installed app handoff")
+
+        let unsupported = ManagementStore(
+            client: ThrowingAgenticFortressClient(),
+            daemonController: StubDaemonStatusController(
+                statusValue: unavailableDaemonStatus(),
+                installPlanValue: smokeInstallPlan(supported: false, missingExecutables: ["agentic-fortressd-core"])
+            )
+        )
+        await unsupported.refresh()
+        try expect(unsupported.daemonInstallPlan?.canInstall == false, "missing helper blocks install action")
+    }
+
+    @MainActor
     private static func testSelectionSurvivesRefresh() async throws {
         let first = snapshot(cliNames: ["hcloud", "gh"])
         let second = snapshot(cliNames: ["hcloud", "gh", "terraform"])
@@ -100,6 +136,20 @@ enum UISmokeRunner {
         )
         await broken.refresh()
         try expect(broken.menuBarSymbol == "exclamationmark.triangle", "daemon failure uses attention menu symbol")
+
+        let installing = ManagementStore(
+            client: ThrowingAgenticFortressClient(),
+            daemonController: StubDaemonStatusController(statusValue: unavailableDaemonStatus())
+        )
+        installing.daemonStatus = DaemonStatus(
+            state: .installing,
+            socketPath: "/tmp/agentic-fortress-ui-smoke.sock",
+            launchAgentPath: "/tmp/com.agenticfortress.core.plist",
+            message: "Installing local daemon...",
+            recoveryCommand: nil,
+            checkedAt: Date()
+        )
+        try expect(installing.menuBarSummary == "Installing daemon", "menu bar summary reflects install progress")
     }
 
     private static func expect(_ condition: @autoclosure () -> Bool, _ message: String) throws {
@@ -168,6 +218,26 @@ enum UISmokeRunner {
             message: "Core daemon is not reachable.",
             recoveryCommand: "scripts/install_local.sh --load",
             checkedAt: Date()
+        )
+    }
+
+    private static func smokeInstallPlan(supported: Bool, missingExecutables: [String]) -> DaemonInstallPlan {
+        DaemonInstallPlan(
+            supported: supported,
+            title: "Install Local Daemon",
+            summary: supported ? "Install will copy this app bundle into the local self-build install prefix and start the core daemon." : "This app bundle is missing helper executables.",
+            prefixPath: "/tmp/agentic-fortress-ui-smoke",
+            appSourcePath: "/tmp/AgenticFortress.app",
+            appDestinationPath: "/tmp/agentic-fortress-ui-smoke/Applications/AgenticFortress.app",
+            binDirectoryPath: "/tmp/agentic-fortress-ui-smoke/bin",
+            stateDirectoryPath: "/tmp/agentic-fortress-ui-smoke/var/agentic-fortress",
+            runDirectoryPath: "/tmp/agentic-fortress-ui-smoke/run/agentic-fortress",
+            launchAgentPath: "/tmp/agentic-fortress-ui-smoke/Library/LaunchAgents/com.agenticfortress.core.plist",
+            manifestPath: "/tmp/agentic-fortress-ui-smoke/var/agentic-fortress/install-manifest.json",
+            socketPath: "/tmp/agentic-fortress-ui-smoke/run/agentic-fortress/core.sock",
+            commandPreview: "scripts/install_local.sh --load",
+            missingExecutables: missingExecutables,
+            currentAppIsInstalledCopy: false
         )
     }
 }

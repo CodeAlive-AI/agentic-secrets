@@ -189,13 +189,15 @@ Failure examples:
 - Uninstall leaves active launch agents.
 - Uninstall deletes local secret records without explicit purge mode.
 
-### AC-DIST-004: Native App Lifecycle UX Has Repair Path
+### AC-DIST-004: Native App Lifecycle UX Has Install and Repair Path
 
 Pass condition:
 
 - The SwiftUI app checks core daemon reachability on launch, refresh, and app activation.
-- If IPC is unavailable, the UI shows daemon status, socket path, LaunchAgent path when known, and a restart/repair action when the local install supports it.
-- The repair action uses the existing per-user LaunchAgent and install manifest model; the UI does not become the secret authority.
+- If IPC is unavailable, the UI shows daemon status, socket path, LaunchAgent path when known, and install/repair actions when the local app bundle supports them.
+- Diagnostics shows a concrete install plan before writing files: app copy, helper links, state directory, run directory, install manifest, LaunchAgent, and socket path.
+- Install and repair actions require explicit confirmation and use the existing per-user LaunchAgent and install manifest model; the UI does not become the secret authority.
+- If the app is launched outside the install prefix, the UI explains that the installed app copy should be opened after install because IPC authorization is bound to the installed bundle path.
 - Menu bar status reflects healthy, attention, locked, and daemon-unavailable states.
 
 Verification:
@@ -207,12 +209,13 @@ Verification:
 
 Required evidence:
 
-- UI smoke covers empty state, daemon unavailable state, register wizard validation, selection/search after refresh, and menu bar status.
+- UI smoke covers empty state, daemon unavailable state, install plan state, register wizard validation, selection/search after refresh, and menu bar status.
 - App launch smoke exits `0` without requiring real provider tokens or Keychain secrets.
 
 Failure examples:
 
 - Daemon IPC failure appears only as a raw error alert with no recovery path.
+- Install runs without showing what files and LaunchAgent will change.
 - The app reads local secret material directly to bypass daemon failure.
 - Menu bar status remains stale after daemon health changes.
 
