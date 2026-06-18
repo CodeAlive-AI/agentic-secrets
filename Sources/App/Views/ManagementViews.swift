@@ -11,6 +11,9 @@ struct OverviewView: View {
                 header("Overview", subtitle: store.snapshot?.stateDirectory ?? "Loading local state")
                 BrokerStatusPanel(store: store)
                 if let snapshot = store.snapshot {
+                    if snapshot.cliRegistrations.isEmpty {
+                        FirstRunOverviewPanel(store: store)
+                    }
                     LazyVGrid(columns: [GridItem(.adaptive(minimum: 160, maximum: 240), spacing: 12)], alignment: .leading, spacing: 12) {
                         MetricTile(title: "CLIs", value: "\(snapshot.cliRegistrations.count)", systemImage: "terminal")
                         MetricTile(title: "Secrets", value: "\(snapshot.secrets.count)", systemImage: "key")
@@ -28,6 +31,32 @@ struct OverviewView: View {
             .padding(.vertical, 24)
             .frame(maxWidth: .infinity, alignment: .topLeading)
         }
+    }
+}
+
+private struct FirstRunOverviewPanel: View {
+    var store: ControlPlaneStore
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Label("Protect Your First CLI", systemImage: "terminal")
+                .font(.headline)
+            Text("Agentic Secrets keeps tokens out of shell profiles, .env files, and plaintext tool configs. Start by registering the CLI executable that should receive one approved secret at runtime.")
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+            Button {
+                store.presentRegisterCLI()
+            } label: {
+                Label("Register CLI", systemImage: "plus")
+            }
+            .buttonStyle(.borderedProminent)
+            .disabled(!store.canRegisterCLI)
+            .accessibilityLabel("Register CLI")
+            .help("Start the CLI registration wizard")
+        }
+        .padding()
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 8))
     }
 }
 
@@ -1132,6 +1161,7 @@ struct AuditView: View {
 struct DiagnosticsView: View {
     @Bindable var store: ControlPlaneStore
     @State private var confirmingInstall = false
+    @State private var confirmingUninstall = false
 
     var body: some View {
         Form {
@@ -1166,6 +1196,18 @@ struct DiagnosticsView: View {
                 LabeledContent("State directory", value: store.snapshot?.stateDirectory ?? "Unknown")
                 LabeledContent("Config path", value: store.snapshot?.configPath ?? "Unknown")
             }
+            Section("Removal") {
+                if let plan = store.brokerUninstallPlan {
+                    BrokerUninstallPlanView(plan: plan)
+                }
+                Button(role: .destructive) {
+                    confirmingUninstall = true
+                } label: {
+                    Label("Uninstall Agentic Secrets", systemImage: "trash")
+                }
+                .disabled(!store.canUninstallLocalInstall)
+                .help("Choose whether to keep local state or totally delete Agentic Secrets from this Mac")
+            }
             Section("Compatibility") {
                 LabeledContent("Runtime major", value: "\(store.snapshot?.securityHealth.runtimeMajor ?? 0)")
                 LabeledContent("Required SDK major", value: "\(store.snapshot?.securityHealth.requiredSDKMajor ?? 0)")
@@ -1186,6 +1228,33 @@ struct DiagnosticsView: View {
         } message: {
             Text("Agentic Secrets will update the local app copy, helper links, install manifest, and per-user LaunchAgent. Secret material is not read or moved.")
         }
+        .confirmationDialog(
+            "Uninstall Agentic Secrets?",
+            isPresented: $confirmingUninstall,
+            titleVisibility: .visible
+        ) {
+            Button("Totally Delete Agentic Secrets", role: .destructive) {
+                Task {
+                    await store.uninstallLocalInstall(
+                        purgeLocalState: true,
+                        removeShellConfiguration: true
+                    )
+                }
+            }
+            .disabled(!store.canUninstallLocalInstall)
+            Button("Remove App, Keep Local State") {
+                Task {
+                    await store.uninstallLocalInstall(
+                        purgeLocalState: false,
+                        removeShellConfiguration: true
+                    )
+                }
+            }
+            .disabled(!store.canUninstallLocalInstall)
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("Totally Delete removes runtime files, command shims, helper links, the per-user LaunchAgent, managed shell PATH entries, local state, and known Agentic Secrets Keychain integrity sidecars. Secret values are never displayed.")
+        }
     }
 }
 
@@ -1199,7 +1268,7 @@ struct BrokerRecommendedFixPanel: View {
                 Label(title, systemImage: symbol)
                     .font(.headline)
                 Spacer()
-                if store.brokerStatus.state == .repairing || store.brokerStatus.state == .installing {
+                if store.brokerStatus.state == .repairing || store.brokerStatus.state == .installing || store.brokerStatus.state == .uninstalling {
                     ProgressView()
                         .controlSize(.small)
                 }
@@ -1222,6 +1291,10 @@ struct BrokerRecommendedFixPanel: View {
         .padding()
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 8))
+        .task(id: store.brokerStatus.state) {
+            guard store.brokerStatus.state == .healthy, store.snapshot == nil, !store.isLoading else { return }
+            await store.refresh()
+        }
     }
 
     private var title: String {
@@ -1232,6 +1305,8 @@ struct BrokerRecommendedFixPanel: View {
             "Installing Local Daemon"
         case .repairing:
             "Repairing Local Daemon"
+        case .uninstalling:
+            "Removing Local Install"
         case .unknown, .unavailable:
             "Recommended Fix"
         }
@@ -1245,6 +1320,8 @@ struct BrokerRecommendedFixPanel: View {
             "tray.and.arrow.down"
         case .repairing:
             "arrow.clockwise"
+        case .uninstalling:
+            "trash"
         case .unknown:
             "questionmark.circle"
         case .unavailable:
@@ -1269,7 +1346,7 @@ struct BrokerRecommendedFixPanel: View {
     }
 
     private func isDisabled(_ action: BrokerNextAction) -> Bool {
-        if store.brokerStatus.state == .installing || store.brokerStatus.state == .repairing {
+        if store.brokerStatus.state == .installing || store.brokerStatus.state == .repairing || store.brokerStatus.state == .uninstalling {
             return true
         }
         switch action {
@@ -1382,7 +1459,7 @@ struct BrokerStatusPanel: View {
                 Label(title, systemImage: symbol)
                     .font(.headline)
                 Spacer()
-                if store.brokerStatus.state == .repairing || store.brokerStatus.state == .installing {
+                if store.brokerStatus.state == .repairing || store.brokerStatus.state == .installing || store.brokerStatus.state == .uninstalling {
                     ProgressView()
                         .controlSize(.small)
                 }
@@ -1419,6 +1496,7 @@ struct BrokerStatusPanel: View {
         case .unavailable: "Daemon Unavailable"
         case .repairing: "Restarting Daemon"
         case .installing: "Installing Daemon"
+        case .uninstalling: "Removing Install"
         case .unknown: "Daemon Status Unknown"
         }
     }
@@ -1429,6 +1507,7 @@ struct BrokerStatusPanel: View {
         case .unavailable: "exclamationmark.triangle"
         case .repairing: "arrow.clockwise"
         case .installing: "tray.and.arrow.down"
+        case .uninstalling: "trash"
         case .unknown: "questionmark.circle"
         }
     }
@@ -1487,7 +1566,7 @@ struct BrokerActionButtons: View {
     }
 
     private func isDisabled(_ action: BrokerNextAction) -> Bool {
-        if store.brokerStatus.state == .installing || store.brokerStatus.state == .repairing {
+        if store.brokerStatus.state == .installing || store.brokerStatus.state == .repairing || store.brokerStatus.state == .uninstalling {
             return true
         }
         switch action {
@@ -1564,6 +1643,44 @@ struct BrokerInstallPlanView: View {
                     InstalledAppOpener.open(store: store)
                 }
                 .disabled(!store.canOpenInstalledApp)
+            }
+        }
+    }
+
+    private func pathRow(_ label: String, _ value: String) -> some View {
+        GridRow {
+            Text(label)
+                .foregroundStyle(.secondary)
+            Text(value)
+                .font(.system(.caption, design: .monospaced))
+                .textSelection(.enabled)
+        }
+    }
+}
+
+struct BrokerUninstallPlanView: View {
+    var plan: BrokerUninstallPlan
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Label(plan.title, systemImage: plan.canUninstall ? "trash" : "checkmark.circle")
+                .font(.headline)
+            Text(plan.summary)
+                .foregroundStyle(.secondary)
+            Grid(alignment: .leading, horizontalSpacing: 12, verticalSpacing: 6) {
+                pathRow("Install prefix", plan.prefixPath)
+                pathRow("App copy", plan.appDestinationPath)
+                pathRow("Helpers", plan.binDirectoryPath)
+                pathRow("Shims", plan.shimDirectoryPath)
+                pathRow("LaunchAgent", plan.launchAgentPath)
+                pathRow("Runtime", plan.runDirectoryPath)
+                pathRow("Socket directory", plan.socketDirectoryPath)
+                pathRow("State", plan.stateDirectoryPath)
+            }
+            if !plan.managedShellConfigPaths.isEmpty {
+                Text("Managed PATH blocks will be removed from known shell startup files when present.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
             }
         }
     }

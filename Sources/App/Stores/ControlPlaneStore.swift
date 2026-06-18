@@ -76,6 +76,7 @@ struct APISessionPresentation: Equatable {
 final class ControlPlaneStore {
     var snapshot: ControlPlaneSnapshot?
     var brokerInstallPlan: BrokerInstallPlan?
+    var brokerUninstallPlan: BrokerUninstallPlan?
     var brokerStatus: BrokerStatus = BrokerStatus(
         state: .unknown,
         socketPath: IPCControlPlaneClient.defaultPaths().socketPath,
@@ -113,7 +114,7 @@ final class ControlPlaneStore {
     var menuBarSymbol: String {
         if brokerStatus.state == .unavailable {
             return "exclamationmark.triangle"
-        } else if brokerStatus.state == .installing || brokerStatus.state == .repairing {
+        } else if brokerStatus.state == .installing || brokerStatus.state == .repairing || brokerStatus.state == .uninstalling {
             return "arrow.clockwise"
         }
         return switch snapshot?.securityHealth.status {
@@ -131,6 +132,8 @@ final class ControlPlaneStore {
             return "Installing daemon"
         } else if brokerStatus.state == .repairing {
             return "Restarting daemon"
+        } else if brokerStatus.state == .uninstalling {
+            return "Removing install"
         }
         guard let snapshot else { return "Status unavailable" }
         return "\(snapshot.securityHealth.status.rawValue.capitalized) · \(snapshot.deliveryGrants.count) grants"
@@ -163,13 +166,17 @@ final class ControlPlaneStore {
         return FileManager.default.fileExists(atPath: brokerInstallPlan.appDestinationPath)
     }
 
+    var canUninstallLocalInstall: Bool {
+        brokerUninstallPlan?.canUninstall == true && !isLoading
+    }
+
     var usesToolbarSearch: Bool {
         selectedSection == .cliSecrets
     }
 
     var bestDaemonAction: BrokerNextAction? {
         switch brokerStatus.state {
-        case .healthy, .installing, .repairing:
+        case .healthy, .installing, .repairing, .uninstalling:
             return nil
         case .unknown:
             return .check
@@ -317,20 +324,14 @@ final class ControlPlaneStore {
         isLoading = true
         defer { isLoading = false }
         brokerInstallPlan = await brokerController.installPlan()
+        brokerUninstallPlan = await brokerController.uninstallPlan()
         brokerStatus = await brokerController.status()
         do {
-            snapshot = try await client.loadSnapshot()
-            if brokerStatus.state != .healthy {
-                brokerStatus = await brokerController.status()
-            }
-            if selectedCLI == nil {
-                selectedCLI = snapshot?.cliRegistrations.first?.name
-            }
-            maintainSelections()
+            try await loadSnapshotAfterHealthyStatus()
             errorMessage = nil
         } catch {
-            if brokerStatus.state == .unavailable || brokerStatus.state == .installing || brokerStatus.state == .repairing {
-                errorMessage = nil
+            if brokerStatus.state == .unavailable || brokerStatus.state == .installing || brokerStatus.state == .repairing || brokerStatus.state == .uninstalling {
+                await recoverFromStartupRaceIfPossible()
             } else if isDaemonReachabilityError(error) {
                 await recoverFromTransientDaemonRefreshError()
             } else {
@@ -341,6 +342,7 @@ final class ControlPlaneStore {
 
     func checkDaemon() async {
         brokerInstallPlan = await brokerController.installPlan()
+        brokerUninstallPlan = await brokerController.uninstallPlan()
         brokerStatus = await brokerController.status()
     }
 
@@ -390,9 +392,44 @@ final class ControlPlaneStore {
         )
         brokerStatus = await brokerController.installOrRepair()
         brokerInstallPlan = await brokerController.installPlan()
+        brokerUninstallPlan = await brokerController.uninstallPlan()
         isLoading = false
         if brokerStatus.state == .healthy {
             await refresh()
+        }
+    }
+
+    func uninstallLocalInstall(purgeLocalState: Bool, removeShellConfiguration: Bool) async {
+        isLoading = true
+        let plan: BrokerUninstallPlan
+        if let brokerUninstallPlan {
+            plan = brokerUninstallPlan
+        } else {
+            plan = await brokerController.uninstallPlan()
+        }
+        brokerStatus = BrokerStatus(
+            state: .uninstalling,
+            socketPath: brokerStatus.socketPath,
+            launchAgentPath: plan.launchAgentPath,
+            message: "Removing local Agentic Secrets install...",
+            detail: nil,
+            recoveryCommand: "scripts/uninstall_local.sh --purge-local-state",
+            checkedAt: Date()
+        )
+        brokerStatus = await brokerController.uninstall(
+            purgeLocalState: purgeLocalState,
+            removeShellConfiguration: removeShellConfiguration
+        )
+        brokerInstallPlan = await brokerController.installPlan()
+        brokerUninstallPlan = await brokerController.uninstallPlan()
+        snapshot = nil
+        isLoading = false
+        if brokerStatus.message.hasPrefix("Uninstall failed") {
+            successMessage = nil
+            errorMessage = brokerStatus.message
+        } else {
+            successMessage = brokerStatus.message
+            errorMessage = nil
         }
     }
 
@@ -733,10 +770,33 @@ final class ControlPlaneStore {
         brokerStatus = await brokerController.status()
         guard brokerStatus.state == .healthy else { return }
         do {
-            snapshot = try await client.loadSnapshot()
+            try await loadSnapshotAfterHealthyStatus()
         } catch {
             errorMessage = isDaemonReachabilityError(error) ? nil : userFacingError(error)
         }
+    }
+
+    private func recoverFromStartupRaceIfPossible() async {
+        errorMessage = nil
+        try? await Task.sleep(for: .milliseconds(350))
+        brokerStatus = await brokerController.status()
+        guard brokerStatus.state == .healthy else { return }
+        do {
+            try await loadSnapshotAfterHealthyStatus()
+        } catch {
+            errorMessage = isDaemonReachabilityError(error) ? nil : userFacingError(error)
+        }
+    }
+
+    private func loadSnapshotAfterHealthyStatus() async throws {
+        snapshot = try await client.loadSnapshot()
+        if brokerStatus.state != .healthy {
+            brokerStatus = await brokerController.status()
+        }
+        if selectedCLI == nil {
+            selectedCLI = snapshot?.cliRegistrations.first?.name
+        }
+        maintainSelections()
     }
 
     private func commaList(_ value: String) -> [String] {

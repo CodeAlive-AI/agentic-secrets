@@ -35,7 +35,7 @@ Install from the current checkout:
 ./scripts/install_local.sh --prefix "$HOME/Library/Application Support/AgenticSecrets/LocalInstall"
 ```
 
-Update by running the install command again from the desired commit. The script rebuilds, ad-hoc signs, validates, copies the app bundle, refreshes command symlinks, and rewrites the install manifest.
+Update by running the install command again from the desired commit. The script rebuilds, ad-hoc signs, validates, copies the app bundle, refreshes command symlinks, rewrites the install manifest, waits for broker IPC health when loading the LaunchAgent, and opens the installed app when using the default user-local prefix. Use `--no-open` for scripted updates.
 
 Smoke-test installed IPC:
 
@@ -50,7 +50,9 @@ SOCKET="/tmp/agentic-secrets-core-smoke.sock"
   --manifest "$PREFIX/var/agentic-secrets/install-manifest.json"
 ```
 
-Uninstall without deleting local state or local secret records:
+The native app can remove the local install from **Diagnostics → Removal → Remove Local Install**. The confirmation dialog removes managed shell PATH entries by default and deletes local Agentic Secrets state only when **Delete local Agentic Secrets state** is explicitly selected.
+
+Uninstall from the command line without deleting local state or local secret records:
 
 ```sh
 ./scripts/uninstall_local.sh --prefix "$HOME/Library/Application Support/AgenticSecrets/LocalInstall" --keep-secrets
@@ -62,7 +64,7 @@ Uninstall and remove local Agentic Secrets state:
 ./scripts/uninstall_local.sh --prefix "$HOME/Library/Application Support/AgenticSecrets/LocalInstall" --purge-local-state
 ```
 
-Local secret record deletion is intentionally not implicit. Use `--purge-local-state` only as an explicit operator action, not as a side effect of package removal.
+Uninstall removes the per-user LaunchAgent, helper links, command shims under the local install prefix, runtime files, the socket directory, the installed app bundle, and Agentic Secrets-managed PATH blocks from known shell startup files. With state purge selected, it also removes local state files and known Agentic Secrets Keychain integrity sidecars for that state directory. Local secret record deletion is intentionally not implicit. Use `--purge-local-state` only as an explicit operator action, not as a side effect of package removal.
 
 ## Local Secret Prompt Verification
 

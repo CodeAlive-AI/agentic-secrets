@@ -11,6 +11,22 @@ AgenticSecrets defaults to an open-source self-build distribution model:
 
 Developer ID signing and notarization are optional future distribution improvements for maintainers who want frictionless downloadable binaries.
 
+## Packaging Project Shape
+
+The project should remain SwiftPM-first while the default release track is source self-build plus local ad-hoc signing.
+
+SwiftPM is the source of truth for the current product shape because Agentic Secrets ships a coordinated set of executables: the native app, CLI, command shim, broker daemon, API session daemon, Bitwarden provider daemon, MCP daemon, install manifest, helper links, and per-user LaunchAgent. Keeping that graph in `Package.swift` plus explicit packaging scripts makes local builds, CI, release evidence, and install-manifest validation reviewable without Xcode project state.
+
+An Xcode project is justified only when Apple-native bundle machinery becomes the lower-risk source of truth for the distribution track. Concrete triggers include:
+
+- embedded XPC services under `Contents/XPCServices`;
+- `SMAppService` login items under standard bundle locations;
+- sandbox, app groups, provisioning profiles, or other Signing & Capabilities state that should be represented as Apple build settings;
+- Sparkle or another updater path that relies on a conventional app archive workflow;
+- App Store or heavily Xcode-managed Archive/Export distribution.
+
+Until those triggers exist, do not introduce a hand-maintained `.xcodeproj` as a second equal build graph. If an Xcode project is added later, treat it as a distribution adapter with explicit parity checks against `Package.swift`, `scripts/package_release.sh`, `scripts/install_local.sh`, release gates, and the install manifest. The self-build path must remain available and must not require Xcode project signing state.
+
 ## What Developer ID Adds
 
 - Gatekeeper-friendly downloaded `.app` and `.pkg` artifacts.

@@ -4,11 +4,14 @@ set -eu
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 . "$ROOT/version.env"
 
-PREFIX="$HOME/Library/Application Support/AgenticSecrets/LocalInstall"
+DEFAULT_PREFIX="$HOME/Library/Application Support/AgenticSecrets/LocalInstall"
+PREFIX="$DEFAULT_PREFIX"
 LOAD_LAUNCHD=0
 CONFIGURE_SHELL=0
 SHELL_CONFIG=""
 PREFIX_EXPLICIT=0
+OPEN_APP=1
+OPEN_EXPLICIT=0
 
 while [ "$#" -gt 0 ]; do
   case "$1" in
@@ -19,6 +22,16 @@ while [ "$#" -gt 0 ]; do
       ;;
     --load)
       LOAD_LAUNCHD=1
+      shift
+      ;;
+    --open)
+      OPEN_APP=1
+      OPEN_EXPLICIT=1
+      shift
+      ;;
+    --no-open)
+      OPEN_APP=0
+      OPEN_EXPLICIT=1
       shift
       ;;
     --configure-shell)
@@ -162,13 +175,37 @@ configure_shell_path() {
   printf 'Configured shell PATH in %s\n' "$target"
 }
 
+wait_for_daemon_health() {
+  attempt=1
+  while [ "$attempt" -le 30 ]; do
+    if "$BIN_DIR/agentic-secrets-shim" --ipc-health --socket "$SOCKET_PATH" --manifest "$MANIFEST_PATH" >/dev/null 2>&1; then
+      return 0
+    fi
+    sleep 0.2
+    attempt=$((attempt + 1))
+  done
+  return 1
+}
+
 if [ "$CONFIGURE_SHELL" -eq 1 ]; then
   configure_shell_path
 fi
 
+DAEMON_READY=0
 if [ "$LOAD_LAUNCHD" -eq 1 ]; then
   launchctl bootout "gui/$(id -u)" "$CORE_PLIST" >/dev/null 2>&1 || true
   launchctl bootstrap "gui/$(id -u)" "$CORE_PLIST"
+  printf 'Waiting for broker daemon...\n'
+  if wait_for_daemon_health; then
+    DAEMON_READY=1
+    printf 'Broker daemon is reachable.\n'
+  else
+    printf 'Broker daemon did not become reachable before the installer timeout.\n'
+  fi
+fi
+
+if [ "$PREFIX" != "$DEFAULT_PREFIX" ] && [ "$OPEN_EXPLICIT" -eq 0 ]; then
+  OPEN_APP=0
 fi
 
 printf '%s\n' "$PREFIX"
@@ -187,4 +224,17 @@ NEXT_STEPS
   else
     printf '  ./scripts/install_local.sh --load --configure-shell\n'
   fi
+fi
+
+if [ "$OPEN_APP" -eq 1 ] && [ "$LOAD_LAUNCHD" -eq 1 ] && [ "$DAEMON_READY" -eq 0 ]; then
+  OPEN_APP=0
+  printf '\nBroker daemon did not become reachable yet; leaving the app closed.\n'
+  printf 'Check daemon status with:\n  launchctl print "gui/%s/com.agenticsecrets.broker"\n' "$(id -u)"
+fi
+
+if [ "$OPEN_APP" -eq 1 ]; then
+  open "$APP_DEST"
+  printf '\nOpened installed Agentic Secrets app:\n  %s\n' "$APP_DEST"
+else
+  printf '\nInstalled app is available at:\n  %s\n' "$APP_DEST"
 fi

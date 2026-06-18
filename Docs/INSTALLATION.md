@@ -60,12 +60,12 @@ The default prefix is `~/Library/Application Support/AgenticSecrets/LocalInstall
 ./scripts/install_local.sh --load --configure-shell
 ```
 
-This recommended command installs the app, loads the LaunchAgent, and appends a guarded PATH block to your user shell config so future shell sessions can run `agentic-secrets` directly. Open a new terminal after installation, or run `source "$HOME/.zshrc"` in the current one.
+This recommended command installs the app, loads the LaunchAgent, waits for the broker daemon IPC health check, opens the installed app copy, and appends a guarded PATH block to your user shell config so future shell sessions can run `agentic-secrets` directly. Open a new terminal after installation, or run `source "$HOME/.zshrc"` in the current one.
 
-For automation or CI where shell startup files must not be touched, omit `--configure-shell`:
+For automation or CI where shell startup files must not be touched and the UI should not open, omit `--configure-shell` and pass `--no-open`:
 
 ```sh
-./scripts/install_local.sh --load
+./scripts/install_local.sh --load --no-open
 ```
 
 The installer rebuilds, packages, validates, copies the app bundle, creates command symlinks, writes a LaunchAgent plist, and writes an install manifest at:
@@ -95,7 +95,7 @@ esac
 EOF
 ```
 
-The installer prints these next steps after every install. It only edits shell startup files when `--configure-shell` is passed, and it appends without reading existing shell rc contents. It does not write to `/etc/paths.d`; this keeps the self-build installer user-local, reviewable, and reversible.
+The installer prints these next steps after every install. It opens the installed app by default for the standard user-local prefix; pass `--no-open` to suppress that, or `--open` to force opening when installing to an explicit custom prefix. It only edits shell startup files when `--configure-shell` is passed, and it appends without reading existing shell rc contents. It does not write to `/etc/paths.d`; this keeps the self-build installer user-local, reviewable, and reversible.
 
 Do not put raw provider secrets into shell rc files. Configure secret aliases through reviewed product tooling, not through environment variables.
 
@@ -308,7 +308,9 @@ The installer replaces the app bundle, refreshes command symlinks, validates the
 
 ## Uninstall
 
-Remove runtime surface while retaining local Agentic Secrets state:
+Open the installed app, go to **Diagnostics → Removal**, and choose **Remove Local Install** for the guided native uninstall. The dialog removes managed shell PATH entries by default. Select **Delete local Agentic Secrets state** only when you intentionally want to remove local Agentic Secrets state and local secret records.
+
+Remove runtime surface from the command line while retaining local Agentic Secrets state:
 
 ```sh
 ./scripts/uninstall_local.sh --prefix "$HOME/Library/Application Support/AgenticSecrets/LocalInstall" --keep-secrets
@@ -320,7 +322,7 @@ Remove runtime surface and local Agentic Secrets state:
 ./scripts/uninstall_local.sh --prefix "$HOME/Library/Application Support/AgenticSecrets/LocalInstall" --purge-local-state
 ```
 
-Uninstall bootouts the LaunchAgent if present, removes command symlinks, removes runtime files, and removes the installed app bundle. Local secret records are retained unless local state purge is explicitly requested.
+Uninstall bootouts the LaunchAgent if present, removes command symlinks, removes command shims, removes runtime files and the socket directory, removes the installed app bundle, and removes Agentic Secrets-managed PATH blocks from known shell startup files. When local state purge is selected, it also removes known Agentic Secrets Keychain integrity sidecars for that state directory. Local secret records are retained unless local state purge is explicitly requested.
 
 ## Common Pitfalls
 

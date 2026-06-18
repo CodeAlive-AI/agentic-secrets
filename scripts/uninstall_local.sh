@@ -30,6 +30,7 @@ done
 
 APP_DEST="$PREFIX/Applications/$APP_NAME.app"
 BIN_DIR="$PREFIX/bin"
+SHIM_DIR="$PREFIX/shims"
 STATE_DIR="$PREFIX/var/agentic-secrets"
 RUN_DIR="$PREFIX/run/agentic-secrets"
 SOCKET_DIR="/tmp/agentic-secrets-$(id -u)"
@@ -45,11 +46,22 @@ for executable in agentic-secrets AgenticSecrets agentic-secrets-shim agentic-se
 done
 
 rm -f "$CORE_PLIST"
+rm -rf "$SHIM_DIR"
 rm -rf "$RUN_DIR"
 rm -rf "$SOCKET_DIR"
 rm -rf "$APP_DEST"
 
 if [ "$PURGE_LOCAL_STATE" -eq 1 ]; then
+  state_parent="$(dirname "$STATE_DIR")"
+  state_name="$(basename "$STATE_DIR")"
+  if [ -d "$state_parent" ]; then
+    state_path="$(cd "$state_parent" && printf '%s/%s\n' "$(pwd -P)" "$state_name")"
+  else
+    state_path="$STATE_DIR"
+  fi
+  state_account="local-state:$(printf '%s' "$state_path" | shasum -a 256 | awk '{print substr($1, 1, 24)}')"
+  security delete-generic-password -s "com.agenticsecrets.cli-registry-integrity" -a "$state_account" >/dev/null 2>&1 || true
+  security delete-generic-password -s "com.agenticsecrets.cli-persistent-allow" -a "$state_account" >/dev/null 2>&1 || true
   rm -rf "$STATE_DIR"
 fi
 
@@ -58,6 +70,53 @@ if [ "$PURGE_LOCAL_STATE" -eq 1 ]; then
 elif [ "$KEEP_SECRETS" -eq 1 ]; then
   echo "Local secret records retained. Use --purge-local-state only when you intentionally want to remove local Agentic Secrets state."
 fi
+
+clean_shell_config() {
+  target="$1"
+  [ -f "$target" ] || return 0
+  mode="$(stat -f '%Lp' "$target" 2>/dev/null || printf '')"
+  tmp="${target}.agentic-secrets-clean.$$"
+  awk -v bin_dir="$BIN_DIR" -v shim_dir="$SHIM_DIR" '
+    function is_marker(line) {
+      return line == "# Agentic Secrets PATH" || line == "# AgenticSecrets CLI shims"
+    }
+    function block_has_managed_path(count, i) {
+      for (i = 1; i <= count; i++) {
+        if (index(block[i], bin_dir) || index(block[i], shim_dir)) {
+          return 1
+        }
+      }
+      return 0
+    }
+    {
+      if (is_marker($0)) {
+        count = 1
+        block[count] = $0
+        while ((getline next_line) > 0) {
+          count++
+          block[count] = next_line
+          if (next_line == "esac") {
+            break
+          }
+        }
+        if (count >= 3 && block[2] == "case \":$PATH:\" in" && block[count] == "esac" && block_has_managed_path(count)) {
+          next
+        }
+        for (i = 1; i <= count; i++) {
+          print block[i]
+        }
+        next
+      }
+      print
+    }
+  ' "$target" >"$tmp"
+  mv "$tmp" "$target"
+  [ -z "$mode" ] || chmod "$mode" "$target" 2>/dev/null || true
+}
+
+clean_shell_config "$HOME/.zshrc"
+clean_shell_config "$HOME/.bashrc"
+clean_shell_config "$HOME/.profile"
 
 find "$PREFIX" -type d -empty -delete 2>/dev/null || true
 printf '%s\n' "$PREFIX"

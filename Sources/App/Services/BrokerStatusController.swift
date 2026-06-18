@@ -1,5 +1,6 @@
 import AgenticSecretsBroker
 import Foundation
+import Security
 
 enum BrokerRunState: String, Codable, Equatable, Sendable {
     case unknown
@@ -7,6 +8,7 @@ enum BrokerRunState: String, Codable, Equatable, Sendable {
     case unavailable
     case repairing
     case installing
+    case uninstalling
 }
 
 struct BrokerStatus: Codable, Equatable, Sendable {
@@ -49,11 +51,28 @@ struct BrokerInstallPlan: Codable, Equatable, Sendable {
     }
 }
 
+struct BrokerUninstallPlan: Codable, Equatable, Sendable {
+    var title: String
+    var summary: String
+    var prefixPath: String
+    var appDestinationPath: String
+    var binDirectoryPath: String
+    var shimDirectoryPath: String
+    var stateDirectoryPath: String
+    var runDirectoryPath: String
+    var socketDirectoryPath: String
+    var launchAgentPath: String
+    var managedShellConfigPaths: [String]
+    var canUninstall: Bool
+}
+
 protocol BrokerStatusControlling: Sendable {
     func status() async -> BrokerStatus
     func repair() async -> BrokerStatus
     func installPlan() async -> BrokerInstallPlan
     func installOrRepair() async -> BrokerStatus
+    func uninstallPlan() async -> BrokerUninstallPlan
+    func uninstall(purgeLocalState: Bool, removeShellConfiguration: Bool) async -> BrokerStatus
 }
 
 struct LocalBrokerStatusController: BrokerStatusControlling {
@@ -110,6 +129,10 @@ struct LocalBrokerStatusController: BrokerStatusControlling {
         makeInstallPlan()
     }
 
+    func uninstallPlan() async -> BrokerUninstallPlan {
+        makeUninstallPlan()
+    }
+
     func installOrRepair() async -> BrokerStatus {
         let plan = makeInstallPlan()
         guard plan.canInstall else {
@@ -148,6 +171,32 @@ struct LocalBrokerStatusController: BrokerStatusControlling {
                 message: "Install failed. Review Diagnostics and try again.",
                 detail: String(describing: error),
                 recoveryCommand: plan.commandPreview,
+                checkedAt: Date()
+            )
+        }
+    }
+
+    func uninstall(purgeLocalState: Bool, removeShellConfiguration: Bool) async -> BrokerStatus {
+        let plan = makeUninstallPlan()
+        do {
+            try uninstall(plan: plan, purgeLocalState: purgeLocalState, removeShellConfiguration: removeShellConfiguration)
+            return BrokerStatus(
+                state: .unavailable,
+                socketPath: URL(fileURLWithPath: plan.socketDirectoryPath).appendingPathComponent("core.sock").path,
+                launchAgentPath: plan.launchAgentPath,
+                message: purgeLocalState ? "Local Agentic Secrets install and state were removed." : "Local Agentic Secrets install was removed. Local state was retained.",
+                detail: removeShellConfiguration ? "Managed shell PATH entries were removed from known shell startup files when present." : "Managed shell PATH entries were left unchanged.",
+                recoveryCommand: "scripts/install_local.sh --load",
+                checkedAt: Date()
+            )
+        } catch {
+            return BrokerStatus(
+                state: .unavailable,
+                socketPath: URL(fileURLWithPath: plan.socketDirectoryPath).appendingPathComponent("core.sock").path,
+                launchAgentPath: plan.launchAgentPath,
+                message: "Uninstall failed. Review Diagnostics and try again.",
+                detail: String(describing: error),
+                recoveryCommand: "scripts/uninstall_local.sh --purge-local-state",
                 checkedAt: Date()
             )
         }
@@ -218,6 +267,36 @@ struct LocalBrokerStatusController: BrokerStatusControlling {
         )
     }
 
+    private func makeUninstallPlan() -> BrokerUninstallPlan {
+        let prefix = IPCControlPlaneClient.installPrefixFromBundle() ?? Self.defaultInstallPrefix()
+        let appDestination = prefix.appendingPathComponent("Applications/AgenticSecrets.app")
+        let binDirectory = prefix.appendingPathComponent("bin", isDirectory: true)
+        let shimDirectory = prefix.appendingPathComponent("shims", isDirectory: true)
+        let stateDirectory = prefix.appendingPathComponent("var/agentic-secrets", isDirectory: true)
+        let runDirectory = prefix.appendingPathComponent("run/agentic-secrets", isDirectory: true)
+        let socketDirectory = URL(fileURLWithPath: IPCControlPlaneClient.defaultRuntimeSocketPath()).deletingLastPathComponent()
+        let launchAgent = prefix.appendingPathComponent("Library/LaunchAgents/com.agenticsecrets.broker.plist")
+        let shellConfigs = Self.managedShellConfigPaths().map(\.path)
+        let canUninstall = FileManager.default.fileExists(atPath: prefix.path)
+            || FileManager.default.fileExists(atPath: socketDirectory.path)
+            || FileManager.default.fileExists(atPath: launchAgent.path)
+            || Self.managedShellConfigPaths().contains { FileManager.default.fileExists(atPath: $0.path) }
+        return BrokerUninstallPlan(
+            title: "Remove Local Install",
+            summary: "Remove the local app copy, helper links, command shims, runtime files, socket directory, and per-user LaunchAgent. Local state is deleted only when explicitly selected.",
+            prefixPath: prefix.path,
+            appDestinationPath: appDestination.path,
+            binDirectoryPath: binDirectory.path,
+            shimDirectoryPath: shimDirectory.path,
+            stateDirectoryPath: stateDirectory.path,
+            runDirectoryPath: runDirectory.path,
+            socketDirectoryPath: socketDirectory.path,
+            launchAgentPath: launchAgent.path,
+            managedShellConfigPaths: shellConfigs,
+            canUninstall: canUninstall
+        )
+    }
+
     private func install(plan: BrokerInstallPlan) throws {
         let fileManager = FileManager.default
         let appDestination = URL(fileURLWithPath: plan.appDestinationPath, isDirectory: true)
@@ -261,6 +340,78 @@ struct LocalBrokerStatusController: BrokerStatusControlling {
         let bootstrapped = runProcess(executable: "/bin/launchctl", arguments: ["bootstrap", "gui/\(getuid())", launchAgent.path])
         guard bootstrapped.exitCode == 0 else {
             throw DaemonInstallError.commandFailed("launchctl bootstrap", bootstrapped.output)
+        }
+    }
+
+    private func uninstall(plan: BrokerUninstallPlan, purgeLocalState: Bool, removeShellConfiguration: Bool) throws {
+        let fileManager = FileManager.default
+        let launchAgent = URL(fileURLWithPath: plan.launchAgentPath)
+        let binDirectory = URL(fileURLWithPath: plan.binDirectoryPath, isDirectory: true)
+        let shimDirectory = URL(fileURLWithPath: plan.shimDirectoryPath, isDirectory: true)
+        let appDestination = URL(fileURLWithPath: plan.appDestinationPath, isDirectory: true)
+        let runDirectory = URL(fileURLWithPath: plan.runDirectoryPath, isDirectory: true)
+        let socketDirectory = URL(fileURLWithPath: plan.socketDirectoryPath, isDirectory: true)
+        let stateDirectory = URL(fileURLWithPath: plan.stateDirectoryPath, isDirectory: true)
+
+        if fileManager.fileExists(atPath: launchAgent.path) {
+            _ = runProcess(executable: "/bin/launchctl", arguments: ["bootout", "gui/\(getuid())", launchAgent.path])
+        }
+
+        removeManagedShims(in: shimDirectory, appDestination: appDestination)
+        try? fileManager.removeItem(at: shimDirectory)
+
+        for executable in Self.installExecutables {
+            try? fileManager.removeItem(at: binDirectory.appendingPathComponent(executable))
+        }
+
+        try? fileManager.removeItem(at: launchAgent)
+        try? fileManager.removeItem(at: runDirectory)
+        try? fileManager.removeItem(at: socketDirectory)
+        try? fileManager.removeItem(at: appDestination)
+        if purgeLocalState {
+            removeStateKeychainItems(stateDirectory: stateDirectory)
+            try? fileManager.removeItem(at: stateDirectory)
+        }
+        if removeShellConfiguration {
+            try ShellConfigurationCleaner.removeManagedBlocks(
+                from: plan.managedShellConfigPaths.map { URL(fileURLWithPath: $0) },
+                managedDirectories: [binDirectory.path, shimDirectory.path]
+            )
+        }
+        removeEmptyDirectories(from: URL(fileURLWithPath: plan.prefixPath, isDirectory: true))
+    }
+
+    private func removeManagedShims(in shimDirectory: URL, appDestination: URL) {
+        let fileManager = FileManager.default
+        guard let entries = try? fileManager.contentsOfDirectory(at: shimDirectory, includingPropertiesForKeys: [.isSymbolicLinkKey]) else { return }
+        let expectedTargets = Set([
+            appDestination.appendingPathComponent("Contents/MacOS/agentic-secrets-shim").path,
+            appDestination.appendingPathComponent("Contents/MacOS/agentic-secrets-shim").standardizedFileURL.path
+        ])
+        for entry in entries where expectedTargets.contains(entry.resolvingSymlinksInPath().path) {
+            try? fileManager.removeItem(at: entry)
+        }
+    }
+
+    private func removeEmptyDirectories(from prefix: URL) {
+        let fileManager = FileManager.default
+        var current = prefix
+        while current.path != fileManager.homeDirectoryForCurrentUser.path && current.path != "/" {
+            guard let entries = try? fileManager.contentsOfDirectory(atPath: current.path), entries.isEmpty else { break }
+            try? fileManager.removeItem(at: current)
+            current.deleteLastPathComponent()
+        }
+    }
+
+    private func removeStateKeychainItems(stateDirectory: URL) {
+        let account = "local-state:" + shortDigest(stateDirectory.standardizedFileURL.path, length: 24)
+        for service in ["com.agenticsecrets.cli-registry-integrity", "com.agenticsecrets.cli-persistent-allow"] {
+            let query: [String: Any] = [
+                kSecClass as String: kSecClassGenericPassword,
+                kSecAttrService as String: service,
+                kSecAttrAccount as String: account
+            ]
+            SecItemDelete(query as CFDictionary)
         }
     }
 
@@ -383,6 +534,11 @@ struct LocalBrokerStatusController: BrokerStatusControlling {
             .appendingPathComponent("Library/Application Support/AgenticSecrets/LocalInstall", isDirectory: true)
     }
 
+    private static func managedShellConfigPaths() -> [URL] {
+        let home = FileManager.default.homeDirectoryForCurrentUser
+        return [".zshrc", ".bashrc", ".profile"].map { home.appendingPathComponent($0) }
+    }
+
     private static let installExecutables = [
         "AgenticSecrets",
         "agentic-secrets",
@@ -410,6 +566,70 @@ private extension String {
             .replacingOccurrences(of: "'", with: "&apos;")
             .replacingOccurrences(of: "<", with: "&lt;")
             .replacingOccurrences(of: ">", with: "&gt;")
+    }
+}
+
+enum ShellConfigurationCleaner {
+    static func removeManagedBlocks(from files: [URL], managedDirectories: [String]) throws {
+        for file in files {
+            try removeManagedBlocks(from: file, managedDirectories: managedDirectories)
+        }
+    }
+
+    static func removeManagedBlocks(from file: URL, managedDirectories: [String]) throws {
+        let fileManager = FileManager.default
+        guard fileManager.fileExists(atPath: file.path) else { return }
+        let originalAttributes = try? fileManager.attributesOfItem(atPath: file.path)
+        let data = try Data(contentsOf: file)
+        guard let text = String(data: data, encoding: .utf8) else { return }
+        let cleaned = removeManagedBlocks(from: text, managedDirectories: managedDirectories)
+        guard cleaned != text else { return }
+        try Data(cleaned.utf8).write(to: file, options: [.atomic])
+        if let mode = originalAttributes?[.posixPermissions] {
+            try? fileManager.setAttributes([.posixPermissions: mode], ofItemAtPath: file.path)
+        }
+    }
+
+    static func removeManagedBlocks(from text: String, managedDirectories: [String]) -> String {
+        let lines = text.components(separatedBy: "\n")
+        var cleaned: [String] = []
+        var index = 0
+        while index < lines.count {
+            if let endIndex = managedBlockEnd(startingAt: index, in: lines),
+               blockContainsManagedDirectory(lines[index...endIndex], managedDirectories: managedDirectories) {
+                if cleaned.last == "" {
+                    cleaned.removeLast()
+                }
+                index = endIndex + 1
+                continue
+            }
+            cleaned.append(lines[index])
+            index += 1
+        }
+        return cleaned.joined(separator: "\n")
+    }
+
+    private static func managedBlockEnd(startingAt index: Int, in lines: [String]) -> Int? {
+        guard index + 1 < lines.count else { return nil }
+        let marker = lines[index].trimmingCharacters(in: .whitespaces)
+        guard marker == "# Agentic Secrets PATH" || marker == "# AgenticSecrets CLI shims" else { return nil }
+        guard lines[index + 1].trimmingCharacters(in: .whitespaces) == #"case ":$PATH:" in"# else { return nil }
+        var cursor = index + 2
+        while cursor < lines.count {
+            if lines[cursor].trimmingCharacters(in: .whitespaces) == "esac" {
+                return cursor
+            }
+            cursor += 1
+        }
+        return nil
+    }
+
+    private static func blockContainsManagedDirectory(_ block: ArraySlice<String>, managedDirectories: [String]) -> Bool {
+        block.contains { line in
+            managedDirectories.contains { directory in
+                !directory.isEmpty && line.contains(directory)
+            }
+        }
     }
 }
 
@@ -467,7 +687,22 @@ struct StubBrokerStatusController: BrokerStatusControlling {
         missingExecutables: [],
         currentAppIsInstalledCopy: false
     )
+    var uninstallPlanValue: BrokerUninstallPlan = BrokerUninstallPlan(
+        title: "Remove Local Install",
+        summary: "Remove the local app copy, helper links, command shims, runtime files, socket directory, and per-user LaunchAgent.",
+        prefixPath: "/tmp/agentic-secrets-ui-smoke",
+        appDestinationPath: "/tmp/agentic-secrets-ui-smoke/Applications/AgenticSecrets.app",
+        binDirectoryPath: "/tmp/agentic-secrets-ui-smoke/bin",
+        shimDirectoryPath: "/tmp/agentic-secrets-ui-smoke/shims",
+        stateDirectoryPath: "/tmp/agentic-secrets-ui-smoke/var/agentic-secrets",
+        runDirectoryPath: "/tmp/agentic-secrets-ui-smoke/run/agentic-secrets",
+        socketDirectoryPath: "/tmp/agentic-secrets-ui-smoke/run/agentic-secrets",
+        launchAgentPath: "/tmp/agentic-secrets-ui-smoke/Library/LaunchAgents/com.agenticsecrets.broker.plist",
+        managedShellConfigPaths: [],
+        canUninstall: true
+    )
     var installValue: BrokerStatus?
+    var uninstallValue: BrokerStatus?
 
     func status() async -> BrokerStatus {
         statusValue
@@ -483,5 +718,21 @@ struct StubBrokerStatusController: BrokerStatusControlling {
 
     func installOrRepair() async -> BrokerStatus {
         installValue ?? repairValue ?? statusValue
+    }
+
+    func uninstallPlan() async -> BrokerUninstallPlan {
+        uninstallPlanValue
+    }
+
+    func uninstall(purgeLocalState: Bool, removeShellConfiguration: Bool) async -> BrokerStatus {
+        uninstallValue ?? BrokerStatus(
+            state: .unavailable,
+            socketPath: statusValue.socketPath,
+            launchAgentPath: uninstallPlanValue.launchAgentPath,
+            message: purgeLocalState ? "Local Agentic Secrets install and state were removed." : "Local Agentic Secrets install was removed. Local state was retained.",
+            detail: removeShellConfiguration ? "Managed shell PATH entries were removed from known shell startup files when present." : nil,
+            recoveryCommand: "scripts/install_local.sh --load",
+            checkedAt: Date()
+        )
     }
 }

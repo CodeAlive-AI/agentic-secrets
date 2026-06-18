@@ -18,6 +18,8 @@ The default distribution model is open-source self-build with local ad-hoc signi
 
 When working on the native macOS UI, agents must actively think about good UX, not only whether the Swift code compiles. Follow current Apple Human Interface Guidelines and keep the app boring, clear, auditable, and native.
 
+For every product-facing change, think through the "drunk user" path: a tired, distracted, impatient user should still understand what just happened, what is safe to click next, and whether the system is waiting, broken, or done. Avoid ambiguous labels, hidden toggles, silent waits, stale loading states, and choices that require remembering implementation details. Prefer one explicit best action, concrete progress text, reversible defaults, and destructive labels that say exactly what will be deleted.
+
 Required Apple references for UI work:
 
 - [Designing for macOS](https://developer.apple.com/design/human-interface-guidelines/designing-for-macos)

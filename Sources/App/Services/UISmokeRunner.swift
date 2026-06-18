@@ -34,6 +34,7 @@ enum UISmokeRunner {
         try await testDaemonUnavailableState()
         try await testUnavailableDaemonBlocksManagementActions()
         try await testBrokerInstallPlanState()
+        try testManagedShellConfigurationCleanup()
         try await testContextActions()
         try await testManagementActions()
         try testAuditRelatedItemRouting()
@@ -632,6 +633,59 @@ enum UISmokeRunner {
         )
         await unsupported.refresh()
         try expect(unsupported.brokerInstallPlan?.canInstall == false, "missing helper blocks install action")
+
+        let removable = ControlPlaneStore(
+            client: SequenceControlPlaneClient(snapshots: [emptySnapshot()]),
+            brokerController: StubBrokerStatusController(statusValue: healthyBrokerStatus())
+        )
+        await removable.refresh()
+        try expect(removable.brokerUninstallPlan?.canUninstall == true, "diagnostics exposes local uninstall plan")
+        await removable.uninstallLocalInstall(purgeLocalState: true, removeShellConfiguration: true)
+        try expect(removable.brokerStatus.message.contains("install and state were removed"), "uninstall reports explicit state purge")
+        try expect(removable.snapshot == nil, "uninstall clears loaded local state")
+    }
+
+    private static func testManagedShellConfigurationCleanup() throws {
+        let root = URL(fileURLWithPath: NSTemporaryDirectory())
+            .appendingPathComponent("agentic-secrets-shell-cleanup-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        let shellConfig = root.appendingPathComponent(".zshrc")
+        let binDir = root.appendingPathComponent("bin").path
+        let shimDir = root.appendingPathComponent("shims").path
+        let content = """
+        export KEEP_THIS_PATH="/opt/example"
+
+        # Agentic Secrets PATH
+        case ":$PATH:" in
+          *":\(binDir):"*) ;;
+          *) export PATH="\(binDir):$PATH" ;;
+        esac
+
+        # AgenticSecrets CLI shims
+        case ":$PATH:" in
+          *":\(shimDir):"*) ;;
+          *) export PATH="\(shimDir):$PATH" ;;
+        esac
+
+        # Other Tool PATH
+        case ":$PATH:" in
+          *":/opt/other-tool/bin:"*) ;;
+          *) export PATH="/opt/other-tool/bin:$PATH" ;;
+        esac
+        """
+        try Data(content.utf8).write(to: shellConfig)
+        try ShellConfigurationCleaner.removeManagedBlocks(
+            from: shellConfig,
+            managedDirectories: [binDir, shimDir]
+        )
+        let cleaned = try String(contentsOf: shellConfig, encoding: .utf8)
+        try expect(cleaned.contains("KEEP_THIS_PATH"), "shell cleanup preserves unrelated environment lines")
+        try expect(cleaned.contains("Other Tool PATH"), "shell cleanup preserves unrelated PATH blocks")
+        try expect(!cleaned.contains("# Agentic Secrets PATH"), "shell cleanup removes installer PATH block")
+        try expect(!cleaned.contains("# AgenticSecrets CLI shims"), "shell cleanup removes shim PATH block")
+        try expect(!cleaned.contains(binDir), "shell cleanup removes managed bin path")
+        try expect(!cleaned.contains(shimDir), "shell cleanup removes managed shim path")
     }
 
     @MainActor
