@@ -26,9 +26,9 @@ struct OverviewView: View {
                     SnapshotUnavailablePanel(store: store)
                 }
             }
-            .frame(maxWidth: 1180, alignment: .leading)
             .padding(.horizontal, 28)
             .padding(.vertical, 24)
+            .frame(maxWidth: 1180, alignment: .topLeading)
             .frame(maxWidth: .infinity, alignment: .topLeading)
         }
     }
@@ -1557,22 +1557,91 @@ struct SnapshotUnavailablePanel: View {
 
 struct LocalStateUnavailableView: View {
     @Bindable var store: ControlPlaneStore
+    @State private var confirmingInstall = false
 
     var body: some View {
         PageCenteredState {
-            ContentUnavailableView {
-                Label("Local State Unavailable", systemImage: "pause.circle")
-            } description: {
-                Text("This page will load after the local daemon is reachable.")
-            } actions: {
-                Button {
-                    store.presentDiagnostics()
-                } label: {
-                    Label("Open Diagnostic & Uninstall", systemImage: "stethoscope")
+            VStack(spacing: 14) {
+                ContentUnavailableView {
+                    Label(title, systemImage: symbol)
+                } description: {
+                    Text(message)
+                } actions: {
+                    VStack(spacing: 8) {
+                        BrokerActionButtons(
+                            store: store,
+                            confirmingInstall: $confirmingInstall,
+                            includeAdvancedActions: false
+                        )
+                        Button {
+                            store.presentDiagnostics()
+                        } label: {
+                            Label("Open Diagnostic & Uninstall", systemImage: "stethoscope")
+                        }
+                        .buttonStyle(.bordered)
+                        .help("Open daemon diagnostics, repair, and uninstall actions")
+                    }
                 }
-                .buttonStyle(.borderedProminent)
-                .help("Open daemon diagnostics, repair, and uninstall actions")
             }
+        }
+        .confirmationDialog(
+            store.brokerInstallPlan?.primaryActionTitle ?? "Install Local Daemon",
+            isPresented: $confirmingInstall,
+            titleVisibility: .visible
+        ) {
+            Button(store.brokerInstallPlan?.primaryActionTitle ?? "Install Local Daemon") {
+                Task { await store.installOrRepairDaemon() }
+            }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("Agentic Secrets will update the local app copy, helper links, install manifest, and per-user LaunchAgent. Secret material is not read or moved.")
+        }
+    }
+
+    private var title: String {
+        switch store.bestDaemonAction {
+        case .openInstalledApp:
+            "Open Installed Copy"
+        case .restart:
+            "Daemon Not Reachable"
+        case .installOrRepair:
+            "Local Daemon Needs Repair"
+        case .check:
+            "Daemon Status Unknown"
+        case nil:
+            store.brokerStatus.state == .healthy ? "Local State Not Loaded" : "Local State Unavailable"
+        }
+    }
+
+    private var message: String {
+        switch store.bestDaemonAction {
+        case .openInstalledApp:
+            "This window is not the app copy trusted by the local install. Open the installed copy to load local state."
+        case .restart:
+            "The LaunchAgent exists, but the local daemon is not reachable. Restart it, then refresh local state."
+        case .installOrRepair:
+            store.brokerInstallPlan?.summary ?? store.brokerStatus.message
+        case .check:
+            "Check daemon status and local install files before continuing."
+        case nil:
+            store.brokerStatus.state == .healthy
+                ? "Refresh to load local Agentic Secrets state."
+                : store.brokerStatus.message
+        }
+    }
+
+    private var symbol: String {
+        switch store.bestDaemonAction {
+        case .openInstalledApp:
+            "arrow.up.forward.app"
+        case .restart:
+            "restart"
+        case .installOrRepair:
+            "wrench.and.screwdriver"
+        case .check:
+            "questionmark.circle"
+        case nil:
+            store.brokerStatus.state == .healthy ? "shield" : "pause.circle"
         }
     }
 }

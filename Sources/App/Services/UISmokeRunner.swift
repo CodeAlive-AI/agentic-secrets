@@ -32,6 +32,7 @@ enum UISmokeRunner {
         try await testInvalidFormSubmitsStayLocal()
         try await testOriginNormalization()
         try await testDaemonUnavailableState()
+        try await testWrongAppCopyUnavailableState()
         try await testUnavailableDaemonBlocksManagementActions()
         try await testBrokerInstallPlanState()
         try testManagedShellConfigurationCleanup()
@@ -378,6 +379,39 @@ enum UISmokeRunner {
         try expect(store.errorMessage == "Local daemon is not ready. Use Diagnostic & Uninstall to install or repair it.", "unavailable direct register submit shows repair guidance")
         CommandPolicyPackInstaller.presentOpenPanel(store: store)
         try expect(store.selectedSection == .diagnostics, "unavailable adapter install routes to diagnostics without opening a file picker")
+    }
+
+    @MainActor
+    private static func testWrongAppCopyUnavailableState() async throws {
+        let store = ControlPlaneStore(
+            client: ThrowingControlPlaneClient(),
+            brokerController: StubBrokerStatusController(statusValue: unavailableBrokerStatus())
+        )
+        await store.refresh()
+        var plan = smokeInstallPlan(supported: true, missingExecutables: [])
+        plan.appDestinationPath = "/bin"
+        plan.currentAppIsInstalledCopy = false
+        store.brokerInstallPlan = plan
+        store.brokerStatus.message = "Open the installed copy so the authenticated IPC manifest matches the running UI."
+        try expect(store.bestDaemonAction == .openInstalledApp, "wrong app copy state highlights opening the installed copy")
+        try verifyHostingLayout(
+            LocalStateUnavailableView(store: store),
+            width: 680,
+            height: 520,
+            label: "wrong app copy unavailable state"
+        )
+        try verifyHostingLayout(
+            OverviewView(store: store),
+            width: 680,
+            height: 620,
+            label: "narrow wrong app copy overview"
+        )
+        try verifyHostingLayout(
+            SidebarView(store: store),
+            width: 260,
+            height: 720,
+            label: "sidebar while local state is unavailable"
+        )
     }
 
     @MainActor
