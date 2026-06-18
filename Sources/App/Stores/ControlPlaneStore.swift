@@ -102,13 +102,30 @@ final class ControlPlaneStore {
     var showingBitwardenBindingEditor = false
     var exportedAudit: String?
     var oneTimeAPISession: APISessionPresentation?
+    var availableUpdate: AppUpdateRelease?
+    var isCheckingForUpdates = false
+    var lastUpdateCheck: Date?
 
     private let client: any ControlPlaneClient
     private let brokerController: any BrokerStatusControlling
+    private let updateChecker: any AppUpdateChecking
+    private let updateIgnoreDefaults: UserDefaults
+    @ObservationIgnored private var updateCheckTask: Task<Void, Never>?
 
-    init(client: any ControlPlaneClient, brokerController: (any BrokerStatusControlling)? = nil) {
+    init(
+        client: any ControlPlaneClient,
+        brokerController: (any BrokerStatusControlling)? = nil,
+        updateChecker: any AppUpdateChecking = GitHubAppUpdateChecker(),
+        updateIgnoreDefaults: UserDefaults = UserDefaults(suiteName: "com.agenticsecrets.updater.ignorelist") ?? .standard
+    ) {
         self.client = client
         self.brokerController = brokerController ?? LocalBrokerStatusController(client: client)
+        self.updateChecker = updateChecker
+        self.updateIgnoreDefaults = updateIgnoreDefaults
+    }
+
+    deinit {
+        updateCheckTask?.cancel()
     }
 
     var menuBarSymbol: String {
@@ -137,6 +154,12 @@ final class ControlPlaneStore {
         }
         guard let snapshot else { return "Status unavailable" }
         return "\(snapshot.securityHealth.status.rawValue.capitalized) · \(snapshot.deliveryGrants.count) grants"
+    }
+
+    var updateMenuTitle: String {
+        guard let availableUpdate else { return "Check for Updates" }
+        let prefix = availableUpdate.critical ? "Critical Update" : "Update"
+        return "\(prefix) \(availableUpdate.versionLabel)"
     }
 
     var menuBarRecentActivityTitles: [String] {
@@ -318,6 +341,56 @@ final class ControlPlaneStore {
     func clearSuccessIfCurrent(_ message: String) {
         guard errorMessage == nil, successMessage == message else { return }
         successMessage = nil
+    }
+
+    func startAutomaticUpdateChecks() {
+        guard updateCheckTask == nil else { return }
+        updateCheckTask = Task { [weak self] in
+            await self?.checkForUpdates(manual: false)
+            while !Task.isCancelled {
+                try? await Task.sleep(for: .seconds(24 * 60 * 60))
+                await self?.checkForUpdates(manual: false)
+            }
+        }
+    }
+
+    func checkForUpdates(manual: Bool) async {
+        guard !isCheckingForUpdates else { return }
+        isCheckingForUpdates = true
+        defer { isCheckingForUpdates = false }
+        do {
+            let update = try await updateChecker.availableUpdate(
+                currentVersion: AppVersionInfo.displayVersion,
+                osVersion: ProcessInfo.processInfo.operatingSystemVersion
+            )
+            lastUpdateCheck = Date()
+            if let update, !isIgnored(update) {
+                availableUpdate = update
+                if manual {
+                    successMessage = "\(update.displayName) is available"
+                    errorMessage = nil
+                }
+            } else {
+                availableUpdate = nil
+                if manual {
+                    successMessage = "Agentic Secrets is up to date"
+                    errorMessage = nil
+                }
+            }
+        } catch {
+            if manual {
+                successMessage = nil
+                errorMessage = "Could not check for updates: \(userFacingError(error))"
+            }
+        }
+    }
+
+    func ignoreAvailableUpdate() {
+        guard let update = availableUpdate, !update.critical else { return }
+        updateIgnoreDefaults.set(true, forKey: ignoreKey(for: update))
+        availableUpdate = nil
+        successMessage = "Update ignored"
+        errorMessage = nil
     }
 
     func refresh() async {
@@ -848,6 +921,15 @@ final class ControlPlaneStore {
     private func setInputError(_ error: InputError) {
         successMessage = nil
         errorMessage = error.description
+    }
+
+    private func isIgnored(_ update: AppUpdateRelease) -> Bool {
+        guard !update.critical else { return false }
+        return updateIgnoreDefaults.bool(forKey: ignoreKey(for: update))
+    }
+
+    private func ignoreKey(for update: AppUpdateRelease) -> String {
+        "ignored-\(update.versionLabel)-\(update.htmlURL.absoluteString)"
     }
 
     private func maintainSelections() {

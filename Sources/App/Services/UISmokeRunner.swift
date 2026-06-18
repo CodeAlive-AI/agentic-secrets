@@ -37,6 +37,7 @@ enum UISmokeRunner {
         try testManagedShellConfigurationCleanup()
         try await testContextActions()
         try await testManagementActions()
+        try await testUpdateChecking()
         try testAuditRelatedItemRouting()
         try await testActivationRefreshLoadsMissingSnapshot()
         try await testSelectionSurvivesRefresh()
@@ -834,6 +835,78 @@ enum UISmokeRunner {
         try expect(store.selectedCLI == nil, "CLI unregister clears selection")
     }
 
+    @MainActor
+    private static func testUpdateChecking() async throws {
+        let latest = AppUpdateRelease(
+            tagName: "v9.0.0",
+            name: "Agentic Secrets 9.0.0",
+            prerelease: false,
+            htmlURL: URL(string: "https://github.com/CodeAlive-AI/agentic-secrets/releases/tag/v9.0.0")!,
+            body: "Release notes\n\nMinimum macOS Version: 14.0"
+        )
+        let ignoredDefaultsSuite = "com.agenticsecrets.ui-smoke.updater.\(UUID().uuidString)"
+        let ignoredDefaults = UserDefaults(suiteName: ignoredDefaultsSuite)!
+        ignoredDefaults.removePersistentDomain(forName: ignoredDefaultsSuite)
+        let store = ControlPlaneStore(
+            client: SequenceControlPlaneClient(snapshots: [emptySnapshot()]),
+            brokerController: StubBrokerStatusController(statusValue: healthyBrokerStatus()),
+            updateChecker: StubAppUpdateChecker(update: latest),
+            updateIgnoreDefaults: ignoredDefaults
+        )
+        await store.checkForUpdates(manual: true)
+        try expect(store.availableUpdate == latest, "update checker stores available release")
+        try expect(store.updateMenuTitle == "Update 9.0.0", "update menu title includes latest version")
+        try expect(store.successMessage == "Agentic Secrets 9.0.0 is available", "manual update check reports available release")
+        try verifyHostingLayout(
+            ContentView(store: store),
+            width: 1180,
+            height: 760,
+            label: "content view with update button"
+        )
+        store.ignoreAvailableUpdate()
+        try expect(store.availableUpdate == nil, "noncritical update can be ignored")
+
+        let critical = AppUpdateRelease(
+            tagName: "v9.0.1",
+            name: "Agentic Secrets 9.0.1",
+            prerelease: false,
+            htmlURL: URL(string: "https://github.com/CodeAlive-AI/agentic-secrets/releases/tag/v9.0.1")!,
+            body: "Critical Security Update\n\nMinimum macOS Version: 14.0"
+        )
+        let criticalStore = ControlPlaneStore(
+            client: SequenceControlPlaneClient(snapshots: [emptySnapshot()]),
+            brokerController: StubBrokerStatusController(statusValue: healthyBrokerStatus()),
+            updateChecker: StubAppUpdateChecker(update: critical),
+            updateIgnoreDefaults: ignoredDefaults
+        )
+        await criticalStore.checkForUpdates(manual: false)
+        criticalStore.ignoreAvailableUpdate()
+        try expect(criticalStore.availableUpdate == critical, "critical update cannot be ignored")
+
+        let olderRunnable = AppUpdateRelease(
+            tagName: "v2.0.0",
+            name: "Agentic Secrets 2.0.0",
+            prerelease: false,
+            htmlURL: URL(string: "https://example.com/2")!,
+            body: "Minimum macOS Version: 14.0"
+        )
+        let newerUnsupported = AppUpdateRelease(
+            tagName: "v3.0.0",
+            name: "Agentic Secrets 3.0.0",
+            prerelease: false,
+            htmlURL: URL(string: "https://example.com/3")!,
+            body: "Minimum macOS Version: 99.0"
+        )
+        try expect(
+            GitHubAppUpdateChecker.evaluate(
+                releases: [olderRunnable, newerUnsupported],
+                currentVersion: AppSemanticVersion("1.0.0"),
+                osVersion: AppSemanticVersion("14.0.0")
+            ) == olderRunnable,
+            "update evaluation picks latest runnable release"
+        )
+    }
+
     private static func testAuditRelatedItemRouting() throws {
         var withResources = snapshot(cliNames: ["hcloud"])
         withResources.apiSessionProfiles = [
@@ -1200,6 +1273,17 @@ private struct ThrowingControlPlaneClient: ControlPlaneClient {
     func createAPISession(_ request: ControlPlaneAPISessionRequest) async throws -> ControlPlaneAPISessionResponse { throw SmokeError.failed("unexpected API session") }
     func clearDeliveryGrants() async throws { throw SmokeError.failed("unexpected grants") }
     func exportRedactedAuditJSON() async throws -> String { throw SmokeError.failed("unexpected audit") }
+}
+
+private struct StubAppUpdateChecker: AppUpdateChecking {
+    var update: AppUpdateRelease?
+
+    func availableUpdate(
+        currentVersion: String,
+        osVersion: OperatingSystemVersion
+    ) async throws -> AppUpdateRelease? {
+        update
+    }
 }
 
 private enum UISmokeRunnerSnapshotFactory {

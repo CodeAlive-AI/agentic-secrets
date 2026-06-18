@@ -76,6 +76,15 @@ struct AgenticSecretsApp: App {
                 .keyboardShortcut("r", modifiers: .command)
                 .disabled(store.isLoading)
 
+                Button(store.availableUpdate == nil ? "Check for Updates" : store.updateMenuTitle) {
+                    if let update = store.availableUpdate {
+                        ExternalURLOpener.open(update.htmlURL, label: "Agentic Secrets update", store: store)
+                    } else {
+                        Task { await store.checkForUpdates(manual: true) }
+                    }
+                }
+                .disabled(store.isCheckingForUpdates)
+
                 Button("Open Diagnostics") {
                     openDiagnostics(store: store)
                 }
@@ -326,6 +335,7 @@ private struct MainWindowContent: View {
         ContentView(store: store)
             .frame(minWidth: AppWindowSizing.minimumWidth, minHeight: AppWindowSizing.minimumHeight)
             .task {
+                store.startAutomaticUpdateChecks()
                 await store.refresh()
             }
             .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
@@ -346,6 +356,17 @@ private struct MenuBarActions: View {
         }
         Divider()
         Text(store.menuBarSummary)
+        if let update = store.availableUpdate {
+            Button(store.updateMenuTitle) {
+                ExternalURLOpener.open(update.htmlURL, label: "Agentic Secrets update", store: store)
+            }
+            if !update.critical {
+                Button("Ignore Update") {
+                    store.ignoreAvailableUpdate()
+                }
+            }
+            Divider()
+        }
         if let action = store.bestDaemonAction {
             Button(action.title(plan: store.brokerInstallPlan)) {
                 performDaemonAction(action, store: store)
@@ -386,6 +407,10 @@ private struct MenuBarActions: View {
             Task { await store.refresh() }
         }
         .disabled(store.isLoading)
+        Button(store.availableUpdate == nil ? "Check for Updates" : "Check Again") {
+            Task { await store.checkForUpdates(manual: true) }
+        }
+        .disabled(store.isCheckingForUpdates)
         Divider()
         Button("Quit") {
             NSApp.terminate(nil)

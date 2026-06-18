@@ -227,18 +227,66 @@ private struct SidebarReleaseFooter: View {
                 .font(.caption2)
                 .foregroundStyle(.secondary)
                 .lineLimit(1)
-            SidebarTextLink(
-                store: store,
-                title: "releases",
-                destination: releasesURL,
-                accessibilityLabel: "Open Agentic Secrets releases"
-            )
+            if let update = store.availableUpdate {
+                SidebarUpdateButton(store: store, update: update)
+            } else {
+                HStack(spacing: 8) {
+                    SidebarTextLink(
+                        store: store,
+                        title: "releases",
+                        destination: releasesURL,
+                        accessibilityLabel: "Open Agentic Secrets releases"
+                    )
+                    Spacer(minLength: 0)
+                    if store.isCheckingForUpdates {
+                        ProgressView()
+                            .controlSize(.small)
+                            .accessibilityLabel("Checking for updates")
+                    } else {
+                        Button {
+                            Task { await store.checkForUpdates(manual: true) }
+                        } label: {
+                            Image(systemName: "arrow.clockwise")
+                                .frame(width: 18, height: 18)
+                        }
+                        .buttonStyle(.plain)
+                        .foregroundStyle(.secondary)
+                        .help("Check for updates")
+                        .accessibilityLabel("Check for updates")
+                    }
+                }
+            }
         }
         .padding(.horizontal, 28)
         .padding(.top, 10)
         .padding(.bottom, 12)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(.bar)
+    }
+}
+
+private struct SidebarUpdateButton: View {
+    var store: ControlPlaneStore
+    var update: AppUpdateRelease
+
+    var body: some View {
+        Button {
+            ExternalURLOpener.open(update.htmlURL, label: "Agentic Secrets update", store: store)
+        } label: {
+            Label {
+                Text(update.critical ? "Critical Update" : "Update \(update.versionLabel)")
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.82)
+            } icon: {
+                Image(systemName: "arrow.down.circle.fill")
+            }
+            .frame(maxWidth: .infinity)
+        }
+        .buttonStyle(.borderedProminent)
+        .controlSize(.small)
+        .tint(.green)
+        .help("Open \(update.displayName) release notes")
+        .accessibilityLabel("Open update \(update.versionLabel)")
     }
 }
 

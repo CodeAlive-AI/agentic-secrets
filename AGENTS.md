@@ -4,6 +4,10 @@ This file is for coding agents and maintainers working in this repository. Keep 
 
 `AGENTS.md` is the source of truth for agent instructions. `CLAUDE.md` should remain a symlink to this file, not a separate copy.
 
+## Project-Local Skills
+
+The macOS engineering skills used by this repository are vendored in `.agents/skills/` and are tracked as project files. When the runtime lists those skills with the `r7` root, expand `r7` to this repository's `.agents/skills` directory. Do not look for these project-local skills under Codex plugin cache paths such as `~/.codex/plugins/cache/openai-primary-runtime`.
+
 Current release metadata: `0.1.0 alpha`. This is a pre-stable product; breaking changes to local install state, registry format, CLI UX, and trust policy are acceptable when they improve security or clarity.
 
 ## Product Boundary
