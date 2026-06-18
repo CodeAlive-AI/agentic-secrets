@@ -36,7 +36,10 @@ mkdir -p "$APP_MACOS" "$APP_RESOURCES"
 cp "$BUILD_BINARY" "$APP_BINARY"
 chmod +x "$APP_BINARY"
 
-if [[ ! -f "$ICON_PATH" ]]; then
+if [[ -n "${AGENTIC_SECRETS_ICON_PATH:-}" ]]; then
+  test -f "$ICON_PATH"
+else
+  rm -rf "$ICON_PATH" "${ICON_PATH%.icns}.iconset"
   swift "$ROOT_DIR/packaging/make_icon.swift" "$ICON_PATH"
   iconutil -c icns "${ICON_PATH%.icns}.iconset" -o "$ICON_PATH"
 fi
