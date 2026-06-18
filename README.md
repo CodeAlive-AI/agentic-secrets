@@ -2,7 +2,7 @@
 
 Version: `0.1.0 alpha`
 
-AgenticFortress is a macOS self-build tool for lower-leakage secret delivery on developer machines.
+AgenticFortress is a macOS self-build tool for lower-leakage secret delivery on developer machines. Its core job is controlled delivery at runtime: deciding when, how, and to which local tool a stored secret may be released, with local approval through Touch ID or the local account password.
 
 It keeps provider tokens out of `.env` files, shell startup files, MCP configs, and native CLI config files such as `hcloud`'s `cli.toml`. It does not make arbitrary command execution safe; it makes secret delivery explicit, narrow, locally approved, auditable, and fail-closed.
 
