@@ -396,11 +396,11 @@ struct MCPProfileEditor: View {
                 if let originMessage = ManagementEditorValidation.urlStatusMessage(origin, field: "origin") {
                     InlineValidationMessage(originMessage)
                 }
-                Text("Uses the Authorization header, / path prefix, and blocks cross-origin redirects unless changed in Advanced.")
+                TextField("Authorization header", text: $header)
+                Text("Uses / path prefix and blocks cross-origin redirects unless changed in Advanced.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
                 DisclosureGroup("Advanced", isExpanded: $advancedExpanded) {
-                    TextField("Authorization header", text: $header)
                     TextField("Allowed path prefixes", text: $prefixes)
                     if let prefixesMessage = ManagementEditorValidation.pathPrefixStatusMessage(prefixes) {
                         InlineValidationMessage(prefixesMessage)
