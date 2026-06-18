@@ -32,6 +32,9 @@ jobs:
       - name: Whitespace check
         run: git diff --check
 
+      - name: Install gate dependencies
+        run: brew install ripgrep
+
       - name: CI gates
         run: ./scripts/ci.sh
 
