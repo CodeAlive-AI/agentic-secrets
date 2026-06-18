@@ -22,6 +22,7 @@ enum UISmokeRunner {
 
     @MainActor
     private static func run() async throws {
+        cleanSmokeInstallPaths()
         try await testEmptyState()
         try await testSettingsLayout()
         try await testRegisterWizardValidation()
@@ -38,6 +39,7 @@ enum UISmokeRunner {
         try testManagedShellConfigurationCleanup()
         try await testContextActions()
         try await testManagementActions()
+        try await testHealthyDaemonRetriesTransientSnapshotLoad()
         try await testUpdateChecking()
         try testAuditRelatedItemRouting()
         try await testActivationRefreshLoadsMissingSnapshot()
@@ -352,6 +354,7 @@ enum UISmokeRunner {
 
     @MainActor
     private static func testDaemonUnavailableState() async throws {
+        cleanSmokeInstallPaths()
         let store = ControlPlaneStore(
             client: ThrowingControlPlaneClient(),
             brokerController: StubBrokerStatusController(statusValue: unavailableBrokerStatus())
@@ -640,7 +643,11 @@ enum UISmokeRunner {
     @MainActor
     private static func testBrokerInstallPlanState() async throws {
         let plan = smokeInstallPlan(supported: true, missingExecutables: [])
-        try? FileManager.default.removeItem(atPath: plan.prefixPath)
+        let launchAgentPlist = LocalBrokerStatusController.launchAgentPlist(plan: plan)
+        try expect(launchAgentPlist.contains("<string>--state-dir</string>"), "LaunchAgent passes explicit state directory to broker daemon")
+        try expect(launchAgentPlist.contains("<string>\(plan.stateDirectoryPath)</string>"), "LaunchAgent state directory matches install plan")
+        cleanSmokeInstallPaths()
+        defer { cleanSmokeInstallPaths() }
         let installed = BrokerStatus(
             state: .unavailable,
             socketPath: plan.socketPath,
@@ -663,7 +670,6 @@ enum UISmokeRunner {
         try expect(!store.canOpenInstalledApp, "installed app command is unavailable before the app copy exists")
         await store.installOrRepairDaemon()
         try FileManager.default.createDirectory(atPath: plan.appDestinationPath, withIntermediateDirectories: true)
-        defer { try? FileManager.default.removeItem(atPath: plan.prefixPath) }
         try expect(store.brokerStatus.message.contains("Open the installed copy"), "install result explains installed-copy handoff")
         try expect(store.bestDaemonAction == .openInstalledApp, "installed-copy handoff highlights open installed copy as the next action")
         try expect(store.canOpenInstalledApp, "installed app command becomes available when the app copy exists")
@@ -912,15 +918,16 @@ enum UISmokeRunner {
             updateChecker: StubAppUpdateChecker(update: latest),
             updateIgnoreDefaults: ignoredDefaults
         )
+        await store.refresh()
         await store.checkForUpdates(manual: true)
         try expect(store.availableUpdate == latest, "update checker stores available release")
         try expect(store.updateMenuTitle == "Update 9.0.0", "update menu title includes latest version")
         try expect(store.successMessage == "Agentic Secrets 9.0.0 is available", "manual update check reports available release")
         try verifyHostingLayout(
-            ContentView(store: store),
+            DetailView(store: store),
             width: 1180,
             height: 760,
-            label: "content view with update button"
+            label: "detail view with update feedback"
         )
         store.ignoreAvailableUpdate()
         try expect(store.availableUpdate == nil, "noncritical update can be ignored")
@@ -1021,6 +1028,21 @@ enum UISmokeRunner {
         try expect(store.snapshot?.cliRegistrations.first?.name == "hcloud", "activation refresh loads missing snapshot")
         await store.refreshAfterActivation()
         try expect(store.brokerStatus.state == .healthy, "activation refresh keeps daemon status current after snapshot load")
+    }
+
+    @MainActor
+    private static func testHealthyDaemonRetriesTransientSnapshotLoad() async throws {
+        let store = ControlPlaneStore(
+            client: FlakySnapshotControlPlaneClient(
+                transientFailuresBeforeSuccess: 2,
+                snapshot: snapshot(cliNames: ["hcloud"])
+            ),
+            brokerController: StubBrokerStatusController(statusValue: healthyBrokerStatus())
+        )
+        await store.refresh()
+        try expect(store.brokerStatus.state == .healthy, "transient snapshot retry starts from a healthy daemon")
+        try expect(store.snapshot?.cliRegistrations.first?.name == "hcloud", "healthy daemon refresh retries transient snapshot IPC failures")
+        try expect(store.errorMessage == nil, "transient snapshot IPC recovery does not leave a stale error")
     }
 
     @MainActor
@@ -1196,6 +1218,11 @@ enum UISmokeRunner {
             currentAppIsInstalledCopy: false
         )
     }
+
+    private static func cleanSmokeInstallPaths() {
+        try? FileManager.default.removeItem(atPath: "/tmp/agentic-secrets-ui-smoke")
+        try? FileManager.default.removeItem(atPath: "/tmp/agentic-secrets-ui-smoke-home")
+    }
 }
 
 private enum SmokeError: Error, CustomStringConvertible {
@@ -1330,6 +1357,44 @@ private struct ThrowingControlPlaneClient: ControlPlaneClient {
     func installAdapter(_ payload: CommandPolicyPackPayload) async throws -> PolicyPackSummary { throw SmokeError.failed("unexpected adapter install") }
     func revokeAdapter(_ request: ControlPlaneNameRequest) async throws { throw SmokeError.failed("unexpected command policy pack revoke") }
     func updateCommandPolicy(_ request: ControlPlaneCommandPolicyUpdateRequest) async throws -> CommandPolicySummary { CommandPolicySummary(config: request.config) }
+    func createAPISession(_ request: ControlPlaneAPISessionRequest) async throws -> ControlPlaneAPISessionResponse { throw SmokeError.failed("unexpected API session") }
+    func clearDeliveryGrants() async throws { throw SmokeError.failed("unexpected grants") }
+    func exportRedactedAuditJSON() async throws -> String { throw SmokeError.failed("unexpected audit") }
+}
+
+private actor FlakySnapshotControlPlaneClient: ControlPlaneClient {
+    private var remainingFailures: Int
+    private let snapshot: ControlPlaneSnapshot
+
+    init(transientFailuresBeforeSuccess: Int, snapshot: ControlPlaneSnapshot) {
+        self.remainingFailures = transientFailuresBeforeSuccess
+        self.snapshot = snapshot
+    }
+
+    func health() async throws {}
+
+    func loadSnapshot() async throws -> ControlPlaneSnapshot {
+        if remainingFailures > 0 {
+            remainingFailures -= 1
+            throw SmokeError.failed("socket(\"connect: No such file or directory\")")
+        }
+        return snapshot
+    }
+
+    func registerCLI(_ request: ControlPlaneCommandLineToolRegistrationRequest) async throws -> CLIRegistrationSummary { throw SmokeError.failed("unexpected register") }
+    func unregisterCLI(_ request: ControlPlaneNameRequest) async throws -> CLIRegistrationSummary { throw SmokeError.failed("unexpected unregister") }
+    func refreshCLITrust(_ request: ControlPlaneNameRequest) async throws -> CLIRegistrationSummary { throw SmokeError.failed("unexpected refresh trust") }
+    func replaceSecret(_ request: ControlPlaneSecretReplacementRequest) async throws -> ManagedSecretSummary { throw SmokeError.failed("unexpected replace") }
+    func deleteSecret(_ request: ControlPlaneSecretDeletionRequest) async throws { throw SmokeError.failed("unexpected delete") }
+    func upsertAPISessionProfile(_ profile: APISessionProfile) async throws -> APISessionProfileSummary { throw SmokeError.failed("unexpected proxy") }
+    func deleteAPISessionProfile(_ request: ControlPlaneNameRequest) async throws { throw SmokeError.failed("unexpected proxy delete") }
+    func upsertMCPProfile(_ profile: MCPUpstreamProfile) async throws -> MCPProfileSummary { throw SmokeError.failed("unexpected mcp") }
+    func deleteMCPProfile(_ request: ControlPlaneNameRequest) async throws { throw SmokeError.failed("unexpected mcp delete") }
+    func upsertBitwardenBinding(_ binding: BitwardenSecretBinding) async throws -> BitwardenBindingSummary { throw SmokeError.failed("unexpected bws") }
+    func deleteBitwardenBinding(_ request: ControlPlaneNameRequest) async throws { throw SmokeError.failed("unexpected bws delete") }
+    func installAdapter(_ payload: CommandPolicyPackPayload) async throws -> PolicyPackSummary { throw SmokeError.failed("unexpected adapter install") }
+    func revokeAdapter(_ request: ControlPlaneNameRequest) async throws { throw SmokeError.failed("unexpected command policy pack revoke") }
+    func updateCommandPolicy(_ request: ControlPlaneCommandPolicyUpdateRequest) async throws -> CommandPolicySummary { throw SmokeError.failed("unexpected command policy") }
     func createAPISession(_ request: ControlPlaneAPISessionRequest) async throws -> ControlPlaneAPISessionResponse { throw SmokeError.failed("unexpected API session") }
     func clearDeliveryGrants() async throws { throw SmokeError.failed("unexpected grants") }
     func exportRedactedAuditJSON() async throws -> String { throw SmokeError.failed("unexpected audit") }

@@ -20,7 +20,7 @@ struct RegisterCLIView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
             RegisterCLIStepHeader(step: step)
-            Form { stepContent }
+            stepContent
             SheetFeedbackBanner(store: store)
             HStack {
                 if step != .target {
@@ -51,7 +51,7 @@ struct RegisterCLIView: View {
             }
             .padding()
         }
-        .frame(width: 600)
+        .frame(width: 680)
         .padding()
         .onAppear {
             store.clearFeedback()
@@ -65,90 +65,50 @@ struct RegisterCLIView: View {
     private var stepContent: some View {
         switch step {
         case .target:
-            Section("Target") {
-                TextField("CLI name", text: $name, prompt: Text("hcloud"))
-                    .accessibilityLabel("CLI name")
-                HStack(alignment: .firstTextBaseline, spacing: 8) {
-                    TextField("Executable path", text: $targetPath)
-                        .accessibilityLabel("Executable path")
-                    Button {
-                        chooseExecutable()
-                    } label: {
-                        Label("Choose...", systemImage: "folder")
+            Form {
+                Section("Target") {
+                    TextField("CLI name", text: $name, prompt: Text("hcloud"))
+                        .accessibilityLabel("CLI name")
+                    HStack(alignment: .firstTextBaseline, spacing: 8) {
+                        TextField("Executable path", text: $targetPath)
+                            .accessibilityLabel("Executable path")
+                        Button {
+                            chooseExecutable()
+                        } label: {
+                            Label("Choose...", systemImage: "folder")
+                        }
+                        .help("Choose the CLI executable from disk")
                     }
-                    .help("Choose the CLI executable from disk")
+                    if let message = ExecutablePathSelection.statusMessage(for: targetPath) {
+                        Label(message, systemImage: "exclamationmark.triangle")
+                            .font(.caption)
+                            .foregroundStyle(.orange)
+                    } else if let message = executableAutoResolveState.message {
+                        Label(message, systemImage: executableAutoResolveState.systemImage)
+                            .font(.caption)
+                            .foregroundStyle(executableAutoResolveState.foregroundStyle)
+                    }
+                    Text("Use the resolved executable path for the CLI you want Agentic Secrets to verify before delivery.")
+                        .foregroundStyle(.secondary)
                 }
-                if let message = ExecutablePathSelection.statusMessage(for: targetPath) {
-                    Label(message, systemImage: "exclamationmark.triangle")
-                        .font(.caption)
-                        .foregroundStyle(.orange)
-                } else if let message = executableAutoResolveState.message {
-                    Label(message, systemImage: executableAutoResolveState.systemImage)
-                        .font(.caption)
-                        .foregroundStyle(executableAutoResolveState.foregroundStyle)
-                }
-                Text("Use the resolved executable path for the CLI you want Agentic Secrets to verify before delivery.")
-                    .foregroundStyle(.secondary)
             }
         case .secrets:
-            Section("Environment secrets") {
-                Grid(alignment: .leading, horizontalSpacing: 12, verticalSpacing: 8) {
-                    GridRow {
-                        Text("ENV_NAME")
-                            .font(.caption.weight(.semibold))
-                            .foregroundStyle(.secondary)
-                        Text("Value")
-                            .font(.caption.weight(.semibold))
-                            .foregroundStyle(.secondary)
-                        Text("")
-                            .accessibilityHidden(true)
-                    }
-                    Divider()
-                        .gridCellColumns(3)
-                    ForEach($bindings) { $binding in
-                        RegisterCLISecretRow(
-                            binding: $binding,
-                            canRemove: bindings.count > 1,
-                            remove: {
-                                bindings.removeAll { $0.id == binding.id }
-                                if bindings.isEmpty { bindings.append(SecretDraft()) }
-                            }
-                        )
-                    }
-                }
-                Button {
-                    bindings.append(SecretDraft())
-                } label: {
-                    Label("Add Environment Secret", systemImage: "plus")
-                }
-                if RegisterCLIFormValidation.hasDuplicateEnvironmentNames(bindings) {
-                    Text("Environment names must be unique.")
-                        .foregroundStyle(.red)
-                }
-                if !RegisterCLIFormValidation.invalidEnvironmentNames(bindings).isEmpty {
-                    Text("Use shell-style names such as HCLOUD_TOKEN: letters, numbers, and underscores; do not start with a number.")
-                        .foregroundStyle(.red)
-                }
-                if bindings.contains(where: { !$0.secretValue.isEmpty && !SecretInputValidation.hasNonWhitespace($0.secretValue) }) {
-                    Text("Secret values cannot be only whitespace.")
-                        .foregroundStyle(.red)
-                }
-                Text("Values are written once through broker-owned local state. Saved values are never displayed in the UI.")
-                    .foregroundStyle(.secondary)
-            }
+            RegisterCLISecretsStep(bindings: $bindings)
         case .review:
-            Section("Trust review") {
-                LabeledContent("CLI name", value: name.trimmingCharacters(in: .whitespacesAndNewlines))
-                LabeledContent("Executable", value: targetPath.trimmingCharacters(in: .whitespacesAndNewlines))
-                LabeledContent("Environment bindings", value: bindings.map(\.environmentName).filter { !$0.isEmpty }.joined(separator: ", "))
-                LabeledContent("Command shim", value: installShim ? "Install by default" : "Skip")
-                Text("Registration stores only aliases and target trust metadata in management responses. Secret values remain write-only.")
-                    .foregroundStyle(.secondary)
-                DisclosureGroup("Advanced", isExpanded: $reviewAdvancedExpanded) {
-                    Toggle("Install command shim", isOn: $installShim)
-                        .help("Create a local shim named like this CLI so normal invocations can route through Agentic Secrets.")
-                    Text("The shim is installed in the local Agentic Secrets shims folder. Shell PATH configuration remains a separate explicit install action.")
+            Form {
+                Section("Trust review") {
+                    LabeledContent("CLI name", value: name.trimmingCharacters(in: .whitespacesAndNewlines))
+                    LabeledContent("Executable", value: targetPath.trimmingCharacters(in: .whitespacesAndNewlines))
+                    LabeledContent("Environment bindings", value: bindings.map(\.environmentName).filter { !$0.isEmpty }.joined(separator: ", "))
+                    LabeledContent("Command shim", value: installShim ? "Install by default" : "Skip")
+                    Text("Registration stores only aliases and target trust metadata in management responses. Secret values remain write-only.")
                         .foregroundStyle(.secondary)
+                    DisclosureGroup("Advanced", isExpanded: $reviewAdvancedExpanded) {
+                        Toggle("Install command shim", isOn: $installShim)
+                            .help("Create a local shim named like this CLI so normal invocations can route through Agentic Secrets.")
+                        Text("The shim is installed in the local Agentic Secrets shims folder. Shell PATH configuration remains a separate explicit install action.")
+                            .foregroundStyle(.secondary)
+                    }
                 }
             }
         }
@@ -208,6 +168,115 @@ struct RegisterCLIView: View {
             targetPath = ""
             executableAutoResolveState = .notFound(command)
         }
+    }
+}
+
+private struct RegisterCLISecretsStep: View {
+    @Binding var bindings: [SecretDraft]
+
+    private var hasDuplicateNames: Bool {
+        RegisterCLIFormValidation.hasDuplicateEnvironmentNames(bindings)
+    }
+
+    private var hasInvalidNames: Bool {
+        !RegisterCLIFormValidation.invalidEnvironmentNames(bindings).isEmpty
+    }
+
+    private var hasWhitespaceOnlyValue: Bool {
+        bindings.contains { !$0.secretValue.isEmpty && !SecretInputValidation.hasNonWhitespace($0.secretValue) }
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            VStack(alignment: .leading, spacing: 4) {
+                Text("Environment secrets")
+                    .font(.headline)
+                Text("Add each environment variable name and paste its write-only value. Saved values are never displayed again.")
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+
+            VStack(spacing: 0) {
+                HStack(spacing: 12) {
+                    Text("Environment name")
+                        .frame(width: 210, alignment: .leading)
+                    Text("Write-only value")
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                    Spacer()
+                        .frame(width: 30)
+                }
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(.secondary)
+                .padding(.horizontal, 12)
+                .padding(.vertical, 8)
+
+                Divider()
+
+                VStack(spacing: 8) {
+                    ForEach($bindings) { $binding in
+                        RegisterCLISecretRow(
+                            binding: $binding,
+                            canRemove: bindings.count > 1,
+                            remove: {
+                                bindings.removeAll { $0.id == binding.id }
+                                if bindings.isEmpty { bindings.append(SecretDraft()) }
+                            }
+                        )
+                    }
+                }
+                .padding(12)
+            }
+            .background(.quaternary.opacity(0.28), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+            .overlay {
+                RoundedRectangle(cornerRadius: 8, style: .continuous)
+                    .stroke(.quaternary, lineWidth: 1)
+            }
+
+            HStack {
+                Button {
+                    bindings.append(SecretDraft())
+                } label: {
+                    Label("Add Environment Secret", systemImage: "plus")
+                }
+                .help("Add another environment variable and secret value")
+
+                Spacer()
+            }
+
+            VStack(alignment: .leading, spacing: 6) {
+                if hasDuplicateNames {
+                    RegisterCLIValidationMessage("Environment names must be unique.")
+                }
+                if hasInvalidNames {
+                    RegisterCLIValidationMessage("Use shell-style names such as HCLOUD_TOKEN: letters, numbers, and underscores; do not start with a number.")
+                }
+                if hasWhitespaceOnlyValue {
+                    RegisterCLIValidationMessage("Secret values cannot be only whitespace.")
+                }
+                if !hasDuplicateNames && !hasInvalidNames && !hasWhitespaceOnlyValue {
+                    Label("Values are written once through broker-owned local state.", systemImage: "lock")
+                        .font(.callout)
+                        .foregroundStyle(.secondary)
+                }
+            }
+        }
+        .padding(.horizontal)
+    }
+}
+
+private struct RegisterCLIValidationMessage: View {
+    var message: String
+
+    init(_ message: String) {
+        self.message = message
+    }
+
+    var body: some View {
+        Label(message, systemImage: "exclamationmark.triangle.fill")
+            .font(.callout)
+            .foregroundStyle(.red)
+            .fixedSize(horizontal: false, vertical: true)
     }
 }
 
@@ -311,15 +380,25 @@ private struct RegisterCLISecretRow: View {
     var remove: () -> Void
 
     var body: some View {
-        GridRow {
+        HStack(alignment: .top, spacing: 12) {
             TextField("HCLOUD_TOKEN", text: $binding.environmentName)
                 .textFieldStyle(.roundedBorder)
+                .frame(width: 210)
                 .accessibilityLabel("Environment variable name")
-            SecureField("Secret value", text: $binding.secretValue)
-                .textFieldStyle(.roundedBorder)
-                .accessibilityLabel("Secret value for \(binding.environmentName.isEmpty ? "environment variable" : binding.environmentName)")
+            VStack(alignment: .leading, spacing: 4) {
+                SecureField("Secret value", text: $binding.secretValue)
+                    .textFieldStyle(.roundedBorder)
+                    .accessibilityLabel("Secret value for \(binding.environmentName.isEmpty ? "environment variable" : binding.environmentName)")
+                if !binding.secretValue.isEmpty && !SecretInputValidation.hasNonWhitespace(binding.secretValue) {
+                    Text("Enter at least one non-space character.")
+                        .font(.caption)
+                        .foregroundStyle(.red)
+                }
+            }
+            .frame(maxWidth: .infinity)
             Button(action: remove) {
                 Image(systemName: "minus.circle")
+                    .frame(width: 24, height: 24)
             }
             .buttonStyle(.borderless)
             .disabled(!canRemove)

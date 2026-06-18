@@ -1541,11 +1541,17 @@ struct SnapshotUnavailablePanel: View {
     }
 
     private var title: String {
-        store.brokerStatus.state == .healthy ? "Local State Not Loaded" : "Local State Paused"
+        if store.brokerStatus.state == .healthy, store.errorMessage != nil {
+            return "Local State Load Failed"
+        }
+        return store.brokerStatus.state == .healthy ? "Local State Not Loaded" : "Local State Paused"
     }
 
     private var message: String {
-        store.brokerStatus.state == .healthy
+        if store.brokerStatus.state == .healthy, let errorMessage = store.errorMessage {
+            return errorMessage
+        }
+        return store.brokerStatus.state == .healthy
             ? "Refresh to load local Agentic Secrets state."
             : "Local state will load after the daemon is reachable."
     }
@@ -1609,7 +1615,9 @@ struct LocalStateUnavailableView: View {
         case .check:
             "Daemon Status Unknown"
         case nil:
-            store.brokerStatus.state == .healthy ? "Local State Not Loaded" : "Local State Unavailable"
+            store.brokerStatus.state == .healthy && store.errorMessage != nil
+                ? "Local State Load Failed"
+                : (store.brokerStatus.state == .healthy ? "Local State Not Loaded" : "Local State Unavailable")
         }
     }
 
@@ -1624,9 +1632,11 @@ struct LocalStateUnavailableView: View {
         case .check:
             "Check daemon status and local install files before continuing."
         case nil:
-            store.brokerStatus.state == .healthy
+            store.brokerStatus.state == .healthy && store.errorMessage != nil
+                ? (store.errorMessage ?? "")
+                : (store.brokerStatus.state == .healthy
                 ? "Refresh to load local Agentic Secrets state."
-                : store.brokerStatus.message
+                : store.brokerStatus.message)
         }
     }
 

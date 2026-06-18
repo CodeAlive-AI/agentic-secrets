@@ -123,6 +123,11 @@ final class ControlPlaneStore {
     private let brokerController: any BrokerStatusControlling
     private let updateChecker: any AppUpdateChecking
     private let updateIgnoreDefaults: UserDefaults
+    private static let snapshotLoadRetryDelays: [Duration] = [
+        .milliseconds(120),
+        .milliseconds(250),
+        .milliseconds(500)
+    ]
     @ObservationIgnored private var updateCheckTask: Task<Void, Never>?
 
     init(
@@ -418,10 +423,9 @@ final class ControlPlaneStore {
         } catch {
             if brokerStatus.state == .unavailable || brokerStatus.state == .installing || brokerStatus.state == .repairing || brokerStatus.state == .uninstalling {
                 await recoverFromStartupRaceIfPossible()
-            } else if isDaemonReachabilityError(error) {
-                await recoverFromTransientDaemonRefreshError()
             } else {
-                errorMessage = userFacingError(error)
+                snapshot = nil
+                errorMessage = localStateLoadError(error)
             }
         }
     }
@@ -869,20 +873,17 @@ final class ControlPlaneStore {
         return description
     }
 
+    private func localStateLoadError(_ error: Error) -> String {
+        let description = String(describing: error)
+        if isDaemonReachabilityError(error) {
+            return "Daemon health check passed, but local state snapshot IPC failed after retrying. Restart or repair the local daemon. Last error: \(description)"
+        }
+        return "Local state could not be loaded: \(description)"
+    }
+
     private func isDaemonReachabilityError(_ error: Error) -> Bool {
         let description = String(describing: error)
         return description.contains("socket(") || description.contains("connect:")
-    }
-
-    private func recoverFromTransientDaemonRefreshError() async {
-        errorMessage = nil
-        brokerStatus = await brokerController.status()
-        guard brokerStatus.state == .healthy else { return }
-        do {
-            try await loadSnapshotAfterHealthyStatus()
-        } catch {
-            errorMessage = isDaemonReachabilityError(error) ? nil : userFacingError(error)
-        }
     }
 
     private func recoverFromStartupRaceIfPossible() async {
@@ -892,13 +893,15 @@ final class ControlPlaneStore {
         guard brokerStatus.state == .healthy else { return }
         do {
             try await loadSnapshotAfterHealthyStatus()
+            errorMessage = nil
         } catch {
-            errorMessage = isDaemonReachabilityError(error) ? nil : userFacingError(error)
+            snapshot = nil
+            errorMessage = localStateLoadError(error)
         }
     }
 
     private func loadSnapshotAfterHealthyStatus() async throws {
-        snapshot = try await client.loadSnapshot()
+        snapshot = try await loadSnapshotWithTransientRetry()
         if brokerStatus.state != .healthy {
             brokerStatus = await brokerController.status()
         }
@@ -906,6 +909,26 @@ final class ControlPlaneStore {
             selectedCLI = snapshot?.cliRegistrations.first?.name
         }
         maintainSelections()
+    }
+
+    private func loadSnapshotWithTransientRetry() async throws -> ControlPlaneSnapshot {
+        var lastError: Error?
+        let maxAttempts = Self.snapshotLoadRetryDelays.count + 1
+        for attempt in 0..<maxAttempts {
+            do {
+                return try await client.loadSnapshot()
+            } catch {
+                guard isDaemonReachabilityError(error) else {
+                    throw error
+                }
+                lastError = error
+                guard attempt < Self.snapshotLoadRetryDelays.count else {
+                    break
+                }
+                try? await Task.sleep(for: Self.snapshotLoadRetryDelays[attempt])
+            }
+        }
+        throw lastError ?? StoreError.localStateSnapshotUnavailable
     }
 
     private func commaList(_ value: String) -> [String] {
@@ -1032,6 +1055,17 @@ final class ControlPlaneStore {
                 return "Path prefixes must start with /."
             case .invalidHTTPMethod:
                 return "Use comma-separated HTTP methods such as GET, POST, PATCH."
+            }
+        }
+    }
+
+    enum StoreError: Error, CustomStringConvertible {
+        case localStateSnapshotUnavailable
+
+        var description: String {
+            switch self {
+            case .localStateSnapshotUnavailable:
+                "Local state snapshot is unavailable."
             }
         }
     }

@@ -116,6 +116,8 @@ cat >"$CORE_PLIST" <<PLIST
     <string>$SOCKET_PATH</string>
     <string>--manifest</string>
     <string>$MANIFEST_PATH</string>
+    <string>--state-dir</string>
+    <string>$STATE_DIR</string>
   </array>
   <key>RunAtLoad</key>
   <true/>

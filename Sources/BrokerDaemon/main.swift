@@ -256,6 +256,14 @@ struct AgenticSecretsBrokerDaemon {
     }
 
     private static func serveOnce(_ args: [String]) throws {
+        try makeIPCServer(args).serveOnce()
+    }
+
+    private static func serve(_ args: [String]) throws -> Never {
+        try makeIPCServer(args).serveForever()
+    }
+
+    private static func makeIPCServer(_ args: [String]) throws -> UnixDomainSocketIPCServer {
         let socket = try requiredValue(after: "--socket", in: args)
         let manifestPath = try requiredValue(after: "--manifest", in: args)
         let manifest = try InstallManifestStore.load(path: manifestPath)
@@ -263,22 +271,7 @@ struct AgenticSecretsBrokerDaemon {
             authorizer: BrokerIPCAuthorizer(installManifest: manifest),
             management: ControlPlane(stateDirectory: stateDirectory(from: args))
         )
-        try UnixDomainSocketIPCServer(socketPath: socket, handler: handler).serveOnce()
-    }
-
-    private static func serve(_ args: [String]) throws -> Never {
-        while true {
-            do {
-                try serveOnce(args)
-            } catch BrokerIPCError.socket(let message) where isRecoverableClientDisconnect(message) {
-                fputs("AgenticSecrets: ignored incomplete IPC client connection.\n", stderr)
-                continue
-            }
-        }
-    }
-
-    private static func isRecoverableClientDisconnect(_ message: String) -> Bool {
-        message.hasPrefix("read:") || message.hasPrefix("write:")
+        return UnixDomainSocketIPCServer(socketPath: socket, handler: handler)
     }
 
     private static func runLocalSecretSmoke(_ args: [String]) throws {

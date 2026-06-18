@@ -344,7 +344,7 @@ struct LocalBrokerStatusController: BrokerStatusControlling {
             )
         }
 
-        try launchAgentPlist(plan: plan).write(to: launchAgent, atomically: true, encoding: .utf8)
+        try Self.launchAgentPlist(plan: plan).write(to: launchAgent, atomically: true, encoding: .utf8)
         try writeManifest(appDestination: appDestination, manifestURL: manifest)
 
         _ = runProcess(executable: "/bin/launchctl", arguments: ["bootout", "gui/\(getuid())", launchAgent.path])
@@ -452,10 +452,11 @@ struct LocalBrokerStatusController: BrokerStatusControlling {
         }
     }
 
-    private func launchAgentPlist(plan: BrokerInstallPlan) -> String {
+    static func launchAgentPlist(plan: BrokerInstallPlan) -> String {
         let daemonPath = "\(plan.appDestinationPath)/Contents/MacOS/agentic-secrets-brokerd".xmlEscaped
         let socketPath = plan.socketPath.xmlEscaped
         let manifestPath = plan.manifestPath.xmlEscaped
+        let stateDirectoryPath = plan.stateDirectoryPath.xmlEscaped
         let stdoutPath = "\(plan.runDirectoryPath)/core.stdout.log".xmlEscaped
         let stderrPath = "\(plan.runDirectoryPath)/core.stderr.log".xmlEscaped
         return """
@@ -473,6 +474,8 @@ struct LocalBrokerStatusController: BrokerStatusControlling {
             <string>\(socketPath)</string>
             <string>--manifest</string>
             <string>\(manifestPath)</string>
+            <string>--state-dir</string>
+            <string>\(stateDirectoryPath)</string>
           </array>
           <key>RunAtLoad</key>
           <true/>

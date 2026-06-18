@@ -299,11 +299,48 @@ public struct UnixDomainSocketIPCServer: Sendable {
             }
         }
         guard bindResult == 0 else { throw BrokerIPCError.socket(errnoDescription("bind")) }
-        guard listen(serverFD, 1) == 0 else { throw BrokerIPCError.socket(errnoDescription("listen")) }
+        guard listen(serverFD, ipcListenBacklog) == 0 else { throw BrokerIPCError.socket(errnoDescription("listen")) }
         let clientFD = accept(serverFD, nil, nil)
         guard clientFD >= 0 else { throw BrokerIPCError.socket(errnoDescription("accept")) }
-        defer { close(clientFD) }
+        try serveAcceptedClient(clientFD)
+    }
 
+    public func serveForever() throws -> Never {
+        try? FileManager.default.removeItem(atPath: socketPath)
+        let serverFD = socket(AF_UNIX, SOCK_STREAM, 0)
+        guard serverFD >= 0 else { throw BrokerIPCError.socket(errnoDescription("socket")) }
+        defer {
+            close(serverFD)
+            try? FileManager.default.removeItem(atPath: socketPath)
+        }
+
+        var address = try makeUnixAddress(path: socketPath)
+        let bindResult = withUnsafePointer(to: &address) {
+            $0.withMemoryRebound(to: sockaddr.self, capacity: 1) {
+                Darwin.bind(serverFD, $0, socklen_t(MemoryLayout<sockaddr_un>.size))
+            }
+        }
+        guard bindResult == 0 else { throw BrokerIPCError.socket(errnoDescription("bind")) }
+        guard listen(serverFD, ipcListenBacklog) == 0 else { throw BrokerIPCError.socket(errnoDescription("listen")) }
+
+        while true {
+            let clientFD = accept(serverFD, nil, nil)
+            if clientFD < 0 {
+                if errno == EINTR {
+                    continue
+                }
+                throw BrokerIPCError.socket(errnoDescription("accept"))
+            }
+            do {
+                try serveAcceptedClient(clientFD)
+            } catch BrokerIPCError.socket {
+                continue
+            }
+        }
+    }
+
+    private func serveAcceptedClient(_ clientFD: Int32) throws {
+        defer { close(clientFD) }
         let requestData = try readFrame(from: clientFD)
         let response: BrokerIPCResponse
         do {
@@ -400,6 +437,7 @@ private let solLocal: Int32 = 0
 private let localPeerPID: Int32 = 0x002
 private let localPeerToken: Int32 = 0x006
 private let procPIDPathInfoMaxSize = 4096
+private let ipcListenBacklog: Int32 = 32
 
 private func makeUnixAddress(path: String) throws -> sockaddr_un {
     let bytes = Array(path.utf8)

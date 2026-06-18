@@ -127,7 +127,8 @@ PREFIX="$HOME/Library/Application Support/AgenticSecrets/LocalInstall"
 SOCKET="/tmp/agentic-secrets-core-smoke.sock"
 "$HOME/Applications/AgenticSecrets.app/Contents/MacOS/agentic-secrets-brokerd" serve-once \
   --socket "$SOCKET" \
-  --manifest "$PREFIX/var/agentic-secrets/install-manifest.json" &
+  --manifest "$PREFIX/var/agentic-secrets/install-manifest.json" \
+  --state-dir "$PREFIX/var/agentic-secrets" &
 "$PREFIX/bin/agentic-secrets-shim" --ipc-health \
   --socket "$SOCKET" \
   --manifest "$PREFIX/var/agentic-secrets/install-manifest.json"
