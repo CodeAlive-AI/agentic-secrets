@@ -24,7 +24,7 @@ enum UISmokeRunner {
     private static func run() async throws {
         try await testEmptyState()
         try await testSettingsLayout()
-        try testRegisterWizardValidation()
+        try await testRegisterWizardValidation()
         try testManagementEditorValidation()
         try testPasteboardCopy()
         try testCommandPolicyDraft()
@@ -102,7 +102,7 @@ enum UISmokeRunner {
             MCPProfileEditor(store: store),
             width: 520,
             height: 460,
-            label: "simple MCP profile sheet"
+            label: "simple MCP proxy sheet"
         )
         try verifyHostingLayout(
             BitwardenBindingEditor(store: store),
@@ -141,12 +141,16 @@ enum UISmokeRunner {
         try expect(store.selectedCLI == nil, "empty state does not invent selection")
     }
 
-    private static func testRegisterWizardValidation() throws {
+    private static func testRegisterWizardValidation() async throws {
         try expect(RegisterCLIFormDefaults.installShim, "register CLI defaults to installing a command shim")
         try expect(
             ExecutablePathSelection.inferredCLIName(from: URL(fileURLWithPath: "/opt/homebrew/bin/hcloud")) == "hcloud",
             "register CLI infers a CLI name from the selected executable path"
         )
+        let resolvedShellPath = await ExecutablePathSelection.resolvedExecutablePath(for: "sh")
+        let missingCommandPath = await ExecutablePathSelection.resolvedExecutablePath(for: "definitely-missing-agentic-secrets-cli")
+        try expect(resolvedShellPath != nil, "register CLI resolves typed command names from PATH")
+        try expect(missingCommandPath == nil, "register CLI leaves missing command names unresolved")
         try expect(ExecutablePathSelection.statusMessage(for: "/bin/echo") == nil, "known executable path passes target validation")
         try expect(ExecutablePathSelection.statusMessage(for: "bin/echo") != nil, "relative executable path is rejected")
         try expect(ExecutablePathSelection.statusMessage(for: "/definitely/missing/agentic-secrets-cli") != nil, "missing executable path is rejected")
@@ -274,61 +278,65 @@ enum UISmokeRunner {
             "API session editor explains malformed HTTP method lists inline"
         )
         try expect(MCPProfileEditorDefaults.authorizationHeader == "Authorization", "MCP add flow defaults to Authorization header")
-        try expect(MCPProfileEditorDefaults.pathPrefixes == "/", "MCP add flow defaults to root path prefix")
-        try expect(!MCPProfileEditorDefaults.allowCrossOriginRedirects, "MCP add flow blocks cross-origin redirects by default")
         try expect(
             ManagementEditorValidation.canSaveMCP(
                 name: "linear",
                 origin: "mcp.example.com",
                 header: MCPProfileEditorDefaults.authorizationHeader,
-                pathPrefixes: MCPProfileEditorDefaults.pathPrefixes
+                authValue: "mcp-token",
+                allowsExistingAuthValue: false
             ),
-            "MCP editor accepts a simple profile using advanced defaults"
+            "MCP proxy editor accepts a simple profile with an auth value"
+        )
+        try expect(
+            ManagementEditorValidation.canSaveMCP(
+                name: "linear",
+                origin: "mcp.example.com",
+                header: MCPProfileEditorDefaults.authorizationHeader,
+                authValue: "",
+                allowsExistingAuthValue: true
+            ),
+            "MCP proxy editor allows keeping an existing saved auth value"
         )
         try expect(
             !ManagementEditorValidation.canSaveMCP(
                 name: "linear",
                 origin: " ",
                 header: "Authorization",
-                pathPrefixes: "/"
+                authValue: "mcp-token",
+                allowsExistingAuthValue: false
             ),
-            "MCP editor rejects whitespace-only origin"
+            "MCP proxy editor rejects whitespace-only origin"
         )
         try expect(
             !ManagementEditorValidation.canSaveMCP(
                 name: "linear",
                 origin: "ftp://mcp.example.com",
                 header: "Authorization",
-                pathPrefixes: "/"
+                authValue: "mcp-token",
+                allowsExistingAuthValue: false
             ),
-            "MCP editor rejects non-http origin before submit"
+            "MCP proxy editor rejects non-http origin before submit"
         )
         try expect(
             !ManagementEditorValidation.canSaveMCP(
                 name: "linear",
                 origin: "mcp.example.com",
                 header: " ",
-                pathPrefixes: "/"
+                authValue: "mcp-token",
+                allowsExistingAuthValue: false
             ),
-            "MCP editor rejects whitespace-only authorization header"
+            "MCP proxy editor rejects whitespace-only authorization header"
         )
         try expect(
             !ManagementEditorValidation.canSaveMCP(
                 name: "linear",
                 origin: "mcp.example.com",
                 header: "Authorization",
-                pathPrefixes: " , "
+                authValue: " ",
+                allowsExistingAuthValue: false
             ),
-            "MCP editor rejects empty path prefix list"
-        )
-        try expect(
-            !ManagementEditorValidation.canSaveMCP(
-                name: "linear",
-                origin: "mcp.example.com",
-                header: "Authorization",
-                pathPrefixes: "mcp"
-            ),
-            "MCP editor rejects path prefixes that do not start with slash"
+            "MCP proxy editor rejects a blank auth value when no saved value exists"
         )
         try expect(BitwardenBindingEditorDefaults.environment == ProviderEnvironment.dev.rawValue, "Bitwarden provider add flow defaults to development environment")
     }
@@ -546,13 +554,13 @@ enum UISmokeRunner {
         try expect(!invalidAPISessionMethod, "invalid proxy method list fails before IPC")
         try expect(store.errorMessage == "Use comma-separated HTTP methods such as GET, POST, PATCH.", "invalid proxy method list shows guidance")
 
-        let mcpSaved = await store.upsertMCP(name: "linear", origin: "https://mcp.example.com", header: "", pathPrefixes: "/", allowRedirects: false)
+        let mcpSaved = await store.upsertMCP(name: "linear", origin: "https://mcp.example.com", header: "", authValue: "mcp-token")
         try expect(!mcpSaved, "invalid MCP header fails before IPC")
         try expect(store.errorMessage == "Enter authorization header before saving.", "invalid MCP header shows guidance")
 
-        let invalidMCPPath = await store.upsertMCP(name: "linear", origin: "https://mcp.example.com", header: "Authorization", pathPrefixes: "mcp", allowRedirects: false)
-        try expect(!invalidMCPPath, "invalid MCP path prefix fails before IPC")
-        try expect(store.errorMessage == "Path prefixes must start with /.", "invalid MCP path prefix shows guidance")
+        let missingMCPAuthValue = await store.upsertMCP(name: "linear", origin: "https://mcp.example.com", header: "Authorization", authValue: "")
+        try expect(!missingMCPAuthValue, "invalid MCP auth value fails before IPC")
+        try expect(store.errorMessage == "Enter auth header value before saving.", "invalid MCP auth value shows guidance")
 
         let bwsSaved = await store.upsertBitwardenBinding(alias: "cloud.hcloud.dev", projectID: "project-dev", secretID: "secret-dev", environment: "qa")
         try expect(!bwsSaved, "invalid Bitwarden provider environment fails before IPC")
@@ -586,11 +594,13 @@ enum UISmokeRunner {
             name: "linear",
             origin: "mcp.example.com",
             header: "Authorization",
-            pathPrefixes: "/",
-            allowRedirects: false
+            authValue: "mcp-token"
         )
         try expect(mcpSaved, "bare MCP host is normalized and saved")
         try expect(store.selectedMCPProfileSummary?.origin.absoluteString == "https://mcp.example.com", "bare MCP host normalizes to https origin")
+        try expect(store.selectedMCPProfileSummary?.secretAlias == "mcp.linear.auth", "MCP proxy saves auth value under a deterministic secret alias")
+        try expect(store.selectedMCPProfileSummary?.allowedPathPrefixes == ["/"], "MCP proxy uses a safe root path default internally")
+        try expect(store.selectedMCPProfileSummary?.allowCrossOriginRedirects == false, "MCP proxy blocks cross-origin redirects internally")
     }
 
     @MainActor
@@ -719,10 +729,7 @@ enum UISmokeRunner {
         await store.refresh()
         try expect(store.canRegisterCLI, "register CLI action is available when daemon is healthy")
         try expect(store.canExportAudit, "audit export is available after snapshot load")
-        store.presentAPISessionProfileEditor()
-        try expect(store.selectedSection == .apiSessions, "API session editor action selects API sessions section")
-        try expect(store.showingAPISessionProfileEditor, "API session editor action opens API session sheet")
-        store.showingAPISessionProfileEditor = false
+        try expect(!ControlPlaneSection.allCases.contains(.apiSessions), "API sessions remain hidden from primary navigation")
         store.presentMCPProfileEditor()
         try expect(store.selectedSection == .mcp, "MCP editor action selects MCP section")
         try expect(store.showingMCPProfileEditor, "MCP editor action opens MCP sheet")
@@ -820,8 +827,8 @@ enum UISmokeRunner {
         try expect(store.successMessage == "API session profile deleted", "API session profile delete reports success")
         try expect(store.selectedAPISession == nil, "API session one-time token is cleared after deleting its profile")
         let mcpDeleted = await store.deleteMCPProfile(name: "linear")
-        try expect(mcpDeleted, "MCP profile delete reports success flag")
-        try expect(store.successMessage == "MCP profile deleted", "MCP profile delete reports success")
+        try expect(mcpDeleted, "MCP proxy delete reports success flag")
+        try expect(store.successMessage == "MCP proxy deleted", "MCP proxy delete reports success")
         await store.upsertBitwardenBinding(alias: "cloud.hcloud.prod", projectID: "project-prod", secretID: "secret-prod", environment: ProviderEnvironment.prod.rawValue)
         try expect(store.successMessage == "Bitwarden provider binding saved", "Bitwarden provider binding save reports success")
         let bwsDeleted = await store.deleteBitwardenBinding(alias: "cloud.hcloud.dev")
@@ -947,9 +954,9 @@ enum UISmokeRunner {
         ]
 
         try expect(AuditRelatedItemRouter.route(for: auditEvent(flow: .cliEnv, subjectID: "hcloud", secretID: "hcloud.token"), snapshot: withResources) == .cli("hcloud"), "audit CLI event routes to CLI registration")
-        try expect(AuditRelatedItemRouter.route(for: auditEvent(flow: .apiSession, subjectID: "missing", secretID: "ai.openai.dev"), snapshot: withResources) == .apiSession("openai"), "audit API session event routes by secret alias")
+        try expect(AuditRelatedItemRouter.route(for: auditEvent(flow: .apiSession, subjectID: "missing", secretID: "ai.openai.dev"), snapshot: withResources) == nil, "audit API session event stays hidden while API Sessions UI is disabled")
         try expect(AuditRelatedItemRouter.route(for: auditEvent(flow: .bitwardenProvider, subjectID: "missing", secretID: "cloud.hcloud.dev"), snapshot: withResources) == .bitwardenBinding("cloud.hcloud.dev"), "audit Bitwarden provider event routes by binding alias")
-        try expect(AuditRelatedItemRouter.route(for: auditEvent(flow: .remoteMCP, subjectID: "linear", secretID: "mcp.linear"), snapshot: withResources) == .mcp("linear"), "audit MCP event routes to MCP profile")
+        try expect(AuditRelatedItemRouter.route(for: auditEvent(flow: .remoteMCP, subjectID: "linear", secretID: "mcp.linear"), snapshot: withResources) == .mcp("linear"), "audit MCP event routes to MCP proxy")
         try expect(AuditRelatedItemRouter.route(for: auditEvent(flow: .remoteSSHStdin, subjectID: "ssh", secretID: "ssh.key"), snapshot: withResources) == nil, "audit SSH event has no local route")
         try expect(AuditRelatedItemRouter.route(for: auditEvent(flow: .apiSession, subjectID: "missing", secretID: "missing"), snapshot: withResources) == nil, "audit event without matching local item has no route")
 
@@ -1000,7 +1007,7 @@ enum UISmokeRunner {
         try expect(store.selectedCLIRegistration?.name == "gh", "selected CLI resolves after refresh")
         try expect(store.searchText == "g", "search text survives refresh")
         try expect(store.usesToolbarSearch, "toolbar search is available on CLI section")
-        store.selectedSection = .apiSessions
+        store.selectedSection = .mcp
         try expect(!store.usesToolbarSearch, "toolbar search is hidden on sections that do not use the global query")
     }
 

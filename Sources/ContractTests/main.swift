@@ -476,14 +476,17 @@ func runContracts() throws {
         _ = try defaultUnlockStore.grant(scope: unlockScope, ttl: DeliveryGrantPolicy.maxTTL + 1, now: Date(timeIntervalSince1970: 100))
     }, "CLI delivery grant default cap must match policy max TTL")
     let secondGrant = try unlockStore.grant(scope: unlockScope, ttl: 120, now: Date(timeIntervalSince1970: 300))
-    let otherReadCommand = classifier.classify(executableName: "hcloud", arguments: ["location", "list"], observedVersion: "1.52.0")
-    let otherReadManifest = DeliveryDecisionManifestFactory().make(
-        command: otherReadCommand,
+    var otherActionCommand = hcloudRead
+    otherActionCommand.actionClass = "hcloud.server.create"
+    otherActionCommand.risk = .mutating
+    otherActionCommand.canonicalCommand = ["hcloud", "server", "create"]
+    let otherActionManifest = DeliveryDecisionManifestFactory().make(
+        command: otherActionCommand,
         intent: DeliveryRequest(flow: .cliEnv, secretAlias: "cloud.hcloud.dev", delivery: .env, environmentName: "HCLOUD_TOKEN", workspace: "/tmp/infra", originHint: "Codex"),
         target: TargetAssessor().synthetic(path: "/opt/homebrew/bin/hcloud")
     )
-    try expect(otherReadManifest.actionClass != approvalManifest.actionClass, "test setup must use a different hcloud action class")
-    let otherUnlockScope = DeliveryGrantScope(manifest: otherReadManifest).withOriginHint("Codex")
+    try expect(otherActionManifest.actionClass != approvalManifest.actionClass, "test setup must use a different hcloud action class")
+    let otherUnlockScope = DeliveryGrantScope(manifest: otherActionManifest).withOriginHint("Codex")
     let otherActionUnlockGrant = try unlockStore.validGrant(scope: otherUnlockScope, now: Date(timeIntervalSince1970: 301))
     try expect(otherActionUnlockGrant == nil, "CLI delivery grant must not apply across different action classes")
     let destructiveUnlockScope = DeliveryGrantScope(manifest: destructiveManifest).withOriginHint("Codex")
@@ -499,8 +502,11 @@ func runContracts() throws {
     let spoofedOriginScope = DeliveryGrantScope(manifest: approvalManifest).withOriginHint("SpoofedTerminal")
     let spoofedOriginGrant = try unlockStore.validGrant(scope: spoofedOriginScope, now: Date(timeIntervalSince1970: 301))
     try expect(spoofedOriginGrant == nil, "CLI delivery grant must not apply across changed origin hints")
+    var customConfigCommand = hcloudRead
+    customConfigCommand.globalFlags = ["config": "./custom.toml"]
+    customConfigCommand.canonicalCommand = ["hcloud", "--config", "./custom.toml", "server", "list"]
     let customConfigManifest = DeliveryDecisionManifestFactory().make(
-        command: customConfig,
+        command: customConfigCommand,
         intent: DeliveryRequest(flow: .cliEnv, secretAlias: "cloud.hcloud.dev", delivery: .env, environmentName: "HCLOUD_TOKEN", workspace: "/tmp/infra", originHint: "Codex"),
         target: TargetAssessor().synthetic(path: "/opt/homebrew/bin/hcloud")
     )
@@ -531,7 +537,7 @@ func runContracts() throws {
     try expect(alwaysGrant.expiresAt == nil, "always persistent allow must never expire")
     let validAlwaysGrant = try persistentStore.validGrant(scope: persistentScope, now: Date(timeIntervalSince1970: 999_999))
     try expect(validAlwaysGrant?.scopeDigest == alwaysGrant.scopeDigest, "always persistent allow must validate without expiry")
-    let otherActionPersistentGrant = try persistentStore.validGrant(scope: RememberedApprovalScope(manifest: otherReadManifest), now: Date(timeIntervalSince1970: 401))
+    let otherActionPersistentGrant = try persistentStore.validGrant(scope: RememberedApprovalScope(manifest: otherActionManifest), now: Date(timeIntervalSince1970: 401))
     try expect(otherActionPersistentGrant?.scopeDigest == alwaysGrant.scopeDigest, "persistent allow must apply across non-destructive action classes in the same invocation context")
     let mutatingPersistentGrant = try persistentStore.validGrant(scope: RememberedApprovalScope(manifest: mutatingManifest), now: Date(timeIntervalSince1970: 402))
     try expect(mutatingPersistentGrant?.scopeDigest == alwaysGrant.scopeDigest, "persistent allow must apply to non-destructive mutating commands in the same invocation context")
@@ -953,11 +959,11 @@ func runContracts() throws {
 
     let unknownFlag = classifier.classify(executableName: "hcloud", arguments: ["--plugin-mode", "server", "list"], observedVersion: "1.52.0")
     try expect(unknownFlag.risk == .unknown, "unknown adapter flags must classify as unknown")
-    try expect(unknownFlag.leaseInvalidators.contains("unknown-flag"), "unknown adapter flags must invalidate remembered leases")
+    try expect(unknownFlag.leaseInvalidators.isEmpty, "missing adapters must not claim adapter-specific flag invalidators")
 
     let ghContext = classifier.classify(executableName: "gh", arguments: ["--repo", "owner/repo", "issue", "list"], observedVersion: "2.0.0")
-    try expect(ghContext.risk == .readOnly, "known gh issue list should remain read-only")
-    try expect(ghContext.leaseInvalidators.contains("repo"), "gh repo context must invalidate remembered leases")
+    try expect(ghContext.risk == .unknown, "gh commands are unknown without an installed policy pack")
+    try expect(ghContext.leaseInvalidators.isEmpty, "missing gh adapter must not claim repo context invalidators")
 
     let terraform = classifier.classify(executableName: "terraform", arguments: ["plan"])
     try expect(terraform.risk == .unknown, "terraform must remain high-risk/generic despite built-in metadata")

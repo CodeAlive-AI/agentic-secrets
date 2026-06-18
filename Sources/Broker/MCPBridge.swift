@@ -4,13 +4,15 @@ public struct MCPUpstreamProfile: Codable, Equatable, Sendable {
     public var name: String
     public var origin: URL
     public var authorizationHeaderName: String
+    public var secretAlias: String?
     public var allowedPathPrefixes: [String]
     public var allowCrossOriginRedirects: Bool
 
-    public init(name: String, origin: URL, authorizationHeaderName: String = "Authorization", allowedPathPrefixes: [String] = ["/"], allowCrossOriginRedirects: Bool = false) {
+    public init(name: String, origin: URL, authorizationHeaderName: String = "Authorization", secretAlias: String? = nil, allowedPathPrefixes: [String] = ["/"], allowCrossOriginRedirects: Bool = false) {
         self.name = name
         self.origin = origin
         self.authorizationHeaderName = authorizationHeaderName
+        self.secretAlias = secretAlias
         self.allowedPathPrefixes = allowedPathPrefixes
         self.allowCrossOriginRedirects = allowCrossOriginRedirects
     }

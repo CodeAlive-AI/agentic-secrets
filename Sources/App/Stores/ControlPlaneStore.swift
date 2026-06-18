@@ -7,7 +7,7 @@ enum ControlPlaneSection: String, CaseIterable, Identifiable {
     case cliSecrets = "CLI Delivery"
     case policyPacks = "CLI Policy"
     case apiSessions = "API Sessions (Proxy)"
-    case mcp = "MCP"
+    case mcp = "MCP Proxy"
     case bitwardenProviderBindings = "Bitwarden Secrets"
     case audit = "Audit"
     case diagnostics = "Diagnostic & Uninstall"
@@ -17,7 +17,6 @@ enum ControlPlaneSection: String, CaseIterable, Identifiable {
     static let allCases: [ControlPlaneSection] = [
         .overview,
         .cliSecrets,
-        .apiSessions,
         .mcp,
         .bitwardenProviderBindings,
         .audit,
@@ -677,17 +676,26 @@ final class ControlPlaneStore {
     }
 
     @discardableResult
-    func upsertMCP(name: String, origin: String, header: String, pathPrefixes: String, allowRedirects: Bool) async -> Bool {
-        await runAction("MCP profile saved") {
+    func upsertMCP(name: String, origin: String, header: String, authValue: String, existingSecretAlias: String? = nil) async -> Bool {
+        await runAction("MCP proxy saved") {
             let normalizedName = name.trimmingCharacters(in: .whitespacesAndNewlines)
             let normalizedHeader = header.trimmingCharacters(in: .whitespacesAndNewlines)
+            let normalizedAuthValue = authValue.trimmingCharacters(in: .whitespacesAndNewlines)
+            let normalizedSecretAlias = existingSecretAlias?.trimmingCharacters(in: .whitespacesAndNewlines)
+            let secretAlias = normalizedSecretAlias?.isEmpty == false ? normalizedSecretAlias! : Self.mcpSecretAlias(for: normalizedName)
             guard !normalizedName.isEmpty else { throw InputError.missingField("profile name") }
             guard !normalizedHeader.isEmpty else { throw InputError.missingField("authorization header") }
+            guard !normalizedAuthValue.isEmpty || normalizedSecretAlias?.isEmpty == false else { throw InputError.missingField("auth header value") }
             let url = try validatedHTTPURL(origin, field: "origin")
-            let prefixes = commaList(pathPrefixes)
-            guard !prefixes.isEmpty else { throw InputError.missingField("allowed path prefix") }
-            guard prefixes.allSatisfy({ $0.hasPrefix("/") }) else { throw InputError.invalidPathPrefix }
-            let profile = MCPUpstreamProfile(name: normalizedName, origin: url, authorizationHeaderName: normalizedHeader, allowedPathPrefixes: prefixes, allowCrossOriginRedirects: allowRedirects)
+            if !normalizedAuthValue.isEmpty {
+                _ = try await client.replaceSecret(ControlPlaneSecretReplacementRequest(
+                    alias: secretAlias,
+                    value: authValue,
+                    label: "\(normalizedName) MCP proxy auth value",
+                    environment: "mcp-proxy:\(normalizedName)"
+                ))
+            }
+            let profile = MCPUpstreamProfile(name: normalizedName, origin: url, authorizationHeaderName: normalizedHeader, secretAlias: secretAlias, allowedPathPrefixes: ["/"], allowCrossOriginRedirects: false)
             _ = try await client.upsertMCPProfile(profile)
             selectedMCPProfile = normalizedName
         }
@@ -695,10 +703,21 @@ final class ControlPlaneStore {
 
     @discardableResult
     func deleteMCPProfile(name: String) async -> Bool {
-        await runAction("MCP profile deleted") {
+        await runAction("MCP proxy deleted") {
             try await client.deleteMCPProfile(ControlPlaneNameRequest(name: name))
             selectedMCPProfile = nil
         }
+    }
+
+    private static func mcpSecretAlias(for name: String) -> String {
+        let normalized = name
+            .lowercased()
+            .unicodeScalars
+            .map { CharacterSet.alphanumerics.contains($0) ? Character($0) : "." }
+        let compact = String(normalized)
+            .split(separator: ".")
+            .joined(separator: ".")
+        return "mcp.\(compact.isEmpty ? "proxy" : compact).auth"
     }
 
     @discardableResult

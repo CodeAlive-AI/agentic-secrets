@@ -48,12 +48,7 @@ struct AgenticSecretsApp: App {
                 .keyboardShortcut("n", modifiers: [.command, .shift])
                 .disabled(!store.canRegisterCLI)
 
-                Button("Add API Session Profile") {
-                    store.presentAPISessionProfileEditor()
-                }
-                .disabled(!store.canManageBrokerState)
-
-                Button("Add MCP Profile") {
+                Button("Add MCP Proxy") {
                     store.presentMCPProfileEditor()
                 }
                 .disabled(!store.canManageBrokerState)

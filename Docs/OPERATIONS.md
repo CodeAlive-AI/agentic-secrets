@@ -271,14 +271,13 @@ API session profiles must define:
 
 Request and response bodies are not logged by default.
 
-## MCP Profiles
+## MCP Proxy Profiles
 
-MCP bridge profiles must define:
+MCP proxy profiles must define:
 
-- pinned upstream origin
-- allowed path prefixes
-- Authorization header behavior
-- cross-origin redirect policy
+- pinned original URL
+- auth header
+- auth token secret alias
 
 The bridge propagates `MCP-Session-Id` when supplied by the upstream server. Tool filtering is only a guardrail; upstream authorization scope remains the real security boundary.
 

@@ -109,10 +109,10 @@ This thesaurus is the source of truth for durable domain names in code, docs, UI
 - **Synonyms to AVOID**: Proxy profile.
 - **Related terms**: API Session.
 
-### MCP Profile
-- **Definition**: A pinned Model Context Protocol upstream profile used for bounded authorization injection.
+### MCP Proxy Profile
+- **Definition**: A pinned Model Context Protocol upstream proxy profile with an auth token secret alias used for bounded authorization injection.
 - **NOT**: A generic agent access profile.
-- **Synonyms to AVOID**: Agent access profile.
+- **Synonyms to AVOID**: MCP profile, agent access profile.
 - **Related terms**: MCP Bridge Session.
 
 ### Bitwarden Provider Binding

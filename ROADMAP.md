@@ -13,6 +13,7 @@ narrow, approved, bounded, auditable, and fail-closed.
 1. Cross-platform support with a reusable core for macOS, Linux, and Windows.
 2. Full command audit and usage statistics without logging secret values.
 3. Native workflows for OpenClaw, Hermes Agent, and other autonomous agents.
+4. Rework API Sessions proxy delivery with a clear UX and verified end-to-end tests.
 
 ## Direction 1: Cross-Platform Support With a Reusable Core
 
@@ -161,6 +162,42 @@ redacted audit events rather than raw secret retrieval APIs. The
 useful source of approaches, implementations, and product ideas for
 agent-facing secret workflows, but any borrowed pattern must preserve Agentic
 Secrets' stricter approval, secret-delivery, and fail-closed guarantees.
+
+## Direction 4: API Sessions Proxy UX
+
+Goal: finish the local API Sessions proxy workflow before it returns to the
+main macOS UI.
+
+The current proxy runtime idea is useful: clients should call a short-lived
+localhost session endpoint while Agentic Secrets keeps the real upstream API
+key inside the local secret authority. However, the current product surface is
+not ready for first-run users, so API Sessions should remain hidden from the
+main sidebar and menu until the workflow is understandable and verified.
+
+Milestones:
+
+1. Define the primary user story and best next action for creating a proxy
+   session without requiring implementation-context knowledge.
+2. Design onboarding, empty states, repair states, and destructive cleanup for
+   a tired, distracted, impatient user.
+3. Add a guided flow that clearly distinguishes provider profile setup,
+   local session creation, one-time token display, and session expiry.
+4. Add end-to-end tests for profile creation, local session creation, token
+   expiry, upstream request forwarding, redacted audit events, and failure
+   recovery.
+5. Re-enable the macOS sidebar/menu entry only after the UX and tests are in
+   place.
+
+Acceptance criteria:
+
+- A new user can create and use a local API session without reading internal
+  architecture docs.
+- Secret values, upstream authorization headers, and request bodies are never
+  displayed or logged.
+- Failure states explain whether the daemon, profile, session token, or
+  upstream call is broken and provide one clear next action.
+- UI smoke and contract tests cover the complete happy path and major failure
+  paths before the feature is visible by default.
 
 ## Roadmap Principles
 

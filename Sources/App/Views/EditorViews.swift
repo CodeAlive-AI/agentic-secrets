@@ -10,6 +10,8 @@ struct RegisterCLIView: View {
     @State private var bindings = [SecretDraft()]
     @State private var installShim = RegisterCLIFormDefaults.installShim
     @State private var reviewAdvancedExpanded = false
+    @State private var executableAutoResolveState: ExecutableAutoResolveState = .idle
+    @State private var suppressNextExecutableAutoResolve = false
 
     var canSubmit: Bool {
         RegisterCLIFormValidation.canSubmit(name: name, targetPath: targetPath, bindings: bindings)
@@ -54,6 +56,9 @@ struct RegisterCLIView: View {
         .onAppear {
             store.clearFeedback()
         }
+        .task(id: name) {
+            await autoResolveExecutablePath(for: name)
+        }
     }
 
     @ViewBuilder
@@ -77,6 +82,10 @@ struct RegisterCLIView: View {
                     Label(message, systemImage: "exclamationmark.triangle")
                         .font(.caption)
                         .foregroundStyle(.orange)
+                } else if let message = executableAutoResolveState.message {
+                    Label(message, systemImage: executableAutoResolveState.systemImage)
+                        .font(.caption)
+                        .foregroundStyle(executableAutoResolveState.foregroundStyle)
                 }
                 Text("Use the resolved executable path for the CLI you want Agentic Secrets to verify before delivery.")
                     .foregroundStyle(.secondary)
@@ -169,13 +178,87 @@ struct RegisterCLIView: View {
         guard let url = ExecutablePathChooser.chooseExecutable() else { return }
         targetPath = url.path
         if name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            suppressNextExecutableAutoResolve = true
             name = ExecutablePathSelection.inferredCLIName(from: url)
+        }
+    }
+
+    private func autoResolveExecutablePath(for value: String) async {
+        let command = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !command.isEmpty else {
+            executableAutoResolveState = .idle
+            return
+        }
+        if suppressNextExecutableAutoResolve {
+            suppressNextExecutableAutoResolve = false
+            executableAutoResolveState = .resolved
+            return
+        }
+        executableAutoResolveState = .resolving(command)
+        do {
+            try await Task.sleep(nanoseconds: 350_000_000)
+        } catch {
+            return
+        }
+        guard !Task.isCancelled else { return }
+        let resolvedPath = await ExecutablePathSelection.resolvedExecutablePath(for: command)
+        guard command == name.trimmingCharacters(in: .whitespacesAndNewlines) else { return }
+        if let resolvedPath {
+            targetPath = resolvedPath
+            executableAutoResolveState = .resolved
+        } else {
+            targetPath = ""
+            executableAutoResolveState = .notFound(command)
         }
     }
 }
 
 enum RegisterCLIFormDefaults {
     static let installShim = true
+}
+
+private enum ExecutableAutoResolveState: Equatable {
+    case idle
+    case resolving(String)
+    case resolved
+    case notFound(String)
+
+    var message: String? {
+        switch self {
+        case .idle:
+            nil
+        case .resolving:
+            "Resolving executable from PATH..."
+        case .resolved:
+            "Executable path resolved from PATH."
+        case .notFound(let command):
+            "No executable named '\(command)' was found on PATH. Choose the binary from disk."
+        }
+    }
+
+    var systemImage: String {
+        switch self {
+        case .idle:
+            "circle"
+        case .resolving:
+            "magnifyingglass"
+        case .resolved:
+            "checkmark.circle"
+        case .notFound:
+            "exclamationmark.triangle"
+        }
+    }
+
+    var foregroundStyle: Color {
+        switch self {
+        case .idle, .resolving:
+            .secondary
+        case .resolved:
+            .green
+        case .notFound:
+            .orange
+        }
+    }
 }
 
 enum APISessionProfileEditorDefaults {
@@ -188,8 +271,6 @@ enum APISessionProfileEditorDefaults {
 enum MCPProfileEditorDefaults {
     static let origin = "https://mcp.example.com"
     static let authorizationHeader = "Authorization"
-    static let pathPrefixes = "/"
-    static let allowCrossOriginRedirects = false
 }
 
 enum BitwardenBindingEditorDefaults {
@@ -374,39 +455,31 @@ struct MCPProfileEditor: View {
     @State private var name: String
     @State private var origin: String
     @State private var header: String
-    @State private var prefixes: String
-    @State private var allowRedirects: Bool
-    @State private var advancedExpanded: Bool
+    @State private var authValue: String
+    private let existingSecretAlias: String?
 
     init(store: ControlPlaneStore, profile: MCPProfileSummary? = nil) {
         self.store = store
+        existingSecretAlias = profile?.secretAlias
         _name = State(initialValue: profile?.name ?? "")
         _origin = State(initialValue: profile?.origin.absoluteString ?? MCPProfileEditorDefaults.origin)
         _header = State(initialValue: profile?.authorizationHeaderName ?? MCPProfileEditorDefaults.authorizationHeader)
-        _prefixes = State(initialValue: profile?.allowedPathPrefixes.joined(separator: ", ") ?? MCPProfileEditorDefaults.pathPrefixes)
-        _allowRedirects = State(initialValue: profile?.allowCrossOriginRedirects ?? MCPProfileEditorDefaults.allowCrossOriginRedirects)
-        _advancedExpanded = State(initialValue: profile != nil)
+        _authValue = State(initialValue: "")
     }
 
     var body: some View {
         Form {
-            Section("MCP Profile") {
+            Section("MCP Proxy") {
                 TextField("Name", text: $name)
-                TextField("Origin", text: $origin)
+                TextField("Original URL", text: $origin)
                 if let originMessage = ManagementEditorValidation.urlStatusMessage(origin, field: "origin") {
                     InlineValidationMessage(originMessage)
                 }
-                TextField("Authorization header", text: $header)
-                Text("Uses / path prefix and blocks cross-origin redirects unless changed in Advanced.")
+                TextField("Auth header", text: $header)
+                SecureField(authValuePrompt, text: $authValue)
+                Text("The value is saved in Agentic Secrets and injected only into approved upstream requests. It is never displayed back.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
-                DisclosureGroup("Advanced", isExpanded: $advancedExpanded) {
-                    TextField("Allowed path prefixes", text: $prefixes)
-                    if let prefixesMessage = ManagementEditorValidation.pathPrefixStatusMessage(prefixes) {
-                        InlineValidationMessage(prefixesMessage)
-                    }
-                    Toggle("Allow cross-origin redirects", isOn: $allowRedirects)
-                }
             }
             SheetFeedbackBanner(store: store)
             HStack {
@@ -414,7 +487,7 @@ struct MCPProfileEditor: View {
                 Button("Cancel", role: .cancel) { dismiss() }
                 Button("Save") {
                     Task {
-                        if await store.upsertMCP(name: name, origin: origin, header: header, pathPrefixes: prefixes, allowRedirects: allowRedirects) {
+                        if await store.upsertMCP(name: name, origin: origin, header: header, authValue: authValue, existingSecretAlias: existingSecretAlias) {
                             dismiss()
                         }
                     }
@@ -424,7 +497,8 @@ struct MCPProfileEditor: View {
                     name: name,
                     origin: origin,
                     header: header,
-                    pathPrefixes: prefixes
+                    authValue: authValue,
+                    allowsExistingAuthValue: existingSecretAlias?.isEmpty == false
                 ))
             }
         }
@@ -434,6 +508,10 @@ struct MCPProfileEditor: View {
         .onAppear {
             store.clearFeedback()
         }
+    }
+
+    private var authValuePrompt: String {
+        existingSecretAlias?.isEmpty == false ? "Auth value (leave blank to keep saved value)" : "Auth value"
     }
 }
 
@@ -678,11 +756,11 @@ enum ManagementEditorValidation {
             && httpMethodsStatusMessage(methods) == nil
     }
 
-    static func canSaveMCP(name: String, origin: String, header: String, pathPrefixes: String) -> Bool {
+    static func canSaveMCP(name: String, origin: String, header: String, authValue: String, allowsExistingAuthValue: Bool) -> Bool {
         !trimmed(name).isEmpty
             && urlStatusMessage(origin, field: "origin") == nil
             && !trimmed(header).isEmpty
-            && pathPrefixStatusMessage(pathPrefixes) == nil
+            && (allowsExistingAuthValue || !trimmed(authValue).isEmpty)
     }
 
     static func urlStatusMessage(_ value: String, field: String) -> String? {

@@ -2,7 +2,6 @@ import AgenticSecretsBroker
 
 enum AuditRelatedItemRoute: Equatable {
     case cli(String)
-    case apiSession(String)
     case bitwardenBinding(String)
     case mcp(String)
 
@@ -10,12 +9,10 @@ enum AuditRelatedItemRoute: Equatable {
         switch self {
         case .cli:
             "Open CLI Registration"
-        case .apiSession:
-            "Open API Session Profile"
         case .bitwardenBinding:
             "Open Bitwarden Provider Binding"
         case .mcp:
-            "Open MCP Profile"
+            "Open MCP Proxy"
         }
     }
 }
@@ -27,8 +24,7 @@ enum AuditRelatedItemRouter {
         case .cliEnv:
             return snapshot.cliRegistrations.contains(where: { $0.name == event.subjectID }) ? .cli(event.subjectID) : nil
         case .apiSession:
-            guard let profile = snapshot.apiSessionProfiles.first(where: { $0.name == event.subjectID || $0.secretAlias == event.secretID }) else { return nil }
-            return .apiSession(profile.name)
+            return nil
         case .bitwardenProvider:
             guard let binding = snapshot.bitwardenBindings.first(where: { $0.alias == event.subjectID || $0.alias == event.secretID }) else { return nil }
             return .bitwardenBinding(binding.alias)

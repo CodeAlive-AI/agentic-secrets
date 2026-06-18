@@ -24,6 +24,17 @@ enum ExecutablePathSelection {
         url.deletingPathExtension().lastPathComponent.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
+    static func resolvedExecutablePath(for command: String) async -> String? {
+        let trimmed = command.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return nil }
+        return await Task.detached(priority: .utility) {
+            if trimmed.contains("/") {
+                return FileManager.default.isExecutableFile(atPath: trimmed) ? trimmed : nil
+            }
+            return findExecutableOnPATH(trimmed)
+        }.value
+    }
+
     static func statusMessage(for path: String) -> String? {
         let trimmed = path.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return nil }
@@ -37,5 +48,24 @@ enum ExecutablePathSelection {
             return "This file is not executable. Choose the CLI binary, not a config or document file."
         }
         return nil
+    }
+
+    private static func findExecutableOnPATH(_ command: String) -> String? {
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/usr/bin/which")
+        process.arguments = [command]
+        let pipe = Pipe()
+        process.standardOutput = pipe
+        process.standardError = Pipe()
+        do {
+            try process.run()
+        } catch {
+            return nil
+        }
+        process.waitUntilExit()
+        guard process.terminationStatus == 0 else { return nil }
+        let output = String(decoding: pipe.fileHandleForReading.readDataToEndOfFile(), as: UTF8.self)
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        return output.isEmpty ? nil : output
     }
 }

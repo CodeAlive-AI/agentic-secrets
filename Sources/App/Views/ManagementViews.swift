@@ -555,20 +555,20 @@ struct MCPProfilesView: View {
     @Bindable var store: ControlPlaneStore
 
     var body: some View {
-        ControlPlanePageFrame(title: "MCP Access", subtitle: "Pinned upstream profiles for authorization injection.") {
+        ControlPlanePageFrame(title: "MCP Proxy", subtitle: "Pinned upstream proxy profiles for authorization injection.") {
             if store.snapshot == nil {
                 LocalStateUnavailableView(store: store)
             } else if store.mcpProfiles.isEmpty {
                 PageCenteredState {
                     ContentUnavailableView {
-                        Label("No MCP Profiles", systemImage: "server.rack")
+                        Label("No MCP Proxy Profiles", systemImage: "server.rack")
                     } description: {
-                        Text("Pinned MCP upstreams keep authorization injection bounded.")
+                        Text("Pinned MCP proxy upstreams keep authorization injection bounded.")
                     } actions: {
                         Button {
                             store.presentMCPProfileEditor()
                         } label: {
-                            Label("Add MCP Profile", systemImage: "plus")
+                            Label("Add MCP Proxy", systemImage: "plus")
                         }
                         .buttonStyle(.borderedProminent)
                         .disabled(!store.canManageBrokerState)
@@ -613,27 +613,31 @@ private struct MCPProfileDetail: View {
                     header(profile.name, subtitle: profile.origin.absoluteString)
                     Form {
                         Section("Configuration") {
-                            LabeledContent("Authorization header", value: profile.authorizationHeaderName)
-                            LabeledContent("Path prefixes", value: profile.allowedPathPrefixes.joined(separator: ", "))
-                            LabeledContent("Cross-origin redirects", value: profile.allowCrossOriginRedirects ? "Allowed" : "Blocked")
+                            LabeledContent("Original URL", value: profile.origin.absoluteString)
+                            LabeledContent("Auth header", value: profile.authorizationHeaderName)
                             Button {
                                 showingEdit = true
                             } label: {
-                                Label("Edit MCP Profile", systemImage: "slider.horizontal.3")
+                                Label("Edit MCP Proxy", systemImage: "slider.horizontal.3")
                             }
                             .disabled(!store.canManageBrokerState)
                         }
                         Section("Client Setup") {
-                            CopyableValueView(title: "Profile origin", value: profile.origin.absoluteString)
+                            CopyableValueView(title: "Original URL", value: profile.origin.absoluteString)
                             CopyButton(
-                                title: "Copy MCP Client Config",
+                                title: "Copy MCP Proxy Client Config",
                                 value: mcpClientConfig(profile),
-                                help: "Copy redacted MCP client configuration for this profile"
+                                help: "Copy redacted MCP proxy client configuration for this profile"
                             )
                         }
                         Section("Credential") {
-                            StatusBadge(text: "No stored credential alias", systemImage: "key.slash")
-                            Text("This MCP profile defines where authorization can be injected, but it does not currently bind a saved secret alias. Edit the profile if the upstream authorization metadata changes.")
+                            if let secretAlias = profile.secretAlias, !secretAlias.isEmpty {
+                                StatusBadge(text: "Uses managed secret alias", systemImage: "key")
+                                CopyableValueView(title: "Secret alias", value: secretAlias)
+                            } else {
+                                StatusBadge(text: "No token secret alias", systemImage: "key.slash")
+                            }
+                            Text("The proxy stores only the secret alias. The token value is resolved by Agentic Secrets and injected only into approved upstream requests.")
                                 .font(.caption)
                                 .foregroundStyle(.secondary)
                         }
@@ -652,7 +656,7 @@ private struct MCPProfileDetail: View {
                             }
                         }
                         Section("Danger Zone") {
-                            Button("Delete Profile", role: .destructive) {
+                            Button("Delete MCP Proxy", role: .destructive) {
                                 confirmingDelete = true
                             }
                             .disabled(!store.canManageBrokerState)
@@ -665,17 +669,17 @@ private struct MCPProfileDetail: View {
                 .sheet(isPresented: $showingEdit) {
                     MCPProfileEditor(store: store, profile: profile)
                 }
-                .confirmationDialog("Delete MCP profile?", isPresented: $confirmingDelete) {
-                    Button("Delete Profile", role: .destructive) {
+                .confirmationDialog("Delete MCP proxy?", isPresented: $confirmingDelete) {
+                    Button("Delete MCP Proxy", role: .destructive) {
                         Task { await store.deleteMCPProfile(name: profile.name) }
                     }
                     .disabled(!store.canManageBrokerState)
                     Button("Cancel", role: .cancel) {}
                 } message: {
-                    Text("The pinned MCP upstream profile is removed from local configuration.")
+                    Text("The pinned MCP proxy profile is removed from local configuration.")
                 }
             } else {
-                ContentUnavailableView("Select an MCP Profile", systemImage: "server.rack")
+                ContentUnavailableView("Select an MCP Proxy", systemImage: "server.rack")
                     .padding(24)
             }
         }
@@ -683,22 +687,20 @@ private struct MCPProfileDetail: View {
 
     private func validate(profile: MCPProfileSummary) -> String {
         guard profile.origin.scheme == "https", profile.origin.host()?.isEmpty == false else {
-            return "Profile needs an HTTPS origin with a host."
+            return "MCP Proxy needs an HTTPS original URL with a host."
         }
-        guard !profile.allowedPathPrefixes.isEmpty else {
-            return "Profile needs at least one allowed path prefix."
+        guard profile.secretAlias?.isEmpty == false else {
+            return "MCP Proxy needs a saved auth value."
         }
-        return "Profile shape is valid. Network verification is intentionally explicit and not run automatically."
+        return "MCP Proxy shape is valid. Network verification is intentionally explicit and not run automatically."
     }
 
     private func mcpClientConfig(_ profile: MCPProfileSummary) -> String {
         """
         {
           "name": "\(profile.name)",
-          "origin": "\(profile.origin.absoluteString)",
-          "authorizationHeader": "\(profile.authorizationHeaderName)",
-          "allowedPathPrefixes": \(jsonStringArray(profile.allowedPathPrefixes)),
-          "allowCrossOriginRedirects": \(profile.allowCrossOriginRedirects),
+          "originalUrl": "\(profile.origin.absoluteString)",
+          "authHeader": "\(profile.authorizationHeaderName)",
           "credential": "managed-by-agentic-secrets"
         }
         """
@@ -1145,9 +1147,6 @@ struct AuditView: View {
         case .cli(let name):
             store.selectedSection = .cliSecrets
             store.selectedCLI = name
-        case .apiSession(let name):
-            store.selectedSection = .apiSessions
-            store.selectedAPISessionProfile = name
         case .bitwardenBinding(let alias):
             store.selectedSection = .bitwardenProviderBindings
             store.selectedBitwardenBinding = alias

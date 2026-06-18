@@ -76,6 +76,7 @@ public struct MCPProfileSummary: Codable, Equatable, Identifiable, Sendable {
     public var name: String
     public var origin: URL
     public var authorizationHeaderName: String
+    public var secretAlias: String?
     public var allowedPathPrefixes: [String]
     public var allowCrossOriginRedirects: Bool
 
@@ -83,6 +84,7 @@ public struct MCPProfileSummary: Codable, Equatable, Identifiable, Sendable {
         self.name = profile.name
         self.origin = profile.origin
         self.authorizationHeaderName = profile.authorizationHeaderName
+        self.secretAlias = profile.secretAlias
         self.allowedPathPrefixes = profile.allowedPathPrefixes
         self.allowCrossOriginRedirects = profile.allowCrossOriginRedirects
     }

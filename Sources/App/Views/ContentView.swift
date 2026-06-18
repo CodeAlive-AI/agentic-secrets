@@ -127,9 +127,9 @@ private struct ContextToolbarActionSlot: View {
             }
         case .mcp:
             ContextToolbarAction(
-                title: "Add MCP Profile",
+                title: "Add MCP Proxy",
                 systemImage: "plus",
-                help: "Add a pinned MCP upstream profile",
+                help: "Add a pinned MCP proxy upstream",
                 isEnabled: store.canManageBrokerState
             ) {
                 store.presentMCPProfileEditor()
