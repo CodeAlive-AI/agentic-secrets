@@ -558,14 +558,14 @@ final class ControlPlaneStore {
             if installShim {
                 do {
                     _ = try CLIShimInstaller.install(name: summary.name)
-                    successMessage = "CLI registered and shim installed"
+                    successMessage = AgentRestartNotice.afterCLIRegistration(cliName: summary.name, shimInstalled: true)
                     errorMessage = nil
                 } catch {
                     successMessage = nil
                     errorMessage = "CLI registered, but the command shim could not be installed: \(userFacingError(error))"
                 }
             } else {
-                successMessage = "CLI registered"
+                successMessage = AgentRestartNotice.afterCLIRegistration(cliName: summary.name, shimInstalled: false)
                 errorMessage = nil
             }
             do {

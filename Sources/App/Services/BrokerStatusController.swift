@@ -598,8 +598,7 @@ struct LocalBrokerStatusController: BrokerStatusControlling {
     }
 
     private static func managedShellConfigPaths() -> [URL] {
-        let home = FileManager.default.homeDirectoryForCurrentUser
-        return [".zshrc", ".bashrc", ".profile"].map { home.appendingPathComponent($0) }
+        ShellStartupFilePolicy.managedConfigurationFiles()
     }
 
     private static let installExecutables = [
@@ -683,7 +682,11 @@ enum ShellConfigurationCleaner {
             caseIndex = index + 1
         }
         guard caseIndex < lines.count,
-              lines[caseIndex].trimmingCharacters(in: .whitespaces) == #"case ":$PATH:" in"# else { return nil }
+              lines[caseIndex].trimmingCharacters(in: .whitespaces) == #"case ":$PATH:" in"# ||
+              lines[caseIndex].trimmingCharacters(in: .whitespaces).hasPrefix("export PATH=") else { return nil }
+        if lines[caseIndex].trimmingCharacters(in: .whitespaces).hasPrefix("export PATH=") {
+            return caseIndex
+        }
         var cursor = caseIndex + 1
         while cursor < lines.count {
             if lines[cursor].trimmingCharacters(in: .whitespaces) == "esac" {

@@ -307,7 +307,7 @@ struct AgenticSecretsCLI {
           \(name) version
         """)
         if configureShell {
-            print("Shell PATH configured for future sessions.")
+            print(AgentRestartNotice.afterShimPathConfiguration(cliName: name))
         } else {
             print("""
 
@@ -316,6 +316,8 @@ struct AgenticSecretsCLI {
 
             For future sessions:
               agentic-secrets cli shim install \(name) --configure-shell
+
+            \(AgentRestartNotice.afterManualPathChange(cliName: name))
             """)
         }
     }
@@ -496,40 +498,32 @@ struct AgenticSecretsCLI {
         return value
     }
 
-    private static func defaultShellConfig() -> URL {
-        let shell = URL(fileURLWithPath: ProcessInfo.processInfo.environment["SHELL"] ?? "zsh").lastPathComponent
-        switch shell {
-        case "bash":
-            return FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".bashrc")
-        case "zsh":
-            return FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".zshrc")
-        default:
-            return FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".profile")
-        }
+    private static func defaultShellConfigs() -> [URL] {
+        ShellStartupFilePolicy.defaultConfigurationFiles()
     }
 
     private static func configureShellPath(directory: URL, label: String) throws {
-        let target = defaultShellConfig()
         let quotedDirectory = try shellSingleQuotedPath(directory.path)
-        try FileManager.default.createDirectory(at: target.deletingLastPathComponent(), withIntermediateDirectories: true)
-        if !FileManager.default.fileExists(atPath: target.path) {
-            FileManager.default.createFile(atPath: target.path, contents: nil)
-        }
         let block = """
 
         # \(label)
         agentic_secrets_path_dir=\(quotedDirectory)
-        case ":$PATH:" in
-          *":$agentic_secrets_path_dir:"*) ;;
-          *) export PATH="$agentic_secrets_path_dir:$PATH" ;;
-        esac
+        export PATH="$agentic_secrets_path_dir:$PATH"
         """
-        let handle = try FileHandle(forWritingTo: target)
-        defer { try? handle.close() }
-        try handle.seekToEnd()
-        try handle.write(contentsOf: Data(block.utf8))
-        try handle.write(contentsOf: Data([10]))
-        print("Configured shell PATH in \(target.path)")
+        for target in defaultShellConfigs() {
+            try FileManager.default.createDirectory(at: target.deletingLastPathComponent(), withIntermediateDirectories: true)
+            if !FileManager.default.fileExists(atPath: target.path) {
+                _ = FileManager.default.createFile(atPath: target.path, contents: nil)
+            }
+            do {
+                let handle = try FileHandle(forWritingTo: target)
+                defer { try? handle.close() }
+                try handle.seekToEnd()
+                try handle.write(contentsOf: Data(block.utf8))
+                try handle.write(contentsOf: Data([10]))
+            }
+            print("Configured shell PATH in \(target.path)")
+        }
     }
 
     private static func shellSingleQuotedPath(_ path: String) throws -> String {

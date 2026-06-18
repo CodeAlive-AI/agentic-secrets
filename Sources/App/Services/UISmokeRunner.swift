@@ -26,7 +26,9 @@ enum UISmokeRunner {
         try await testEmptyState()
         try await testSettingsLayout()
         try await testRegisterWizardValidation()
+        try await testSuccessfulCLIRegistrationGuidance()
         try testCLIShimInstallerEnvironment()
+        try testShellStartupFilePolicy()
         try testCLIShimStatusPresentation()
         try testManagementEditorValidation()
         try testPasteboardCopy()
@@ -47,6 +49,20 @@ enum UISmokeRunner {
         try await testActivationRefreshLoadsMissingSnapshot()
         try await testSelectionSurvivesRefresh()
         try await testMenuBarStatusReflectsDaemonHealth()
+    }
+
+    private static func testShellStartupFilePolicy() throws {
+        let home = URL(fileURLWithPath: "/tmp/agentic-secrets-ui-shell-policy", isDirectory: true)
+        let zshFiles = ShellStartupFilePolicy.defaultConfigurationFiles(
+            homeDirectory: home,
+            shellPath: "/bin/zsh"
+        ).map(\.lastPathComponent)
+        try expect(zshFiles == [".zshenv", ".zprofile", ".zshrc"], "zsh shell configuration includes non-interactive, login, and interactive startup files")
+
+        let managedFiles = ShellStartupFilePolicy.managedConfigurationFiles(homeDirectory: home).map(\.lastPathComponent)
+        try expect(managedFiles.contains(".zshenv"), "managed shell cleanup includes zsh non-interactive startup file")
+        try expect(managedFiles.contains(".zprofile"), "managed shell cleanup includes zsh login startup file")
+        try expect(managedFiles.contains(".bash_profile"), "managed shell cleanup includes bash login startup file")
     }
 
     @MainActor
@@ -148,6 +164,9 @@ enum UISmokeRunner {
 
     private static func testRegisterWizardValidation() async throws {
         try expect(RegisterCLIFormDefaults.installShim, "register CLI defaults to installing a command shim")
+        let restartNotice = AgentRestartNotice.afterCLIRegistration(cliName: "hcloud", shimInstalled: true)
+        try expect(restartNotice.contains("Restart Codex"), "register success notice names the agent restart action")
+        try expect(AgentRestartNotice.requiresManualDismiss(restartNotice), "agent restart notice stays visible until the user dismisses it")
         try expect(
             ExecutablePathSelection.inferredCLIName(from: URL(fileURLWithPath: "/opt/homebrew/bin/hcloud")) == "hcloud",
             "register CLI infers a CLI name from the selected executable path"
@@ -200,6 +219,23 @@ enum UISmokeRunner {
         try expect(RegisterCLIFormValidation.environmentSecrets([
             SecretDraft(environmentName: "HCLOUD_TOKEN", secretValue: " \n\t ")
         ]).isEmpty, "whitespace-only secret values are omitted from registration payload")
+    }
+
+    @MainActor
+    private static func testSuccessfulCLIRegistrationGuidance() async throws {
+        let store = ControlPlaneStore(
+            client: SequenceControlPlaneClient(snapshots: [snapshot(cliNames: ["hcloud"])]),
+            brokerController: StubBrokerStatusController(statusValue: healthyBrokerStatus())
+        )
+        await store.refresh()
+        let registered = await store.registerCLI(
+            name: "hcloud",
+            targetPath: "/bin/echo",
+            environmentSecrets: ["HCLOUD_TOKEN": "synthetic-secret"],
+            installShim: false
+        )
+        try expect(registered, "valid direct register submit succeeds")
+        try expect(store.successMessage == AgentRestartNotice.afterCLIRegistration(cliName: "hcloud", shimInstalled: false), "successful registration tells the user to restart already-running agent apps")
     }
 
     private static func testCLIShimInstallerEnvironment() throws {
@@ -784,6 +820,14 @@ enum UISmokeRunner {
           *":$agentic_secrets_path_dir:"*) ;;
           *) export PATH="$agentic_secrets_path_dir:$PATH" ;;
         esac
+
+        # Agentic Secrets PATH
+        agentic_secrets_path_dir='\(binDir)'
+        export PATH="$agentic_secrets_path_dir:$PATH"
+
+        # AgenticSecrets CLI shims
+        agentic_secrets_path_dir='\(shimDir)'
+        export PATH="$agentic_secrets_path_dir:$PATH"
 
         # AgenticSecrets CLI shims
         case ":$PATH:" in

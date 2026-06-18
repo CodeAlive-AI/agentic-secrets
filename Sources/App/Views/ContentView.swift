@@ -497,7 +497,7 @@ private struct FeedbackBanner: View {
             Image(systemName: store.errorMessage == nil ? "checkmark.circle" : "exclamationmark.triangle")
                 .foregroundStyle(store.errorMessage == nil ? .green : .orange)
             Text(store.errorMessage ?? store.successMessage ?? "")
-                .lineLimit(2)
+                .lineLimit(4)
             Button {
                 store.clearFeedback()
             } label: {
@@ -514,6 +514,7 @@ private struct FeedbackBanner: View {
         .accessibilityElement(children: .contain)
         .task(id: store.successMessage) {
             guard let message = store.successMessage, store.errorMessage == nil else { return }
+            guard !AgentRestartNotice.requiresManualDismiss(message) else { return }
             try? await Task.sleep(nanoseconds: 3_500_000_000)
             await MainActor.run {
                 store.clearSuccessIfCurrent(message)

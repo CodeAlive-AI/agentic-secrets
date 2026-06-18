@@ -109,6 +109,8 @@ struct RegisterCLIView: View {
                         Text("The shim is installed in the local Agentic Secrets shims folder. Shell PATH configuration remains a separate explicit install action.")
                             .foregroundStyle(.secondary)
                     }
+                    Label("After registration and shim PATH setup, restart Codex or any other already-running agent app before using this CLI from that app.", systemImage: "arrow.clockwise")
+                        .foregroundStyle(.secondary)
                 }
             }
         }

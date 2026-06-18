@@ -92,6 +92,24 @@ func signedPack(payload: CommandPolicyPackPayload, key: P256.Signing.PrivateKey,
 }
 
 func runContracts() throws {
+    let shellPolicyHome = URL(fileURLWithPath: "/tmp/agentic-secrets-shell-policy", isDirectory: true)
+    let zshStartupFiles = ShellStartupFilePolicy.defaultConfigurationFiles(
+        homeDirectory: shellPolicyHome,
+        shellPath: "/bin/zsh"
+    ).map(\.lastPathComponent)
+    try expect(zshStartupFiles == [".zshenv", ".zprofile", ".zshrc"], "zsh configuration must cover non-interactive Codex shells, login shells, and interactive terminals")
+    let bashStartupFiles = ShellStartupFilePolicy.defaultConfigurationFiles(
+        homeDirectory: shellPolicyHome,
+        shellPath: "/bin/bash"
+    ).map(\.lastPathComponent)
+    try expect(bashStartupFiles == [".bash_profile", ".bashrc"], "bash configuration must cover login and interactive shells")
+    let managedStartupFiles = ShellStartupFilePolicy.managedConfigurationFiles(homeDirectory: shellPolicyHome).map(\.lastPathComponent)
+    try expect(managedStartupFiles.contains(".zshenv"), "cleanup must remove managed zsh non-interactive shell PATH blocks")
+    try expect(managedStartupFiles.contains(".zprofile"), "cleanup must remove managed zsh login shell PATH blocks")
+    let restartNotice = AgentRestartNotice.afterCLIRegistration(cliName: "hcloud", shimInstalled: true)
+    try expect(restartNotice.contains("Restart Codex"), "CLI registration success notice must tell agent users to restart")
+    try expect(AgentRestartNotice.requiresManualDismiss(restartNotice), "agent restart notices must remain visible until dismissed")
+
     let classifier = CommandClassifier()
     let hcloudRead = classifier.classify(executableName: "hcloud", arguments: ["server", "list"], observedVersion: "1.52.0")
     try expect(hcloudRead.risk == .unknown, "hcloud server list has no built-in policy pack by default")

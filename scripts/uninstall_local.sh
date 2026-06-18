@@ -160,13 +160,16 @@ clean_shell_config() {
         while ((getline next_line) > 0) {
           count++
           block[count] = next_line
-          if (next_line == "esac") {
+          if (next_line == "esac" || next_line ~ /^[[:space:]]*export PATH=/) {
             break
           }
         }
         case_index = 2
         if (block[2] ~ /^[[:space:]]*agentic_secrets_path_dir=/) {
           case_index = 3
+        }
+        if (count >= case_index && block[case_index] ~ /^[[:space:]]*export PATH=/ && block_has_managed_path(count)) {
+          next
         }
         if (count >= case_index + 2 && block[case_index] == "case \":$PATH:\" in" && block[count] == "esac" && block_has_managed_path(count)) {
           next
@@ -183,7 +186,10 @@ clean_shell_config() {
   [ -z "$mode" ] || chmod "$mode" "$target" 2>/dev/null || true
 }
 
+clean_shell_config "$HOME/.zshenv"
+clean_shell_config "$HOME/.zprofile"
 clean_shell_config "$HOME/.zshrc"
+clean_shell_config "$HOME/.bash_profile"
 clean_shell_config "$HOME/.bashrc"
 clean_shell_config "$HOME/.profile"
 

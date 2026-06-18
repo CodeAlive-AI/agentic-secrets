@@ -178,18 +178,29 @@ write_manifest() {
 write_manifest
 "$ROOT/scripts/validate_release_artifact.sh" "$APP_DEST" >/dev/null
 
-default_shell_config() {
+default_shell_configs() {
   case "$(basename "${SHELL:-zsh}")" in
     zsh)
+      printf '%s\n' "$HOME/.zshenv"
+      printf '%s\n' "$HOME/.zprofile"
       printf '%s\n' "$HOME/.zshrc"
       ;;
     bash)
+      printf '%s\n' "$HOME/.bash_profile"
       printf '%s\n' "$HOME/.bashrc"
       ;;
     *)
       printf '%s\n' "$HOME/.profile"
       ;;
   esac
+}
+
+configured_shell_targets() {
+  if [ -n "${SHELL_CONFIG:-}" ]; then
+    printf '%s\n' "$SHELL_CONFIG"
+  else
+    default_shell_configs
+  fi
 }
 
 shell_single_quote() {
@@ -203,19 +214,17 @@ shell_single_quote() {
 }
 
 configure_shell_path() {
-  target="${SHELL_CONFIG:-$(default_shell_config)}"
   quoted_bin_dir="$(shell_single_quote "$BIN_DIR")"
-  mkdir -p "$(dirname "$target")"
-  touch "$target"
-  {
-    printf '\n# Agentic Secrets PATH\n'
-    printf 'agentic_secrets_path_dir=%s\n' "$quoted_bin_dir"
-    printf 'case ":$PATH:" in\n'
-    printf '  *":$agentic_secrets_path_dir:"*) ;;\n'
-    printf '  *) export PATH="$agentic_secrets_path_dir:$PATH" ;;\n'
-    printf 'esac\n'
-  } >>"$target"
-  printf 'Configured shell PATH in %s\n' "$target"
+  configured_shell_targets | while IFS= read -r target; do
+    mkdir -p "$(dirname "$target")"
+    touch "$target"
+    {
+      printf '\n# Agentic Secrets PATH\n'
+      printf 'agentic_secrets_path_dir=%s\n' "$quoted_bin_dir"
+      printf 'export PATH="$agentic_secrets_path_dir:$PATH"\n'
+    } >>"$target"
+    printf 'Configured shell PATH in %s\n' "$target"
+  done
 }
 
 wait_for_daemon_health() {

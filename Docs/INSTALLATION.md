@@ -60,7 +60,7 @@ The default prefix is `~/Library/Application Support/AgenticSecrets/LocalInstall
 ./scripts/install_local.sh --load --configure-shell
 ```
 
-This recommended command installs the app at `~/Applications/AgenticSecrets.app`, keeps runtime files under the local install prefix, loads the LaunchAgent, waits for the broker daemon IPC health check, opens the installed app copy, and appends a guarded PATH block to your user shell config so future shell sessions can run `agentic-secrets` directly. Open a new terminal after installation, or run `source "$HOME/.zshrc"` in the current one.
+This recommended command installs the app at `~/Applications/AgenticSecrets.app`, keeps runtime files under the local install prefix, loads the LaunchAgent, waits for the broker daemon IPC health check, opens the installed app copy, and appends guarded PATH blocks to your user shell startup files so future shell sessions can run `agentic-secrets` directly. For zsh, the installer updates `.zshenv` for non-interactive tool runners, `.zprofile` for login shells, and `.zshrc` for interactive shells. Open a new terminal after installation, or source the relevant startup file in the current one.
 
 For automation or CI where shell startup files must not be touched and the UI should not open, omit `--configure-shell` and pass `--no-open`:
 
@@ -82,17 +82,17 @@ To add the installed commands to your current shell:
 export PATH="$HOME/Library/Application Support/AgenticSecrets/LocalInstall/bin:$PATH"
 ```
 
-To make the command available in future zsh sessions, add the same directory to your user shell config:
+To make the command available in future zsh sessions, add the same directory to your user shell startup files. Non-interactive tool runners read `.zshenv`; login shells read `.zprofile`; interactive terminal shells read `.zshrc`:
 
 ```sh
-cat >> "$HOME/.zshrc" <<'EOF'
+for file in "$HOME/.zshenv" "$HOME/.zprofile" "$HOME/.zshrc"; do
+  cat >> "$file" <<EOF
 
 # Agentic Secrets PATH
-case ":$PATH:" in
-  *":$HOME/Library/Application Support/AgenticSecrets/LocalInstall/bin:"*) ;;
-  *) export PATH="$HOME/Library/Application Support/AgenticSecrets/LocalInstall/bin:$PATH" ;;
-esac
+agentic_secrets_path_dir="$HOME/Library/Application Support/AgenticSecrets/LocalInstall/bin"
+export PATH="\$agentic_secrets_path_dir:\$PATH"
 EOF
+done
 ```
 
 The installer prints these next steps after every install. It opens the installed app by default for the standard user-local prefix; pass `--no-open` to suppress that, or `--open` to force opening when installing to an explicit custom prefix. It only edits shell startup files when `--configure-shell` is passed, and it appends without reading existing shell rc contents. It does not write to `/etc/paths.d`; this keeps the self-build installer user-local, reviewable, and reversible.
@@ -221,7 +221,7 @@ If you want the normal `hcloud ...` command to route through Agentic Secrets, in
 agentic-secrets cli shim install hcloud --configure-shell
 ```
 
-Open a new terminal so the shell picks up the shim PATH block, then verify command resolution:
+Open a new terminal or restart the tool runner so the shell picks up the shim PATH block, then verify command resolution. If Codex, Claude Code, or another agent app was already running during registration, restart that agent app before using `hcloud` from it.
 
 ```sh
 command -v hcloud
