@@ -2,54 +2,87 @@ import AppKit
 import Foundation
 
 let outputURL = URL(fileURLWithPath: CommandLine.arguments.dropFirst().first ?? "packaging/AgenticSecrets.icns")
+let sourcePath = ProcessInfo.processInfo.environment["AGENTIC_SECRETS_ICON_SOURCE_PATH"] ?? "packaging/AgenticSecretsIconSource.png"
+let sourceURL = URL(fileURLWithPath: sourcePath)
 let iconsetURL = outputURL.deletingPathExtension().appendingPathExtension("iconset")
+
+guard FileManager.default.fileExists(atPath: sourceURL.path) else {
+    fputs("Missing icon source PNG: \(sourceURL.path)\n", stderr)
+    exit(1)
+}
+
+guard let sourceImage = NSImage(contentsOf: sourceURL) else {
+    fputs("Could not load icon source PNG: \(sourceURL.path)\n", stderr)
+    exit(1)
+}
+
 try? FileManager.default.removeItem(at: iconsetURL)
 try FileManager.default.createDirectory(at: iconsetURL, withIntermediateDirectories: true)
 
-func drawIcon(size: CGFloat) -> NSImage {
-    let image = NSImage(size: NSSize(width: size, height: size))
-    image.lockFocus()
-    defer { image.unlockFocus() }
+func sourceBitmap(from image: NSImage) throws -> NSBitmapImageRep {
+    guard
+        let tiff = image.tiffRepresentation,
+        let bitmap = NSBitmapImageRep(data: tiff)
+    else {
+        throw CocoaError(.fileReadCorruptFile)
+    }
+    return bitmap
+}
 
-    NSColor(calibratedRed: 0.07, green: 0.09, blue: 0.11, alpha: 1).setFill()
-    NSBezierPath(roundedRect: NSRect(x: 0, y: 0, width: size, height: size), xRadius: size * 0.22, yRadius: size * 0.22).fill()
-
-    NSColor(calibratedRed: 0.18, green: 0.68, blue: 0.56, alpha: 1).setFill()
-    let shield = NSBezierPath()
-    shield.move(to: NSPoint(x: size * 0.5, y: size * 0.86))
-    shield.curve(to: NSPoint(x: size * 0.22, y: size * 0.72), controlPoint1: NSPoint(x: size * 0.4, y: size * 0.82), controlPoint2: NSPoint(x: size * 0.31, y: size * 0.77))
-    shield.curve(to: NSPoint(x: size * 0.34, y: size * 0.2), controlPoint1: NSPoint(x: size * 0.22, y: size * 0.48), controlPoint2: NSPoint(x: size * 0.26, y: size * 0.3))
-    shield.curve(to: NSPoint(x: size * 0.5, y: size * 0.1), controlPoint1: NSPoint(x: size * 0.39, y: size * 0.15), controlPoint2: NSPoint(x: size * 0.45, y: size * 0.12))
-    shield.curve(to: NSPoint(x: size * 0.66, y: size * 0.2), controlPoint1: NSPoint(x: size * 0.55, y: size * 0.12), controlPoint2: NSPoint(x: size * 0.61, y: size * 0.15))
-    shield.curve(to: NSPoint(x: size * 0.78, y: size * 0.72), controlPoint1: NSPoint(x: size * 0.74, y: size * 0.3), controlPoint2: NSPoint(x: size * 0.78, y: size * 0.48))
-    shield.curve(to: NSPoint(x: size * 0.5, y: size * 0.86), controlPoint1: NSPoint(x: size * 0.69, y: size * 0.77), controlPoint2: NSPoint(x: size * 0.6, y: size * 0.82))
-    shield.close()
-    shield.fill()
-
-    NSColor.white.withAlphaComponent(0.92).setFill()
-    let font = NSFont.systemFont(ofSize: size * 0.28, weight: .semibold)
-    let attributes: [NSAttributedString.Key: Any] = [
-        .font: font,
-        .foregroundColor: NSColor.white
-    ]
-    let text = "AF" as NSString
-    let textSize = text.size(withAttributes: attributes)
-    text.draw(
-        at: NSPoint(x: (size - textSize.width) / 2, y: size * 0.42 - textSize.height / 2),
-        withAttributes: attributes
+func drawResizedIcon(from image: NSImage, pixelSize: Int) throws -> NSBitmapImageRep {
+    let source = try sourceBitmap(from: image)
+    let sourceWidth = source.pixelsWide
+    let sourceHeight = source.pixelsHigh
+    let cropSide = min(sourceWidth, sourceHeight)
+    let crop = CGRect(
+        x: CGFloat(sourceWidth - cropSide) / 2,
+        y: CGFloat(sourceHeight - cropSide) / 2,
+        width: CGFloat(cropSide),
+        height: CGFloat(cropSide)
     )
 
-    return image
+    guard let output = NSBitmapImageRep(
+        bitmapDataPlanes: nil,
+        pixelsWide: pixelSize,
+        pixelsHigh: pixelSize,
+        bitsPerSample: 8,
+        samplesPerPixel: 4,
+        hasAlpha: true,
+        isPlanar: false,
+        colorSpaceName: .deviceRGB,
+        bytesPerRow: 0,
+        bitsPerPixel: 0
+    ) else {
+        throw CocoaError(.fileWriteUnknown)
+    }
+    output.size = NSSize(width: pixelSize, height: pixelSize)
+
+    guard let context = NSGraphicsContext(bitmapImageRep: output) else {
+        throw CocoaError(.fileWriteUnknown)
+    }
+
+    NSGraphicsContext.saveGraphicsState()
+    NSGraphicsContext.current = context
+    context.imageInterpolation = .high
+    NSColor.white.setFill()
+    NSBezierPath(rect: CGRect(x: 0, y: 0, width: pixelSize, height: pixelSize)).fill()
+    source.draw(
+        in: CGRect(x: 0, y: 0, width: pixelSize, height: pixelSize),
+        from: crop,
+        operation: .copy,
+        fraction: 1,
+        respectFlipped: false,
+        hints: [.interpolation: NSImageInterpolation.high]
+    )
+    NSGraphicsContext.restoreGraphicsState()
+
+    return output
 }
 
 func writePNG(size: Int, scale: Int, name: String) throws {
     let pixelSize = size * scale
-    let image = drawIcon(size: CGFloat(pixelSize))
-    guard
-        let tiff = image.tiffRepresentation,
-        let bitmap = NSBitmapImageRep(data: tiff),
-        let png = bitmap.representation(using: .png, properties: [:])
-    else {
+    let bitmap = try drawResizedIcon(from: sourceImage, pixelSize: pixelSize)
+    guard let png = bitmap.representation(using: .png, properties: [.compressionFactor: 0.92]) else {
         throw CocoaError(.fileWriteUnknown)
     }
     try png.write(to: iconsetURL.appendingPathComponent(name))

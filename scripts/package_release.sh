@@ -54,7 +54,10 @@ for product in $PRODUCTS; do
   chmod +x "$MACOS/$product"
 done
 
-if [ ! -f "$ICON_PATH" ]; then
+if [ -n "${AGENTIC_SECRETS_ICON_PATH:-}" ]; then
+  test -f "$ICON_PATH"
+else
+  rm -rf "$ICON_PATH" "${ICON_PATH%.icns}.iconset"
   swift "$ROOT/packaging/make_icon.swift" "$ICON_PATH"
   iconutil -c icns "${ICON_PATH%.icns}.iconset" -o "$ICON_PATH"
 fi
