@@ -15,6 +15,8 @@ public struct AuditEvent: Codable, Equatable, Sendable {
     public var actionClass: String
     public var targetIdentity: String
     public var workspaceHash: String
+    public var originHint: String
+    public var provenanceConfidence: ProvenanceConfidence
     public var delivery: DeliveryMode
     public var policyEpoch: Int
     public var approval: String
@@ -32,6 +34,8 @@ public struct AuditEvent: Codable, Equatable, Sendable {
         actionClass: String,
         targetIdentity: String = "",
         workspaceHash: String = "",
+        originHint: String = "",
+        provenanceConfidence: ProvenanceConfidence = .none,
         delivery: DeliveryMode,
         policyEpoch: Int,
         approval: String,
@@ -48,6 +52,8 @@ public struct AuditEvent: Codable, Equatable, Sendable {
         self.actionClass = actionClass
         self.targetIdentity = targetIdentity
         self.workspaceHash = workspaceHash
+        self.originHint = originHint
+        self.provenanceConfidence = provenanceConfidence
         self.delivery = delivery
         self.policyEpoch = policyEpoch
         self.approval = approval
@@ -76,6 +82,8 @@ public struct AuditEvent: Codable, Equatable, Sendable {
             actionClass: manifest.actionClass,
             targetIdentity: manifest.target.identity,
             workspaceHash: manifest.workspace.canonicalHash,
+            originHint: manifest.origin.hint,
+            provenanceConfidence: manifest.origin.provenanceConfidence,
             delivery: manifest.secret.delivery,
             policyEpoch: policyEpoch,
             approval: approval.rawValue,

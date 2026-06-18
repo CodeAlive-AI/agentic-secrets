@@ -5,18 +5,65 @@ public struct ShimRequest: Codable, Equatable, Sendable {
     public var arguments: [String]
     public var parentEnvironment: [String: String]
     public var workspace: String
-    public var parentApp: String
+    public var originHint: String
     public var peerIdentity: String
     public var injectorIdentity: String
 
-    public init(invokedName: String, arguments: [String], parentEnvironment: [String: String], workspace: String, parentApp: String, peerIdentity: String, injectorIdentity: String) {
+    public init(invokedName: String, arguments: [String], parentEnvironment: [String: String], workspace: String, originHint: String, peerIdentity: String, injectorIdentity: String) {
         self.invokedName = invokedName
         self.arguments = arguments
         self.parentEnvironment = parentEnvironment
         self.workspace = workspace
-        self.parentApp = parentApp
+        self.originHint = originHint
         self.peerIdentity = peerIdentity
         self.injectorIdentity = injectorIdentity
+    }
+}
+
+public struct ShimExecPlanIPCRequest: Codable, Equatable, Sendable {
+    public var invokedName: String
+    public var arguments: [String]
+    public var workspace: String
+    public var originHint: String
+    public var parentEnvironmentKeys: [String]
+
+    public init(
+        invokedName: String,
+        arguments: [String],
+        workspace: String,
+        originHint: String,
+        parentEnvironmentKeys: [String]
+    ) {
+        self.invokedName = invokedName
+        self.arguments = arguments
+        self.workspace = workspace
+        self.originHint = originHint
+        self.parentEnvironmentKeys = parentEnvironmentKeys.sorted()
+    }
+}
+
+public struct ShimExecPlanIPCResponse: Codable, Equatable, Sendable {
+    public var commandName: String
+    public var targetPath: String
+    public var argv: [String]
+    public var manifests: [DecisionManifest]
+    public var provenanceConfidence: ProvenanceConfidence
+    public var parentEnvironmentKeys: [String]
+
+    public init(
+        commandName: String,
+        targetPath: String,
+        argv: [String],
+        manifests: [DecisionManifest],
+        provenanceConfidence: ProvenanceConfidence,
+        parentEnvironmentKeys: [String]
+    ) {
+        self.commandName = commandName
+        self.targetPath = targetPath
+        self.argv = argv
+        self.manifests = manifests
+        self.provenanceConfidence = provenanceConfidence
+        self.parentEnvironmentKeys = parentEnvironmentKeys.sorted()
     }
 }
 
@@ -77,7 +124,7 @@ public struct ShimExecutionPlanner: Sendable {
 
         let command = classifier.classify(executableName: commandName, arguments: request.arguments)
         let target = try targetAssessor.assess(path: targetPolicy.targetPath)
-        let intent = DeliveryIntent(flow: .cliEnv, secretAlias: targetPolicy.secretAlias, delivery: .env, environmentName: targetPolicy.environmentName, workspace: request.workspace, parentApp: request.parentApp)
+        let intent = DeliveryIntent(flow: .cliEnv, secretAlias: targetPolicy.secretAlias, delivery: .env, environmentName: targetPolicy.environmentName, workspace: request.workspace, originHint: request.originHint)
         let manifest = DecisionManifestFactory().make(command: command, intent: intent, target: target)
 
         let requestedApproval: ApprovalOption = manifest.approvalOptions.contains(.once) ? .once : .deny
@@ -109,7 +156,7 @@ public struct ShimExecutionPlanner: Sendable {
             targetIdentity: target.identity,
             actionClass: command.actionClass,
             workspace: request.workspace,
-            parentApp: request.parentApp,
+            originHint: request.originHint,
             policyEpoch: policyState.epoch,
             injectionMode: .env
         )

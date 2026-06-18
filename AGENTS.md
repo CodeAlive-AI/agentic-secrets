@@ -107,7 +107,7 @@ The core daemon serves the local control plane over a Unix domain socket. Helper
 
 On macOS Tahoe, the self-build track avoids restricted entitlements so ad-hoc signed binaries can execute normally. The core daemon stores local secret material in an owner-only encrypted file store gated by LocalAuthentication; no shared Keychain access group is required for the self-build track. Registered CLI trust metadata is protected by a device-local macOS Keychain integrity key so hand-edited registry files fail closed before any secret is resolved.
 
-CLI runs may reuse a short scoped unlock grant after successful LocalAuthentication. The default TTL is 300 seconds, the max is 900 seconds, and the scope includes CLI name, target identity, workspace hash, action class, parent app, delivery mode, and secret alias. Grants must never contain secret values.
+CLI runs may reuse a short scoped unlock grant after successful LocalAuthentication. The default TTL is 300 seconds, the max is 900 seconds, and the scope includes CLI name, target identity, workspace hash, action class, command digest, risk, config context, untrusted origin hint, provenance confidence, delivery mode, and secret alias. Grants must never contain secret values.
 
 ## Release Evidence
 

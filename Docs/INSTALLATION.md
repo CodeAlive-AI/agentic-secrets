@@ -194,7 +194,7 @@ AgenticFortress prints its own diagnostics to stderr, requests local authenticat
 "$PREFIX/bin/agentic-fortress" cli run hcloud --quiet -- server list
 ```
 
-After a successful prompt, AgenticFortress writes a short local unlock grant so repeated matching runs do not prompt every time. The default CLI unlock TTL is 300 seconds. The grant stores no secret value; it is an HMAC-signed scope record bound to CLI name, target identity, workspace hash, parent app, delivery mode, and secret alias. Each command is still policy-checked before secret delivery.
+After a successful prompt, AgenticFortress writes a short local unlock grant so repeated matching runs do not prompt every time. The default CLI unlock TTL is 300 seconds. The grant stores no secret value; it is an HMAC-signed scope record bound to CLI name, target identity, workspace hash, action class, command digest, risk, config context, untrusted origin hint, provenance confidence, delivery mode, and secret alias. Each command is still policy-checked before secret delivery.
 
 Override the TTL for one run:
 
@@ -208,7 +208,7 @@ Disable the unlock window and require local authentication every time:
 "$PREFIX/bin/agentic-fortress" cli run hcloud --unlock-ttl-seconds 0 -- server list
 ```
 
-The maximum accepted TTL is 900 seconds. Changing target identity, workspace, parent app, delivery mode, or secret alias produces a different unlock scope and requires a fresh local authentication prompt.
+The maximum accepted TTL is 900 seconds. Changing target identity, workspace, action class, command shape, config context, origin hint, provenance confidence, delivery mode, or secret alias produces a different unlock scope and requires a fresh local authentication prompt.
 
 ### Optional hcloud Shim
 

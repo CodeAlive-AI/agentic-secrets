@@ -38,13 +38,15 @@ struct AgenticFortressCLI {
             }
             let normalized = CommandClassifier().classify(executableName: executable, arguments: Array(args.dropFirst()))
             let target = TargetAssessor().synthetic(path: "/opt/homebrew/bin/\(executable)", identity: "sha256:\(shortDigest(executable))")
+            let origin = ProcessOriginHint.current()
             let intent = DeliveryIntent(
                 flow: .cliEnv,
                 secretAlias: "cloud.hcloud.dev",
                 delivery: .env,
                 environmentName: "HCLOUD_TOKEN",
                 workspace: FileManager.default.currentDirectoryPath,
-                parentApp: ProcessInfo.processInfo.environment["TERM_PROGRAM"] ?? "unknown"
+                originHint: origin.displayName,
+                provenanceConfidence: origin.provenanceConfidence
             )
             let manifest = DecisionManifestFactory().make(command: normalized, intent: intent, target: target)
             print(try AgenticFortressJSON.encodePretty(manifest))

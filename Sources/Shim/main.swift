@@ -42,7 +42,11 @@ struct AgenticFortressShim {
     }
 
     private static func runThroughFortress(name: String, arguments: [String]) throws -> Never {
-        try runProcess(executable: try cliPath(), arguments: ["cli", "run", name, "--"] + arguments, environment: ProcessInfo.processInfo.environment)
+        try runProcess(
+            executable: try coreDaemonPath(),
+            arguments: ["run-cli", "--name", name, "--state-dir", defaultStateDirectory().path, "--"] + arguments,
+            environment: ProcessInfo.processInfo.environment
+        )
     }
 
     private static func runProcess(executable: String, arguments: [String], environment: [String: String]) throws -> Never {
@@ -90,26 +94,25 @@ struct AgenticFortressShim {
         return args[valueIndex]
     }
 
-    private static func cliPath() throws -> String {
-        if let override = ProcessInfo.processInfo.environment["AGENTIC_FORTRESS_CLI_BINARY"], !override.isEmpty {
+    private static func coreDaemonPath() throws -> String {
+        if let override = ProcessInfo.processInfo.environment["AGENTIC_FORTRESS_CORE_BINARY"], !override.isEmpty {
             return override
         }
-        for candidate in cliCandidateURLs() where FileManager.default.isExecutableFile(atPath: candidate.path) {
+        for candidate in coreDaemonCandidateURLs() where FileManager.default.isExecutableFile(atPath: candidate.path) {
             return candidate.path
         }
-        throw ShimCLIError.missingArgument("agentic-fortress sibling binary or AGENTIC_FORTRESS_CLI_BINARY")
+        throw ShimCLIError.missingArgument("agentic-fortressd-core sibling binary or AGENTIC_FORTRESS_CORE_BINARY")
     }
 
-    private static func cliCandidateURLs() -> [URL] {
+    private static func coreDaemonCandidateURLs() -> [URL] {
         var candidates: [URL] = []
         for executable in executableCandidateURLs() {
             let directory = executable.deletingLastPathComponent()
-            candidates.append(directory.appendingPathComponent("agentic-fortress"))
-            candidates.append(directory.appendingPathComponent("AgenticFortress"))
+            candidates.append(directory.appendingPathComponent("agentic-fortressd-core"))
             if directory.lastPathComponent == "shims" {
                 let prefix = directory.deletingLastPathComponent()
-                candidates.append(prefix.appendingPathComponent("bin/agentic-fortress"))
-                candidates.append(prefix.appendingPathComponent("bin/AgenticFortress"))
+                candidates.append(prefix.appendingPathComponent("bin/agentic-fortressd-core"))
+                candidates.append(prefix.appendingPathComponent("Applications/AgenticFortress.app/Contents/MacOS/agentic-fortressd-core"))
             }
         }
         var seen = Set<String>()

@@ -108,19 +108,20 @@ struct AgenticFortressCoreDaemon {
         var injectedValues: [String: String] = [:]
         let unlockGrants = CLIUnlockGrantStore(url: layout.cliUnlockGrantsURL, keyURL: layout.cliUnlockKeyURL)
         for binding in registration.environmentBindings {
-            let parentApp = ProcessInfo.processInfo.environment["TERM_PROGRAM"] ?? "unknown"
+            let origin = ProcessOriginHint.current()
             let intent = DeliveryIntent(
                 flow: .cliEnv,
                 secretAlias: binding.secretAlias,
                 delivery: .env,
                 environmentName: binding.environmentName,
                 workspace: FileManager.default.currentDirectoryPath,
-                parentApp: parentApp
+                originHint: origin.displayName,
+                provenanceConfidence: origin.provenanceConfidence
             )
             let manifest = DecisionManifestFactory().make(command: command, intent: intent, target: target)
             try authorizeCLIRun(command: command, intent: intent, target: target)
-            let unlockScope = CLIUnlockScope(manifest: manifest).withParentApp(parentApp)
-            let cachedGrant = unlockTTL > 0 ? try unlockGrants.validGrant(scope: unlockScope) : nil
+            let unlockScope = CLIUnlockScope(manifest: manifest)
+            let cachedGrant = unlockTTL > 0 && CLIUnlockGrantPolicy.allowsReuse(scope: unlockScope) ? try unlockGrants.validGrant(scope: unlockScope) : nil
             let session = ApprovalSession(
                 id: "run_" + shortDigest(UUID().uuidString, length: 16),
                 manifestDigest: manifest.digest,
@@ -142,7 +143,7 @@ struct AgenticFortressCoreDaemon {
                 approvedFor: session,
                 localAuthentication: cachedGrant == nil ? .required : .alreadySatisfied
             )
-            if cachedGrant == nil, unlockTTL > 0 {
+            if cachedGrant == nil, unlockTTL > 0, CLIUnlockGrantPolicy.allowsReuse(scope: unlockScope) {
                 try unlockGrants.grant(scope: unlockScope, ttl: unlockTTL)
             }
             material.withUTF8String { value in
@@ -270,7 +271,8 @@ struct AgenticFortressCoreDaemon {
                 delivery: .env,
                 environmentName: "AGENTIC_FORTRESS_SMOKE_SECRET",
                 workspace: FileManager.default.currentDirectoryPath,
-                parentApp: ProcessInfo.processInfo.environment["TERM_PROGRAM"] ?? "unknown"
+                originHint: ProcessOriginHint.current().displayName,
+                provenanceConfidence: ProcessOriginHint.current().provenanceConfidence
             ),
             target: target
         )

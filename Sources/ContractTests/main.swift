@@ -61,6 +61,18 @@ func expectThrows<E: Error & Equatable>(_ expected: E, _ body: () throws -> Void
     throw ContractTestFailure(message: "\(message): expected error \(expected)")
 }
 
+func currentProcessExecutablePath() -> String {
+    var buffer = [CChar](repeating: 0, count: 4096)
+    let length = proc_pidpath(getpid(), &buffer, UInt32(buffer.count))
+    if length > 0 {
+        return buffer.withUnsafeBufferPointer { pointer in
+            let bytes = pointer.prefix { $0 != 0 }.map { UInt8(bitPattern: $0) }
+            return String(decoding: bytes, as: UTF8.self)
+        }
+    }
+    return Bundle.main.executableURL?.path ?? CommandLine.arguments[0]
+}
+
 func binding(actionClass: String = "hcloud.server.list", policyEpoch: Int = 1) -> InvocationBinding {
     InvocationBinding(
         peerIdentity: "peer:agentic-fortress-shim",
@@ -68,7 +80,7 @@ func binding(actionClass: String = "hcloud.server.list", policyEpoch: Int = 1) -
         targetIdentity: "sha256:hcloud",
         actionClass: actionClass,
         workspace: "/tmp/infra",
-        parentApp: "Codex",
+        originHint: "Codex",
         policyEpoch: policyEpoch,
         injectionMode: .env
     )
@@ -104,7 +116,7 @@ func runContracts() throws {
     let destructive = classifier.classify(executableName: "hcloud", arguments: ["server", "delete", "prod-db-01"], observedVersion: "1.52.0")
     let destructiveManifest = DecisionManifestFactory().make(
         command: destructive,
-        intent: DeliveryIntent(flow: .cliEnv, secretAlias: "cloud.hcloud.dev", delivery: .env, environmentName: "HCLOUD_TOKEN", workspace: "/tmp/infra", parentApp: "Codex"),
+        intent: DeliveryIntent(flow: .cliEnv, secretAlias: "cloud.hcloud.dev", delivery: .env, environmentName: "HCLOUD_TOKEN", workspace: "/tmp/infra", originHint: "Codex"),
         target: TargetAssessor().synthetic(path: "/opt/homebrew/bin/hcloud")
     )
     try expect(destructiveManifest.approvalOptions == [.once, .deny], "destructive actions must offer one-time approval only")
@@ -122,17 +134,17 @@ func runContracts() throws {
     let forbiddenCommand = forbiddenClassifier.classify(executableName: "hcloud", arguments: ["server", "delete", "prod-db-01"], observedVersion: "1.52.0")
     let forbiddenManifest = DecisionManifestFactory().make(
         command: forbiddenCommand,
-        intent: DeliveryIntent(flow: .cliEnv, secretAlias: "cloud.hcloud.dev", delivery: .env, environmentName: "HCLOUD_TOKEN", workspace: "/tmp/infra", parentApp: "Codex"),
+        intent: DeliveryIntent(flow: .cliEnv, secretAlias: "cloud.hcloud.dev", delivery: .env, environmentName: "HCLOUD_TOKEN", workspace: "/tmp/infra", originHint: "Codex"),
         target: TargetAssessor().synthetic(path: "/opt/homebrew/bin/hcloud")
     )
     try expect(forbiddenManifest.approvalOptions == [.deny], "forbidden command policy must expose deny-only approval options")
     try expectThrows(PolicyError.forbiddenCommand("delete"), {
-        _ = try PolicyEngine().authorize(command: forbiddenCommand, intent: DeliveryIntent(flow: .cliEnv, secretAlias: "cloud.hcloud.dev", delivery: .env, environmentName: "HCLOUD_TOKEN", workspace: "/tmp/infra", parentApp: "Codex"), target: TargetAssessor().synthetic(path: "/opt/homebrew/bin/hcloud"), approval: .once, state: PolicyState())
+        _ = try PolicyEngine().authorize(command: forbiddenCommand, intent: DeliveryIntent(flow: .cliEnv, secretAlias: "cloud.hcloud.dev", delivery: .env, environmentName: "HCLOUD_TOKEN", workspace: "/tmp/infra", originHint: "Codex"), target: TargetAssessor().synthetic(path: "/opt/homebrew/bin/hcloud"), approval: .once, state: PolicyState())
     }, "forbidden command policy must block policy authorization")
 
     let approvalManifest = DecisionManifestFactory().make(
         command: hcloudRead,
-        intent: DeliveryIntent(flow: .cliEnv, secretAlias: "cloud.hcloud.dev", delivery: .env, environmentName: "HCLOUD_TOKEN", workspace: "/tmp/infra", parentApp: "Codex"),
+        intent: DeliveryIntent(flow: .cliEnv, secretAlias: "cloud.hcloud.dev", delivery: .env, environmentName: "HCLOUD_TOKEN", workspace: "/tmp/infra", originHint: "Codex"),
         target: TargetAssessor().synthetic(path: "/opt/homebrew/bin/hcloud")
     )
     let approvalStore = ApprovalSessionStore()
@@ -144,7 +156,7 @@ func runContracts() throws {
     }, "approval session must expire")
     let digestMismatchManifest = DecisionManifestFactory().make(
         command: hcloudRead,
-        intent: DeliveryIntent(flow: .cliEnv, secretAlias: "cloud.hcloud.dev", delivery: .env, environmentName: "HCLOUD_TOKEN", workspace: "/tmp/other", parentApp: "Codex"),
+        intent: DeliveryIntent(flow: .cliEnv, secretAlias: "cloud.hcloud.dev", delivery: .env, environmentName: "HCLOUD_TOKEN", workspace: "/tmp/other", originHint: "Codex"),
         target: TargetAssessor().synthetic(path: "/opt/homebrew/bin/hcloud")
     )
     let secondApproval = approvalStore.create(manifest: approvalManifest, policyEpoch: 3, ttl: 10, now: Date(timeIntervalSince1970: 20))
@@ -166,6 +178,8 @@ func runContracts() throws {
     try expectThrows(XPCPeerValidationError.debugSignedRejected, {
         try XPCPeerValidator.validate(peer: XPCPeerIdentity(teamID: "TEAMID1234", bundleID: "com.agenticfortress.shim", version: "1.2.1", hardenedRuntime: true, debugSigned: true), requirement: peerRequirement)
     }, "XPC peer validator must reject debug-signed helpers by default")
+    try expect(ProcessOriginHint.displayName(forExecutablePath: "/Applications/Codex.app/Contents/MacOS/Codex") == "Codex", "process origin hint must render .app bundle name")
+    try expect(ProcessOriginHint.current(environment: ["TERM_PROGRAM": "Codex.app"]).displayName == "Codex", "process origin hint must normalize TERM_PROGRAM app names for prompt display")
 
     let helperRoot = URL(fileURLWithPath: NSTemporaryDirectory()).appendingPathComponent("agentic-fortress-helper-\(UUID().uuidString)")
     let helperPath = helperRoot.appendingPathComponent("agentic-fortress-shim")
@@ -224,29 +238,61 @@ func runContracts() throws {
     try expectThrows(CoreIPCError.malformedPayload, {
         _ = try CoreIPCCodec.decodeRequest(Data("{".utf8))
     }, "IPC codec must reject malformed requests")
-    let ipcSocket = "/tmp/af-\(shortDigest(UUID().uuidString, length: 10)).sock"
-    try? FileManager.default.removeItem(atPath: ipcSocket)
-    let serverDone = DispatchSemaphore(value: 0)
-    let serverError = ErrorBox()
-    DispatchQueue.global().async {
-        do {
-            try UnixDomainSocketIPCServer(
-                socketPath: ipcSocket,
-                handler: CoreIPCHandler(authorizer: ipcAuthorizer)
-            ).serveOnce()
-        } catch {
-            serverError.set(error)
+    func serveIPCOnce(socketPath: String, authorizer: CoreIPCAuthorizer) -> (DispatchSemaphore, ErrorBox) {
+        try? FileManager.default.removeItem(atPath: socketPath)
+        let serverDone = DispatchSemaphore(value: 0)
+        let serverError = ErrorBox()
+        DispatchQueue.global().async {
+            do {
+                try UnixDomainSocketIPCServer(
+                    socketPath: socketPath,
+                    handler: CoreIPCHandler(authorizer: authorizer)
+                ).serveOnce()
+            } catch {
+                serverError.set(error)
+            }
+            serverDone.signal()
         }
-        serverDone.signal()
+        for _ in 0..<100 where !FileManager.default.fileExists(atPath: socketPath) {
+            Thread.sleep(forTimeInterval: 0.01)
+        }
+        return (serverDone, serverError)
     }
-    for _ in 0..<100 where !FileManager.default.fileExists(atPath: ipcSocket) {
-        Thread.sleep(forTimeInterval: 0.01)
-    }
-    let ipcResponse = try UnixDomainSocketIPCClient(socketPath: ipcSocket).send(ipcRequest)
-    try expect(ipcResponse.ok, "Unix socket IPC health response must succeed")
+
+    let forgedSocket = "/tmp/af-forged-\(shortDigest(UUID().uuidString, length: 10)).sock"
+    let (forgedServerDone, forgedServerError) = serveIPCOnce(socketPath: forgedSocket, authorizer: ipcAuthorizer)
+    let forgedIPCResponse = try UnixDomainSocketIPCClient(socketPath: forgedSocket).send(ipcRequest)
+    try expect(!forgedIPCResponse.ok, "Unix socket IPC must reject forged JSON peer when observed socket peer differs")
+    try expect(forgedIPCResponse.error?.contains("wrongPath") == true || forgedIPCResponse.error?.contains("wrongHash") == true, "forged socket peer rejection must come from observed peer validation")
+    _ = forgedServerDone.wait(timeout: .now() + 2)
+    try expect(forgedServerError.get() == nil, "Unix socket IPC forged-peer server must complete without transport error")
+
+    let actualPeer = try SelfBuildPeerValidator.identity(
+        helperName: "agentic-fortress-contract-tests",
+        path: currentProcessExecutablePath(),
+        version: "1.2.1"
+    )
+    let actualRequirement = SelfBuildPeerRequirement(
+        helperName: actualPeer.helperName,
+        resolvedPath: actualPeer.resolvedPath,
+        ownerUserID: actualPeer.ownerUserID,
+        minimumVersion: "1.2.0",
+        binarySHA256: actualPeer.binarySHA256,
+        cdHash: actualPeer.cdHash,
+        allowDebugSigned: true
+    )
+    let actualInstallManifest = InstallManifest(appVersion: "1.2.1", prefix: helperRoot.path, installedAt: Date(timeIntervalSince1970: 0), helpers: [actualRequirement])
+    let actualIPCAuthorizer = CoreIPCAuthorizer(installManifest: actualInstallManifest)
+    let actualIPCRequest = CoreIPCRequest(requestID: "req_socket_actual", operation: .health, peer: actualPeer)
+    let ipcSocket = "/tmp/af-\(shortDigest(UUID().uuidString, length: 10)).sock"
+    let (serverDone, serverError) = serveIPCOnce(socketPath: ipcSocket, authorizer: actualIPCAuthorizer)
+    let ipcResponse = try UnixDomainSocketIPCClient(socketPath: ipcSocket).send(actualIPCRequest)
+    try expect(ipcResponse.ok, "Unix socket IPC health response must succeed for observed socket peer: \(ipcResponse.error ?? "missing error")")
     try expect(String(decoding: ipcResponse.payload, as: UTF8.self).contains("\"status\" : \"ok\""), "Unix socket IPC health payload must come from core handler")
     _ = serverDone.wait(timeout: .now() + 2)
     try expect(serverError.get() == nil, "Unix socket IPC server must complete without error")
+    let collectedEvidence = UnixSocketPeerEvidence.collect(fromAcceptedSocket: -1)
+    try expect(collectedEvidence.provenanceConfidence == .none, "socket evidence without an accepted fd must fail closed to no provenance")
     let ipcReport = IPCConformanceReport()
     try expect(ipcReport.protocolVersion == CoreIPC.protocolVersion, "IPC conformance must report current protocol version")
     try expect(ipcReport.messageTypes.contains(CoreIPCOperation.createShimExecPlan.rawValue), "IPC conformance must list shim exec plan operation")
@@ -258,6 +304,28 @@ func runContracts() throws {
         .appendingPathComponent("agentic-fortress-management-\(UUID().uuidString)", isDirectory: true)
     defer { try? FileManager.default.removeItem(at: managementRoot) }
     let managementService = CoreManagementService(stateDirectory: managementRoot)
+    _ = try managementService.registerCLI(ManagementCLIRegistrationRequest(
+        name: "demo",
+        targetPath: "/bin/echo",
+        environmentSecrets: ["DEMO_SECRET": "synthetic-demo-registration-value"]
+    ))
+    let shimPlanPayload = try JSONEncoder().encode(ShimExecPlanIPCRequest(
+        invokedName: "/tmp/spoofable/demo",
+        arguments: ["hello"],
+        workspace: "/tmp/infra",
+        originHint: "Codex",
+        parentEnvironmentKeys: ["PATH", "DEMO_SECRET"]
+    ))
+    let shimPlanIPCResponse = try CoreIPCHandler(authorizer: actualIPCAuthorizer, management: managementService).handle(
+        CoreIPCRequest(requestID: "req_shim_plan", operation: .createShimExecPlan, peer: actualPeer, payload: shimPlanPayload),
+        observedPeer: actualPeer
+    )
+    try expect(shimPlanIPCResponse.ok, "authorized IPC shim exec plan must succeed")
+    let shimPlan = try JSONDecoder().decode(ShimExecPlanIPCResponse.self, from: shimPlanIPCResponse.payload)
+    try expect(shimPlan.commandName == "demo", "IPC shim exec plan must resolve command name from invoked path")
+    try expect(shimPlan.targetPath == "/bin/echo", "IPC shim exec plan must resolve target path from registry")
+    try expect(shimPlan.manifests.first?.origin.provenanceConfidence == .socketPeer, "IPC shim exec plan must attach socket-peer provenance")
+    try expect(!String(decoding: shimPlanIPCResponse.payload, as: UTF8.self).contains("synthetic-demo-registration-value"), "IPC shim exec plan must not return secret material")
     let replaced = try managementService.replaceSecret(ManagementSecretReplacementRequest(
         alias: "cli.demo.demo_secret",
         value: "synthetic-management-value",
@@ -341,8 +409,10 @@ func runContracts() throws {
     let authReason = LocalAuthenticationGate.reason(for: approvalManifest)
     try expect(authReason.contains(approvalManifest.digest), "LocalAuthentication reason must include manifest digest")
     try expect(authReason.contains("provide HCLOUD_TOKEN to hcloud"), "LocalAuthentication reason must start with a readable approval phrase")
+    try expect(authReason.contains("Parent app: Codex"), "LocalAuthentication reason must include parent app display name")
     try expect(authReason.contains("Command: hcloud server list"), "LocalAuthentication reason must include readable command")
     try expect(authReason.contains("Project: /tmp/infra"), "LocalAuthentication reason must include readable workspace")
+    try expect(authReason.contains("Origin provenance: environment-hint"), "LocalAuthentication reason must label TERM_PROGRAM-style origin as an untrusted hint")
     try expect(!authReason.contains(approvalManifest.secret.alias), "LocalAuthentication reason must not expose raw secret alias")
     try expect(authReason.contains("Secret: HCLOUD_TOKEN"), "LocalAuthentication reason must include target environment name")
     let authProof = LocalAuthenticationProof(manifestDigest: approvalManifest.digest, actionClass: approvalManifest.actionClass, reason: authReason, authenticatedAt: Date(timeIntervalSince1970: 0))
@@ -360,10 +430,18 @@ func runContracts() throws {
         keyURL: unlockRoot.appendingPathComponent("cli-unlock-grants.key"),
         maxTTL: 300
     )
-    let unlockScope = CLIUnlockScope(manifest: approvalManifest).withParentApp("Codex")
+    let unlockScope = CLIUnlockScope(manifest: approvalManifest).withOriginHint("Codex")
+    try expect(unlockScope.actionClass == approvalManifest.actionClass, "CLI unlock scope must include action class")
+    try expect(unlockScope.commandDigest == approvalManifest.commandDigest, "CLI unlock scope must include canonical command digest")
+    try expect(unlockScope.risk == approvalManifest.risk, "CLI unlock scope must include risk")
+    try expect(unlockScope.configContext == approvalManifest.configContext, "CLI unlock scope must include config context")
+    try expect(unlockScope.provenanceConfidence == .environmentHint, "CLI unlock scope must record untrusted environment-hint provenance")
+    try expect(CLIUnlockGrantPolicy.allowsReuse(scope: unlockScope), "CLI unlock policy may reuse grants for read-only scopes")
+    try expect(!CLIUnlockGrantPolicy.allowsReuse(scope: CLIUnlockScope(manifest: destructiveManifest)), "CLI unlock policy must not reuse grants for destructive scopes")
     let unlockGrant = try unlockStore.grant(scope: unlockScope, ttl: 120, now: Date(timeIntervalSince1970: 100))
     let validUnlockGrant = try unlockStore.validGrant(scope: unlockScope, now: Date(timeIntervalSince1970: 150))
     try expect(validUnlockGrant == unlockGrant, "CLI unlock grant must validate within TTL")
+    try expect(validUnlockGrant?.scope?.actionClass == approvalManifest.actionClass, "CLI unlock grant record must retain action-bound scope metadata")
     let expiredUnlockGrant = try unlockStore.validGrant(scope: unlockScope, now: Date(timeIntervalSince1970: 221))
     try expect(expiredUnlockGrant == nil, "CLI unlock grant must expire")
     try expectThrows(CLIUnlockGrantError.invalidTTL, {
@@ -384,13 +462,34 @@ func runContracts() throws {
     let otherReadCommand = classifier.classify(executableName: "hcloud", arguments: ["location", "list"], observedVersion: "1.52.0")
     let otherReadManifest = DecisionManifestFactory().make(
         command: otherReadCommand,
-        intent: DeliveryIntent(flow: .cliEnv, secretAlias: "cloud.hcloud.dev", delivery: .env, environmentName: "HCLOUD_TOKEN", workspace: "/tmp/infra", parentApp: "Codex"),
+        intent: DeliveryIntent(flow: .cliEnv, secretAlias: "cloud.hcloud.dev", delivery: .env, environmentName: "HCLOUD_TOKEN", workspace: "/tmp/infra", originHint: "Codex"),
         target: TargetAssessor().synthetic(path: "/opt/homebrew/bin/hcloud")
     )
     try expect(otherReadManifest.actionClass != approvalManifest.actionClass, "test setup must use a different hcloud action class")
-    let otherUnlockScope = CLIUnlockScope(manifest: otherReadManifest).withParentApp("Codex")
+    let otherUnlockScope = CLIUnlockScope(manifest: otherReadManifest).withOriginHint("Codex")
     let otherActionUnlockGrant = try unlockStore.validGrant(scope: otherUnlockScope, now: Date(timeIntervalSince1970: 301))
-    try expect(otherActionUnlockGrant == secondGrant, "CLI unlock grant must apply across policy-authorized action classes for the same CLI secret scope")
+    try expect(otherActionUnlockGrant == nil, "CLI unlock grant must not apply across different action classes")
+    let destructiveUnlockScope = CLIUnlockScope(manifest: destructiveManifest).withOriginHint("Codex")
+    let destructiveUnlockGrant = try unlockStore.validGrant(scope: destructiveUnlockScope, now: Date(timeIntervalSince1970: 301))
+    try expect(destructiveUnlockGrant == nil, "CLI unlock grant must not apply from read-only action to destructive action")
+    let otherWorkspaceManifest = DecisionManifestFactory().make(
+        command: hcloudRead,
+        intent: DeliveryIntent(flow: .cliEnv, secretAlias: "cloud.hcloud.dev", delivery: .env, environmentName: "HCLOUD_TOKEN", workspace: "/tmp/other", originHint: "Codex"),
+        target: TargetAssessor().synthetic(path: "/opt/homebrew/bin/hcloud")
+    )
+    let otherWorkspaceGrant = try unlockStore.validGrant(scope: CLIUnlockScope(manifest: otherWorkspaceManifest), now: Date(timeIntervalSince1970: 301))
+    try expect(otherWorkspaceGrant == nil, "CLI unlock grant must not apply across workspaces")
+    let spoofedOriginScope = CLIUnlockScope(manifest: approvalManifest).withOriginHint("SpoofedTerminal")
+    let spoofedOriginGrant = try unlockStore.validGrant(scope: spoofedOriginScope, now: Date(timeIntervalSince1970: 301))
+    try expect(spoofedOriginGrant == nil, "CLI unlock grant must not apply across changed origin hints")
+    let customConfigManifest = DecisionManifestFactory().make(
+        command: customConfig,
+        intent: DeliveryIntent(flow: .cliEnv, secretAlias: "cloud.hcloud.dev", delivery: .env, environmentName: "HCLOUD_TOKEN", workspace: "/tmp/infra", originHint: "Codex"),
+        target: TargetAssessor().synthetic(path: "/opt/homebrew/bin/hcloud")
+    )
+    try expect(customConfigManifest.configContext != approvalManifest.configContext, "test setup must produce different config context for custom hcloud config")
+    let customConfigGrant = try unlockStore.validGrant(scope: CLIUnlockScope(manifest: customConfigManifest), now: Date(timeIntervalSince1970: 301))
+    try expect(customConfigGrant == nil, "CLI unlock grant must not apply across custom config context")
     let unlockDecoder = JSONDecoder()
     unlockDecoder.dateDecodingStrategy = .iso8601
     var tamperedUnlockDocument = try unlockDecoder.decode(CLIUnlockGrantDocument.self, from: Data(contentsOf: unlockStore.url))
@@ -631,12 +730,12 @@ func runContracts() throws {
     try "fake hcloud".data(using: .utf8)!.write(to: shimTarget)
     try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: shimRoot.path)
     let shimPolicy = TargetPolicy(commandName: "hcloud", targetPath: shimTarget.path, secretAlias: "cloud.hcloud.dev", environmentName: "HCLOUD_TOKEN")
-    let shimRequest = ShimRequest(invokedName: "/tmp/spoofable/hcloud", arguments: ["server", "list"], parentEnvironment: ["PATH": "/usr/bin", "BWS_ACCESS_TOKEN": "drop-me"], workspace: "/tmp/infra", parentApp: "Codex", peerIdentity: "peer:agentic-fortress-shim", injectorIdentity: "sig:agentic-fortress-shim")
+    let shimRequest = ShimRequest(invokedName: "/tmp/spoofable/hcloud", arguments: ["server", "list"], parentEnvironment: ["PATH": "/usr/bin", "BWS_ACCESS_TOKEN": "drop-me"], workspace: "/tmp/infra", originHint: "Codex", peerIdentity: "peer:agentic-fortress-shim", injectorIdentity: "sig:agentic-fortress-shim")
     let shimCommand = classifier.classify(executableName: "hcloud", arguments: ["server", "list"])
     let shimTargetAssessment = try TargetAssessor().assess(path: shimTarget.path)
     let shimManifest = DecisionManifestFactory().make(
         command: shimCommand,
-        intent: DeliveryIntent(flow: .cliEnv, secretAlias: "cloud.hcloud.dev", delivery: .env, environmentName: "HCLOUD_TOKEN", workspace: "/tmp/infra", parentApp: "Codex"),
+        intent: DeliveryIntent(flow: .cliEnv, secretAlias: "cloud.hcloud.dev", delivery: .env, environmentName: "HCLOUD_TOKEN", workspace: "/tmp/infra", originHint: "Codex"),
         target: shimTargetAssessment
     )
     let shimApprovals = ApprovalSessionStore()
@@ -663,14 +762,14 @@ func runContracts() throws {
     try expect(execPlan.targetPath == shimTarget.path, "shim planner must resolve target from policy, not argv")
     try expect(execPlan.environment["BWS_ACCESS_TOKEN"] == nil, "shim planner must scrub inherited secret-like env")
     try expect(execPlan.environment["HCLOUD_TOKEN"] == "super-secret-token", "shim planner must inject approved secret into fresh env")
-    let execBinding = InvocationBinding(peerIdentity: "peer:agentic-fortress-shim", injectorIdentity: "sig:agentic-fortress-shim", targetIdentity: execPlan.target.identity, actionClass: "hcloud.server.list", workspace: "/tmp/infra", parentApp: "Codex", policyEpoch: 1, injectionMode: .env)
+    let execBinding = InvocationBinding(peerIdentity: "peer:agentic-fortress-shim", injectorIdentity: "sig:agentic-fortress-shim", targetIdentity: execPlan.target.identity, actionClass: "hcloud.server.list", workspace: "/tmp/infra", originHint: "Codex", policyEpoch: 1, injectionMode: .env)
     try shimHandles.consume(execPlan.invocationHandle, expectedBinding: execBinding, now: Date(timeIntervalSince1970: 2))
     try expectThrows(InvocationHandleError.unknown, {
         try shimHandles.consume(execPlan.invocationHandle, expectedBinding: execBinding, now: Date(timeIntervalSince1970: 3))
     }, "shim invocation handle must be single-use")
     try expectThrows(EnvironmentScrubError.targetAlreadyPresent("HCLOUD_TOKEN"), {
         _ = try ShimExecutionPlanner().plan(
-            request: ShimRequest(invokedName: "hcloud", arguments: ["server", "list"], parentEnvironment: ["HCLOUD_TOKEN": "ambient"], workspace: "/tmp/infra", parentApp: "Codex", peerIdentity: "peer:agentic-fortress-shim", injectorIdentity: "sig:agentic-fortress-shim"),
+            request: ShimRequest(invokedName: "hcloud", arguments: ["server", "list"], parentEnvironment: ["HCLOUD_TOKEN": "ambient"], workspace: "/tmp/infra", originHint: "Codex", peerIdentity: "peer:agentic-fortress-shim", injectorIdentity: "sig:agentic-fortress-shim"),
             targetPolicies: [shimPolicy],
             policyState: PolicyState(epoch: 1),
             approvalSessionID: shimApproval.id,
@@ -682,7 +781,7 @@ func runContracts() throws {
     }, "shim planner must fail closed on ambient target env collision")
     try expectThrows(ShimPlannerError.unknownTarget("unknown"), {
         _ = try ShimExecutionPlanner().plan(
-            request: ShimRequest(invokedName: "unknown", arguments: [], parentEnvironment: [:], workspace: "/tmp/infra", parentApp: "Codex", peerIdentity: "peer", injectorIdentity: "sig"),
+            request: ShimRequest(invokedName: "unknown", arguments: [], parentEnvironment: [:], workspace: "/tmp/infra", originHint: "Codex", peerIdentity: "peer", injectorIdentity: "sig"),
             targetPolicies: [shimPolicy],
             policyState: PolicyState(epoch: 1),
             approvalSessionID: shimApproval.id,
@@ -695,13 +794,13 @@ func runContracts() throws {
     let destructiveShimCommand = classifier.classify(executableName: "hcloud", arguments: ["server", "delete", "prod-db-01"])
     let destructiveShimManifest = DecisionManifestFactory().make(
         command: destructiveShimCommand,
-        intent: DeliveryIntent(flow: .cliEnv, secretAlias: "cloud.hcloud.dev", delivery: .env, environmentName: "HCLOUD_TOKEN", workspace: "/tmp/infra", parentApp: "Codex"),
+        intent: DeliveryIntent(flow: .cliEnv, secretAlias: "cloud.hcloud.dev", delivery: .env, environmentName: "HCLOUD_TOKEN", workspace: "/tmp/infra", originHint: "Codex"),
         target: shimTargetAssessment
     )
     let destructiveApproval = shimApprovals.create(manifest: destructiveShimManifest, policyEpoch: 1, ttl: 30, now: Date(timeIntervalSince1970: 0))
     let destructiveAudit = AuditLog()
     let destructivePlan = try ShimExecutionPlanner().plan(
-        request: ShimRequest(invokedName: "hcloud", arguments: ["server", "delete", "prod-db-01"], parentEnvironment: [:], workspace: "/tmp/infra", parentApp: "Codex", peerIdentity: "peer:agentic-fortress-shim", injectorIdentity: "sig:agentic-fortress-shim"),
+        request: ShimRequest(invokedName: "hcloud", arguments: ["server", "delete", "prod-db-01"], parentEnvironment: [:], workspace: "/tmp/infra", originHint: "Codex", peerIdentity: "peer:agentic-fortress-shim", injectorIdentity: "sig:agentic-fortress-shim"),
         targetPolicies: [shimPolicy],
         policyState: PolicyState(epoch: 1),
         approvalSessionID: destructiveApproval.id,
@@ -717,14 +816,14 @@ func runContracts() throws {
     let forbiddenShimCommand = forbiddenShimClassifier.classify(executableName: "hcloud", arguments: ["server", "delete", "prod-db-01"])
     let forbiddenShimManifest = DecisionManifestFactory().make(
         command: forbiddenShimCommand,
-        intent: DeliveryIntent(flow: .cliEnv, secretAlias: "cloud.hcloud.dev", delivery: .env, environmentName: "HCLOUD_TOKEN", workspace: "/tmp/infra", parentApp: "Codex"),
+        intent: DeliveryIntent(flow: .cliEnv, secretAlias: "cloud.hcloud.dev", delivery: .env, environmentName: "HCLOUD_TOKEN", workspace: "/tmp/infra", originHint: "Codex"),
         target: shimTargetAssessment
     )
     let forbiddenShimApproval = shimApprovals.create(manifest: forbiddenShimManifest, policyEpoch: 1, ttl: 30, now: Date(timeIntervalSince1970: 0))
     let forbiddenShimAudit = AuditLog()
     try expectThrows(PolicyError.forbiddenCommand("delete"), {
         _ = try ShimExecutionPlanner(classifier: forbiddenShimClassifier).plan(
-            request: ShimRequest(invokedName: "hcloud", arguments: ["server", "delete", "prod-db-01"], parentEnvironment: [:], workspace: "/tmp/infra", parentApp: "Codex", peerIdentity: "peer:agentic-fortress-shim", injectorIdentity: "sig:agentic-fortress-shim"),
+            request: ShimRequest(invokedName: "hcloud", arguments: ["server", "delete", "prod-db-01"], parentEnvironment: [:], workspace: "/tmp/infra", originHint: "Codex", peerIdentity: "peer:agentic-fortress-shim", injectorIdentity: "sig:agentic-fortress-shim"),
             targetPolicies: [shimPolicy],
             policyState: PolicyState(epoch: 1),
             approvalSessionID: forbiddenShimApproval.id,
@@ -742,13 +841,13 @@ func runContracts() throws {
     let npmCommand = CommandClassifier().classify(executableName: "npm", arguments: ["run", "dev"])
     let npmManifest = DecisionManifestFactory().make(
         command: npmCommand,
-        intent: DeliveryIntent(flow: .cliEnv, secretAlias: "cloud.hcloud.dev", delivery: .env, environmentName: "OPENAI_API_KEY", workspace: "/tmp/infra", parentApp: "Codex"),
+        intent: DeliveryIntent(flow: .cliEnv, secretAlias: "cloud.hcloud.dev", delivery: .env, environmentName: "OPENAI_API_KEY", workspace: "/tmp/infra", originHint: "Codex"),
         target: try TargetAssessor().assess(path: npmTarget.path)
     )
     let npmApproval = shimApprovals.create(manifest: npmManifest, policyEpoch: 1, ttl: 30, now: Date(timeIntervalSince1970: 0))
     try expectThrows(PolicyError.genericEnvDenied, {
         _ = try ShimExecutionPlanner().plan(
-            request: ShimRequest(invokedName: "npm", arguments: ["run", "dev"], parentEnvironment: [:], workspace: "/tmp/infra", parentApp: "Codex", peerIdentity: "peer", injectorIdentity: "sig"),
+            request: ShimRequest(invokedName: "npm", arguments: ["run", "dev"], parentEnvironment: [:], workspace: "/tmp/infra", originHint: "Codex", peerIdentity: "peer", injectorIdentity: "sig"),
             targetPolicies: [npmPolicy],
             policyState: PolicyState(epoch: 1),
             approvalSessionID: npmApproval.id,
@@ -775,7 +874,7 @@ func runContracts() throws {
     try expectThrows(PolicyError.genericEnvDenied, {
         _ = try PolicyEngine().authorize(
             command: generic,
-            intent: DeliveryIntent(flow: .cliEnv, secretAlias: "ai.openai.dev", delivery: .env, environmentName: "OPENAI_API_KEY", workspace: "/tmp/app", parentApp: "Codex"),
+            intent: DeliveryIntent(flow: .cliEnv, secretAlias: "ai.openai.dev", delivery: .env, environmentName: "OPENAI_API_KEY", workspace: "/tmp/app", originHint: "Codex"),
             target: TargetAssessor().synthetic(path: "/opt/homebrew/bin/npm"),
             approval: .once,
             state: PolicyState()
@@ -937,7 +1036,7 @@ func runContracts() throws {
 
     let lease = CryptoLease(
         id: "lease_1",
-        scope: LeaseScope(subject: "hcloud", adapterIdentity: hcloudRead.adapterIdentity!.leaseComponent, secretAlias: "cloud.hcloud.dev", workspaceHash: "hmac:abc", parentApp: "Codex", actionClass: "hcloud.server.list", configContext: "", deliveryMode: .env, targetIdentity: "sha256:hcloud"),
+        scope: LeaseScope(subject: "hcloud", adapterIdentity: hcloudRead.adapterIdentity!.leaseComponent, secretAlias: "cloud.hcloud.dev", workspaceHash: "hmac:abc", originHint: "Codex", actionClass: "hcloud.server.list", configContext: "", deliveryMode: .env, targetIdentity: "sha256:hcloud"),
         risk: .readOnly,
         expiresAt: Date(timeIntervalSince1970: 3600),
         policyEpoch: 1
@@ -963,7 +1062,7 @@ func runContracts() throws {
     }, "policy repository must reject tampered policy database")
     let secretLikeLease = CryptoLease(
         id: "lease_secret",
-        scope: LeaseScope(subject: "hcloud", adapterIdentity: "adapter", secretAlias: "OPENAI_API_KEY=sk-abcdefghijklmnopqrstuvwxyz", workspaceHash: "hmac:abc", parentApp: "Codex", actionClass: "hcloud.server.list", configContext: "", deliveryMode: .env, targetIdentity: "sha256:hcloud"),
+        scope: LeaseScope(subject: "hcloud", adapterIdentity: "adapter", secretAlias: "OPENAI_API_KEY=sk-abcdefghijklmnopqrstuvwxyz", workspaceHash: "hmac:abc", originHint: "Codex", actionClass: "hcloud.server.list", configContext: "", deliveryMode: .env, targetIdentity: "sha256:hcloud"),
         risk: .readOnly,
         expiresAt: Date(timeIntervalSince1970: 3600),
         policyEpoch: 1

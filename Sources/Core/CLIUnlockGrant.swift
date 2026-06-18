@@ -6,7 +6,12 @@ public struct CLIUnlockScope: Codable, Equatable, Sendable {
     public var secretAlias: String
     public var environmentName: String?
     public var workspaceHash: String
-    public var parentApp: String
+    public var originHint: String
+    public var provenanceConfidence: ProvenanceConfidence
+    public var actionClass: String
+    public var commandDigest: String
+    public var risk: RiskLevel
+    public var configContext: String
     public var deliveryMode: DeliveryMode
     public var targetIdentity: String
     public var targetResolvedPath: String
@@ -16,7 +21,12 @@ public struct CLIUnlockScope: Codable, Equatable, Sendable {
         secretAlias: String,
         environmentName: String?,
         workspaceHash: String,
-        parentApp: String,
+        originHint: String,
+        provenanceConfidence: ProvenanceConfidence,
+        actionClass: String,
+        commandDigest: String,
+        risk: RiskLevel,
+        configContext: String,
         deliveryMode: DeliveryMode,
         targetIdentity: String,
         targetResolvedPath: String
@@ -25,7 +35,12 @@ public struct CLIUnlockScope: Codable, Equatable, Sendable {
         self.secretAlias = secretAlias
         self.environmentName = environmentName
         self.workspaceHash = workspaceHash
-        self.parentApp = parentApp
+        self.originHint = originHint
+        self.provenanceConfidence = provenanceConfidence
+        self.actionClass = actionClass
+        self.commandDigest = commandDigest
+        self.risk = risk
+        self.configContext = configContext
         self.deliveryMode = deliveryMode
         self.targetIdentity = targetIdentity
         self.targetResolvedPath = targetResolvedPath
@@ -37,16 +52,21 @@ public struct CLIUnlockScope: Codable, Equatable, Sendable {
             secretAlias: manifest.secret.alias,
             environmentName: manifest.secret.environmentName,
             workspaceHash: manifest.workspace.canonicalHash,
-            parentApp: "",
+            originHint: manifest.origin.hint,
+            provenanceConfidence: manifest.origin.provenanceConfidence,
+            actionClass: manifest.actionClass,
+            commandDigest: manifest.commandDigest,
+            risk: manifest.risk,
+            configContext: manifest.configContext,
             deliveryMode: manifest.secret.delivery,
             targetIdentity: manifest.target.identity,
             targetResolvedPath: manifest.target.resolvedPath
         )
     }
 
-    public func withParentApp(_ parentApp: String) -> CLIUnlockScope {
+    public func withOriginHint(_ originHint: String) -> CLIUnlockScope {
         var copy = self
-        copy.parentApp = parentApp
+        copy.originHint = originHint
         return copy
     }
 }
@@ -54,13 +74,15 @@ public struct CLIUnlockScope: Codable, Equatable, Sendable {
 public struct CLIUnlockGrant: Codable, Equatable, Sendable {
     public var schemaVersion: Int
     public var scopeDigest: String
+    public var scope: CLIUnlockScope?
     public var grantedAt: Date
     public var expiresAt: Date
     public var signature: String
 
-    public init(schemaVersion: Int = 1, scopeDigest: String, grantedAt: Date, expiresAt: Date, signature: String) {
+    public init(schemaVersion: Int = 1, scopeDigest: String, scope: CLIUnlockScope? = nil, grantedAt: Date, expiresAt: Date, signature: String) {
         self.schemaVersion = schemaVersion
         self.scopeDigest = scopeDigest
+        self.scope = scope
         self.grantedAt = grantedAt
         self.expiresAt = expiresAt
         self.signature = signature
@@ -106,6 +128,10 @@ public enum CLIUnlockGrantError: Error, Equatable, CustomStringConvertible {
 public enum CLIUnlockGrantPolicy {
     public static let defaultTTL: TimeInterval = 300
     public static let maxTTL: TimeInterval = 900
+
+    public static func allowsReuse(scope: CLIUnlockScope) -> Bool {
+        scope.risk == .readOnly
+    }
 }
 
 public struct CLIUnlockGrantStore: Sendable {
@@ -143,6 +169,7 @@ public struct CLIUnlockGrantStore: Sendable {
         let digest = try scopeDigest(scope)
         let grant = CLIUnlockGrant(
             scopeDigest: digest,
+            scope: scope,
             grantedAt: now,
             expiresAt: now.addingTimeInterval(ttl),
             signature: try signature(scopeDigest: digest, grantedAt: now, expiresAt: now.addingTimeInterval(ttl))

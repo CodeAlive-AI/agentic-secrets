@@ -82,9 +82,42 @@ public enum CoreIPCError: Error, Equatable {
     case unsupportedVersion(Int)
     case unknownPeer(String)
     case unauthorizedPeer(String)
+    case missingSocketPeerEvidence
     case malformedPayload
     case unsupportedOperation(CoreIPCOperation)
     case socket(String)
+}
+
+public struct UnixSocketPeerEvidence: Codable, Equatable, Sendable {
+    public var effectiveUserID: UInt32
+    public var effectiveGroupID: UInt32
+    public var processID: Int32?
+    public var executablePath: String?
+    public var auditTokenAvailable: Bool
+    public var provenanceConfidence: ProvenanceConfidence
+
+    public init(
+        effectiveUserID: UInt32,
+        effectiveGroupID: UInt32,
+        processID: Int32? = nil,
+        executablePath: String? = nil,
+        auditTokenAvailable: Bool = false,
+        provenanceConfidence: ProvenanceConfidence
+    ) {
+        self.effectiveUserID = effectiveUserID
+        self.effectiveGroupID = effectiveGroupID
+        self.processID = processID
+        self.executablePath = executablePath
+        self.auditTokenAvailable = auditTokenAvailable
+        self.provenanceConfidence = provenanceConfidence
+    }
+
+    public func selfBuildIdentity(helperName: String, version: String) throws -> SelfBuildPeerIdentity {
+        guard let executablePath, !executablePath.isEmpty else {
+            throw CoreIPCError.missingSocketPeerEvidence
+        }
+        return try SelfBuildPeerValidator.identity(helperName: helperName, path: executablePath, version: version)
+    }
 }
 
 public struct CoreIPCAuthorizer: Sendable {
@@ -95,6 +128,10 @@ public struct CoreIPCAuthorizer: Sendable {
     }
 
     public func authorize(_ request: CoreIPCRequest) throws {
+        try authorize(request, observedPeer: nil)
+    }
+
+    public func authorize(_ request: CoreIPCRequest, observedPeer: SelfBuildPeerIdentity?) throws {
         guard request.version == CoreIPC.protocolVersion else {
             throw CoreIPCError.unsupportedVersion(request.version)
         }
@@ -102,7 +139,7 @@ public struct CoreIPCAuthorizer: Sendable {
             throw CoreIPCError.unknownPeer(request.peer.helperName)
         }
         do {
-            try SelfBuildPeerValidator.validate(peer: request.peer, requirement: requirement)
+            try SelfBuildPeerValidator.validate(peer: observedPeer ?? request.peer, requirement: requirement)
         } catch {
             throw CoreIPCError.unauthorizedPeer(String(describing: error))
         }
@@ -126,8 +163,8 @@ public struct CoreIPCHandler: Sendable {
         self.management = management
     }
 
-    public func handle(_ request: CoreIPCRequest) throws -> CoreIPCResponse {
-        try authorizer.authorize(request)
+    public func handle(_ request: CoreIPCRequest, observedPeer: SelfBuildPeerIdentity? = nil) throws -> CoreIPCResponse {
+        try authorizer.authorize(request, observedPeer: observedPeer)
         switch request.operation {
         case .health:
             let payload = try AgenticFortressJSON.encodePretty([
@@ -178,6 +215,14 @@ public struct CoreIPCHandler: Sendable {
             return CoreIPCResponse(requestID: request.requestID, ok: true)
         case .exportRedactedAudit:
             return try encodeResponse(requestID: request.requestID, ["audit": management.exportRedactedAuditJSON()])
+        case .createShimExecPlan:
+            return try encodeResponse(
+                requestID: request.requestID,
+                management.createShimExecPlan(
+                    decodePayload(request.payload, as: ShimExecPlanIPCRequest.self),
+                    provenanceConfidence: observedPeer == nil ? .none : .socketPeer
+                )
+            )
         default:
             throw CoreIPCError.unsupportedOperation(request.operation)
         }
@@ -262,11 +307,69 @@ public struct UnixDomainSocketIPCServer: Sendable {
         let requestData = try readFrame(from: clientFD)
         let response: CoreIPCResponse
         do {
-            response = try handler.handle(try CoreIPCCodec.decodeRequest(requestData))
+            let request = try CoreIPCCodec.decodeRequest(requestData)
+            let evidence = UnixSocketPeerEvidence.collect(fromAcceptedSocket: clientFD)
+            let observedPeer = try evidence.selfBuildIdentity(helperName: request.peer.helperName, version: request.peer.version)
+            response = try handler.handle(request, observedPeer: observedPeer)
         } catch {
             response = CoreIPCResponse(requestID: "unknown", ok: false, error: String(describing: error))
         }
         try writeFrame(try CoreIPCCodec.encodeResponse(response), to: clientFD)
+    }
+}
+
+public extension UnixSocketPeerEvidence {
+    static func collect(fromAcceptedSocket fd: Int32) -> UnixSocketPeerEvidence {
+        var euid = uid_t()
+        var egid = gid_t()
+        if getpeereid(fd, &euid, &egid) != 0 {
+            euid = getuid()
+            egid = getgid()
+        }
+        let pid = peerPID(fromAcceptedSocket: fd)
+        let path = pid.flatMap(executablePath(for:))
+        let auditTokenAvailable = hasPeerAuditToken(fromAcceptedSocket: fd)
+        return UnixSocketPeerEvidence(
+            effectiveUserID: UInt32(euid),
+            effectiveGroupID: UInt32(egid),
+            processID: pid,
+            executablePath: path,
+            auditTokenAvailable: auditTokenAvailable,
+            provenanceConfidence: path == nil ? .none : .socketPeer
+        )
+    }
+
+    private static func peerPID(fromAcceptedSocket fd: Int32) -> Int32? {
+        var pid = pid_t()
+        var length = socklen_t(MemoryLayout<pid_t>.size)
+        let result = withUnsafeMutablePointer(to: &pid) { pointer in
+            getsockopt(fd, solLocal, localPeerPID, pointer, &length)
+        }
+        guard result == 0, pid > 0 else {
+            return nil
+        }
+        return pid
+    }
+
+    private static func executablePath(for pid: Int32) -> String? {
+        var buffer = [CChar](repeating: 0, count: procPIDPathInfoMaxSize)
+        let length = proc_pidpath(pid, &buffer, UInt32(buffer.count))
+        guard length > 0 else {
+            return nil
+        }
+        return buffer.withUnsafeBufferPointer { pointer in
+            let bytes = pointer.prefix { $0 != 0 }.map { UInt8(bitPattern: $0) }
+            return String(decoding: bytes, as: UTF8.self)
+        }
+    }
+
+    private static func hasPeerAuditToken(fromAcceptedSocket fd: Int32) -> Bool {
+        var token = audit_token_t()
+        var length = socklen_t(MemoryLayout<audit_token_t>.size)
+        let result = withUnsafeMutablePointer(to: &token) { pointer in
+            getsockopt(fd, solLocal, localPeerToken, pointer, &length)
+        }
+        return result == 0
     }
 }
 
@@ -292,6 +395,11 @@ public struct UnixDomainSocketIPCClient: Sendable {
         return try CoreIPCCodec.decodeResponse(try readFrame(from: fd))
     }
 }
+
+private let solLocal: Int32 = 0
+private let localPeerPID: Int32 = 0x002
+private let localPeerToken: Int32 = 0x006
+private let procPIDPathInfoMaxSize = 4096
 
 private func makeUnixAddress(path: String) throws -> sockaddr_un {
     let bytes = Array(path.utf8)
@@ -381,7 +489,11 @@ public struct IPCConformanceReport: Codable, Equatable, Sendable {
             "minimum-version",
             "binary-sha256",
             "optional-cdhash",
-            "optional-debug-override"
+            "optional-debug-override",
+            "server-observed-socket-peer",
+            "getpeereid",
+            "local-peer-pid",
+            "local-peer-audit-token-best-effort"
         ],
         compatibilityStatus: String = "compatible"
     ) {

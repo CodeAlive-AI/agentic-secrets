@@ -5,18 +5,18 @@ public struct LeaseScope: Codable, Equatable, Sendable {
     public var adapterIdentity: String
     public var secretAlias: String
     public var workspaceHash: String
-    public var parentApp: String
+    public var originHint: String
     public var actionClass: String
     public var configContext: String
     public var deliveryMode: DeliveryMode
     public var targetIdentity: String
 
-    public init(subject: String, adapterIdentity: String = "builtin-legacy", secretAlias: String, workspaceHash: String, parentApp: String, actionClass: String, configContext: String, deliveryMode: DeliveryMode, targetIdentity: String) {
+    public init(subject: String, adapterIdentity: String = "builtin-legacy", secretAlias: String, workspaceHash: String, originHint: String, actionClass: String, configContext: String, deliveryMode: DeliveryMode, targetIdentity: String) {
         self.subject = subject
         self.adapterIdentity = adapterIdentity
         self.secretAlias = secretAlias
         self.workspaceHash = workspaceHash
-        self.parentApp = parentApp
+        self.originHint = originHint
         self.actionClass = actionClass
         self.configContext = configContext
         self.deliveryMode = deliveryMode
@@ -86,10 +86,10 @@ public struct PolicyEngine: Sendable {
             return .allowOnce
         case .readOnlyInWorkspace1h:
             guard command.risk == .readOnly else { throw PolicyError.destructiveRememberDenied }
-            let scope = LeaseScope(subject: command.cli, adapterIdentity: command.adapterIdentity?.leaseComponent ?? "missing-adapter-identity", secretAlias: intent.secretAlias, workspaceHash: "hmac:" + shortDigest(intent.workspace, length: 16), parentApp: intent.parentApp, actionClass: command.actionClass, configContext: command.globalFlags.sorted { $0.key < $1.key }.map { "\($0.key)=\($0.value)" }.joined(separator: ";"), deliveryMode: intent.delivery, targetIdentity: target.identity)
+            let scope = LeaseScope(subject: command.cli, adapterIdentity: command.adapterIdentity?.leaseComponent ?? "missing-adapter-identity", secretAlias: intent.secretAlias, workspaceHash: "hmac:" + shortDigest(intent.workspace, length: 16), originHint: intent.originHint, actionClass: command.actionClass, configContext: DecisionManifestFactory.configContext(for: command), deliveryMode: intent.delivery, targetIdentity: target.identity)
             return .allowRemembered(CryptoLease(id: "lease_" + shortDigest(UUID().uuidString, length: 16), scope: scope, risk: command.risk, expiresAt: now.addingTimeInterval(3600), policyEpoch: state.epoch))
         case .providerLease5m:
-            let scope = LeaseScope(subject: command.cli, adapterIdentity: command.adapterIdentity?.leaseComponent ?? "missing-adapter-identity", secretAlias: intent.secretAlias, workspaceHash: "hmac:" + shortDigest(intent.workspace, length: 16), parentApp: intent.parentApp, actionClass: command.actionClass, configContext: "provider", deliveryMode: intent.delivery, targetIdentity: target.identity)
+            let scope = LeaseScope(subject: command.cli, adapterIdentity: command.adapterIdentity?.leaseComponent ?? "missing-adapter-identity", secretAlias: intent.secretAlias, workspaceHash: "hmac:" + shortDigest(intent.workspace, length: 16), originHint: intent.originHint, actionClass: command.actionClass, configContext: "provider;\(DecisionManifestFactory.configContext(for: command))", deliveryMode: intent.delivery, targetIdentity: target.identity)
             return .allowRemembered(CryptoLease(id: "lease_" + shortDigest(UUID().uuidString, length: 16), scope: scope, risk: command.risk, expiresAt: now.addingTimeInterval(300), policyEpoch: state.epoch))
         }
     }

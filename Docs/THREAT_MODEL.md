@@ -16,7 +16,7 @@ It does not make arbitrary execution safe. It narrows how secrets are delivered,
 - Proxy and MCP paths pin profiles and block cross-origin redirects by default.
 - Self-build IPC authorization uses an install manifest with resolved helper paths, owner user id, permissions, minimum version, SHA-256 hash, and optional cdhash. Developer ID Team ID checks are optional for future binary distribution, not required for source builds.
 - Local secret reads are device-local, user-presence bound, and use LocalAuthentication reasons derived from the full decision manifest.
-- Repeated CLI reads may reuse a short HMAC-signed unlock grant scoped to CLI name, target identity, workspace hash, parent app, delivery mode, and secret alias. Grants contain no secret material and expire quickly. Command policy is still evaluated per invocation before any secret delivery.
+- Repeated CLI reads may reuse a short HMAC-signed unlock grant scoped to CLI name, target identity, workspace hash, action class, command digest, risk, config context, untrusted origin hint, provenance confidence, delivery mode, and secret alias. Grants contain no secret material and expire quickly. Command policy is still evaluated per invocation before any secret delivery.
 
 ## Non-Claims
 

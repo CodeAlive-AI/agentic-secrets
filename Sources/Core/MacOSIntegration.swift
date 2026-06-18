@@ -66,6 +66,101 @@ public enum XPCPeerValidator {
     }
 }
 
+public struct ProcessOriginHint: Codable, Equatable, Sendable {
+    public var displayName: String
+    public var processChain: [String]
+    public var provenanceConfidence: ProvenanceConfidence
+
+    public init(
+        displayName: String,
+        processChain: [String] = [],
+        provenanceConfidence: ProvenanceConfidence = .environmentHint
+    ) {
+        self.displayName = displayName
+        self.processChain = processChain
+        self.provenanceConfidence = provenanceConfidence
+    }
+
+    public static func current(
+        environment: [String: String] = ProcessInfo.processInfo.environment,
+        currentPID: pid_t = getpid()
+    ) -> ProcessOriginHint {
+        let chain = parentProcessNames(startingAt: currentPID)
+        if let termProgram = environment["TERM_PROGRAM"].flatMap(normalizedName), !termProgram.isEmpty {
+            return ProcessOriginHint(displayName: termProgram, processChain: chain, provenanceConfidence: .environmentHint)
+        }
+        if let firstExternal = chain.first(where: { !isAgenticFortressProcess($0) && !isShellProcess($0) }) {
+            return ProcessOriginHint(displayName: firstExternal, processChain: chain, provenanceConfidence: .processTree)
+        }
+        if let first = chain.first {
+            return ProcessOriginHint(displayName: first, processChain: chain, provenanceConfidence: .processTree)
+        }
+        return ProcessOriginHint(displayName: "unknown", processChain: [], provenanceConfidence: .none)
+    }
+
+    public static func displayName(forExecutablePath path: String) -> String {
+        let components = URL(fileURLWithPath: path).pathComponents
+        if let appComponent = components.first(where: { $0.hasSuffix(".app") }) {
+            return String(appComponent.dropLast(4))
+        }
+        return URL(fileURLWithPath: path).lastPathComponent
+    }
+
+    private static func parentProcessNames(startingAt pid: pid_t, limit: Int = 8) -> [String] {
+        var names: [String] = []
+        var current = parentPID(for: pid)
+        var remaining = limit
+        while let pid = current, pid > 1, remaining > 0 {
+            if let path = executablePath(for: pid) {
+                names.append(displayName(forExecutablePath: path))
+            }
+            current = parentPID(for: pid)
+            remaining -= 1
+        }
+        return names
+    }
+
+    private static func normalizedName(_ value: String) -> String? {
+        let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return nil }
+        return trimmed.hasSuffix(".app") ? String(trimmed.dropLast(4)) : trimmed
+    }
+
+    private static func isAgenticFortressProcess(_ name: String) -> Bool {
+        name == "AgenticFortress" || name.hasPrefix("agentic-fortress")
+    }
+
+    private static func isShellProcess(_ name: String) -> Bool {
+        ["sh", "bash", "zsh", "fish", "tcsh", "csh"].contains(name)
+    }
+
+    private static func parentPID(for pid: pid_t) -> pid_t? {
+        var info = kinfo_proc()
+        var size = MemoryLayout<kinfo_proc>.stride
+        var mib: [Int32] = [CTL_KERN, KERN_PROC, KERN_PROC_PID, pid]
+        let result = mib.withUnsafeMutableBufferPointer { pointer in
+            sysctl(pointer.baseAddress, u_int(pointer.count), &info, &size, nil, 0)
+        }
+        guard result == 0 else {
+            return nil
+        }
+        let parent = info.kp_eproc.e_ppid
+        return parent > 0 ? parent : nil
+    }
+
+    private static func executablePath(for pid: pid_t) -> String? {
+        var buffer = [CChar](repeating: 0, count: 4096)
+        let length = proc_pidpath(pid, &buffer, UInt32(buffer.count))
+        guard length > 0 else {
+            return nil
+        }
+        return buffer.withUnsafeBufferPointer { pointer in
+            let bytes = pointer.prefix { $0 != 0 }.map { UInt8(bitPattern: $0) }
+            return String(decoding: bytes, as: UTF8.self)
+        }
+    }
+}
+
 public struct SelfBuildPeerIdentity: Codable, Equatable, Sendable {
     public var helperName: String
     public var resolvedPath: String
@@ -358,8 +453,10 @@ public enum LocalAuthenticationGate {
         let command = readableCommand(from: manifest)
         return [
             "provide \(secretName) to \(manifest.target.display).",
+            "Parent app: \(manifest.origin.hint.isEmpty ? "unknown" : manifest.origin.hint)",
             "Command: \(command)",
             "Project: \(displayPath(manifest.workspace.display))",
+            "Origin provenance: \(manifest.origin.provenanceConfidence.rawValue)",
             "Secret: \(secretName)",
             "Approval code: \(manifest.digest)"
         ].joined(separator: "\n")

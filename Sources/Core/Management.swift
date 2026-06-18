@@ -133,8 +133,24 @@ public struct AdapterSummary: Codable, Equatable, Identifiable, Sendable {
 public struct UnlockGrantSummary: Codable, Equatable, Identifiable, Sendable {
     public var id: String { scopeDigest }
     public var scopeDigest: String
+    public var subject: String?
+    public var actionClass: String?
+    public var risk: RiskLevel?
+    public var originHint: String?
+    public var provenanceConfidence: ProvenanceConfidence?
     public var grantedAt: Date
     public var expiresAt: Date
+
+    public init(scopeDigest: String, scope: CLIUnlockScope?, grantedAt: Date, expiresAt: Date) {
+        self.scopeDigest = scopeDigest
+        self.subject = scope?.subject
+        self.actionClass = scope?.actionClass
+        self.risk = scope?.risk
+        self.originHint = scope?.originHint
+        self.provenanceConfidence = scope?.provenanceConfidence
+        self.grantedAt = grantedAt
+        self.expiresAt = expiresAt
+    }
 }
 
 public struct AuditEventSummary: Codable, Equatable, Identifiable, Sendable {
@@ -148,6 +164,8 @@ public struct AuditEventSummary: Codable, Equatable, Identifiable, Sendable {
     public var actionClass: String
     public var targetIdentity: String
     public var workspaceHash: String
+    public var originHint: String
+    public var provenanceConfidence: ProvenanceConfidence
     public var delivery: DeliveryMode
     public var policyEpoch: Int
     public var approval: String
@@ -164,6 +182,8 @@ public struct AuditEventSummary: Codable, Equatable, Identifiable, Sendable {
         self.actionClass = event.actionClass
         self.targetIdentity = event.targetIdentity
         self.workspaceHash = event.workspaceHash
+        self.originHint = event.originHint
+        self.provenanceConfidence = event.provenanceConfidence
         self.delivery = event.delivery
         self.policyEpoch = event.policyEpoch
         self.approval = event.approval
@@ -520,6 +540,40 @@ public struct CoreManagementService: Sendable {
         return ManagementProxySessionResponse(session: session, oneTimeToken: token)
     }
 
+    public func createShimExecPlan(_ request: ShimExecPlanIPCRequest, provenanceConfidence: ProvenanceConfidence) throws -> ShimExecPlanIPCResponse {
+        let commandName = URL(fileURLWithPath: request.invokedName).lastPathComponent
+        let layout = AgenticFortressStateLayout(stateDirectory: stateDirectory)
+        let registration = try layout.registrationService.registration(named: commandName)
+        let executableName = URL(fileURLWithPath: registration.targetPath).lastPathComponent
+        let commandPolicy = (try? loadConfig().commandPolicy) ?? .default
+        let command = CommandClassifier(commandPolicy: commandPolicy).classify(executableName: executableName, arguments: request.arguments)
+        let target = try TargetAssessor().assess(path: registration.targetPath)
+        try layout.registrationService.validateTargetIdentity(registration: registration, assessedTarget: target)
+        let manifests = registration.environmentBindings.map { binding in
+            DecisionManifestFactory().make(
+                command: command,
+                intent: DeliveryIntent(
+                    flow: .cliEnv,
+                    secretAlias: binding.secretAlias,
+                    delivery: .env,
+                    environmentName: binding.environmentName,
+                    workspace: request.workspace,
+                    originHint: request.originHint,
+                    provenanceConfidence: provenanceConfidence
+                ),
+                target: target
+            )
+        }
+        return ShimExecPlanIPCResponse(
+            commandName: commandName,
+            targetPath: target.resolvedPath,
+            argv: [commandName] + request.arguments,
+            manifests: manifests,
+            provenanceConfidence: provenanceConfidence,
+            parentEnvironmentKeys: request.parentEnvironmentKeys
+        )
+    }
+
     public func installAdapter(_ payload: AdapterPackPayload) throws -> AdapterSummary {
         try AdapterRegistryStore(url: adapterRegistryURL).install(payload: payload)
         return AdapterSummary(payload: payload, adapterHash: AdapterCanonicalizer.hash(payload), installedAt: Date())
@@ -586,7 +640,7 @@ public struct CoreManagementService: Sendable {
         let document = try decoder.decode(CLIUnlockGrantDocument.self, from: Data(contentsOf: layout.cliUnlockGrantsURL))
         return document.grants.values
             .filter { $0.expiresAt >= now }
-            .map { UnlockGrantSummary(scopeDigest: $0.scopeDigest, grantedAt: $0.grantedAt, expiresAt: $0.expiresAt) }
+            .map { UnlockGrantSummary(scopeDigest: $0.scopeDigest, scope: $0.scope, grantedAt: $0.grantedAt, expiresAt: $0.expiresAt) }
     }
 
     private func adapterSummaries() throws -> [AdapterSummary] {

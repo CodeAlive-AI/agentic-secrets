@@ -145,7 +145,9 @@ Registration stores non-secret metadata in `var/agentic-fortress/cli-registry.js
 
 During `cli run`, the front-end CLI still does not resolve the secret; `agentic-fortressd-core` resolves it after local authentication, scrubs inherited secret-like environment variables, and injects the registered environment variables only into the child process.
 
-After a successful local authentication prompt, core writes a short HMAC-signed CLI unlock grant under AgenticFortress state. The default TTL is 300 seconds and the maximum accepted TTL is 900 seconds. The grant contains no secret material and is scoped to CLI name, target identity, workspace hash, parent app, delivery mode, and secret alias. Matching runs reuse the grant and skip the LocalAuthentication prompt; non-matching runs prompt again. Each command is still policy-checked before secret delivery.
+After a successful local authentication prompt, core writes a short HMAC-signed CLI unlock grant under AgenticFortress state. The default TTL is 300 seconds and the maximum accepted TTL is 900 seconds. The grant contains no secret material and is scoped to CLI name, target identity, workspace hash, action class, command digest, risk, config context, untrusted origin hint, provenance confidence, delivery mode, and secret alias. Matching runs reuse the grant and skip the LocalAuthentication prompt; non-matching runs prompt again. Each command is still policy-checked before secret delivery.
+
+The LocalAuthentication prompt shows the parent app display name when available. Environment-derived names are display context only; they do not make the origin trusted.
 
 Per-run TTL override:
 

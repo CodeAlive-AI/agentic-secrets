@@ -6,17 +6,17 @@ public struct InvocationBinding: Codable, Equatable, Sendable {
     public var targetIdentity: String
     public var actionClass: String
     public var workspace: String
-    public var parentApp: String
+    public var originHint: String
     public var policyEpoch: Int
     public var injectionMode: DeliveryMode
 
-    public init(peerIdentity: String, injectorIdentity: String, targetIdentity: String, actionClass: String, workspace: String, parentApp: String, policyEpoch: Int, injectionMode: DeliveryMode) {
+    public init(peerIdentity: String, injectorIdentity: String, targetIdentity: String, actionClass: String, workspace: String, originHint: String, policyEpoch: Int, injectionMode: DeliveryMode) {
         self.peerIdentity = peerIdentity
         self.injectorIdentity = injectorIdentity
         self.targetIdentity = targetIdentity
         self.actionClass = actionClass
         self.workspace = workspace
-        self.parentApp = parentApp
+        self.originHint = originHint
         self.policyEpoch = policyEpoch
         self.injectionMode = injectionMode
     }
