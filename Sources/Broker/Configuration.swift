@@ -58,7 +58,7 @@ public struct CommandPolicyConfig: Codable, Equatable, Sendable {
     public var destructiveTerms: [String]
     public var forbiddenTerms: [String]
 
-    public init(destructiveTerms: [String] = ["delete", "remove"], forbiddenTerms: [String] = []) {
+    public init(destructiveTerms: [String] = ["delete", "destroy", "remove"], forbiddenTerms: [String] = []) {
         self.destructiveTerms = Self.normalizedTerms(destructiveTerms)
         self.forbiddenTerms = Self.normalizedTerms(forbiddenTerms)
     }
@@ -86,8 +86,8 @@ public struct PolicyPackTrustConfiguration: Codable, Equatable, Sendable {
     }
 
     public static let `default` = PolicyPackTrustConfiguration(
-        allowedPublishers: ["AgenticSecrets Builtins"],
-        allowedCLIs: ["hcloud", "gh", "terraform"]
+        allowedPublishers: [],
+        allowedCLIs: []
     )
 
     enum CodingKeys: String, CodingKey {

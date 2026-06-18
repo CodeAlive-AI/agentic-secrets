@@ -730,7 +730,7 @@ struct BitwardenProviderBindingsView: View {
                         Button {
                             store.presentDiagnostics()
                         } label: {
-                            Label("Review Diagnostics", systemImage: "stethoscope")
+                            Label("Review Diagnostic & Uninstall", systemImage: "stethoscope")
                         }
                         .buttonStyle(.bordered)
                         .help("Review local broker and provider setup")
@@ -1162,6 +1162,9 @@ struct DiagnosticsView: View {
     @Bindable var store: ControlPlaneStore
     @State private var confirmingInstall = false
     @State private var confirmingUninstall = false
+    @State private var confirmingTotalDelete = false
+    @State private var totalDeleteConfirmationText = ""
+    @State private var totalDeleteInProgress = false
 
     var body: some View {
         Form {
@@ -1234,20 +1237,13 @@ struct DiagnosticsView: View {
             titleVisibility: .visible
         ) {
             Button("Totally Delete Agentic Secrets", role: .destructive) {
-                Task {
-                    await store.uninstallLocalInstall(
-                        purgeLocalState: true,
-                        removeShellConfiguration: true
-                    )
-                }
+                totalDeleteConfirmationText = ""
+                confirmingTotalDelete = true
             }
             .disabled(!store.canUninstallLocalInstall)
             Button("Remove App, Keep Local State") {
-                Task {
-                    await store.uninstallLocalInstall(
-                        purgeLocalState: false,
-                        removeShellConfiguration: true
-                    )
+                Task { @MainActor in
+                    await performUninstall(purgeLocalState: false)
                 }
             }
             .disabled(!store.canUninstallLocalInstall)
@@ -1255,6 +1251,113 @@ struct DiagnosticsView: View {
         } message: {
             Text("Totally Delete removes runtime files, command shims, helper links, the per-user LaunchAgent, managed shell PATH entries, local state, and known Agentic Secrets Keychain integrity sidecars. Secret values are never displayed.")
         }
+        .sheet(isPresented: $confirmingTotalDelete) {
+            TotalDeleteConfirmationSheet(
+                confirmationText: $totalDeleteConfirmationText,
+                isDeleting: totalDeleteInProgress,
+                errorMessage: store.errorMessage,
+                onCancel: {
+                    confirmingTotalDelete = false
+                    totalDeleteConfirmationText = ""
+                },
+                onConfirm: {
+                    Task { @MainActor in
+                        totalDeleteInProgress = true
+                        let didUninstall = await store.uninstallLocalInstall(
+                            purgeLocalState: true,
+                            removeShellConfiguration: true
+                        )
+                        totalDeleteInProgress = false
+                        if didUninstall {
+                            confirmingTotalDelete = false
+                            totalDeleteConfirmationText = ""
+                            showUninstallCompleteAndTerminate(purgeLocalState: true)
+                        }
+                    }
+                }
+            )
+        }
+    }
+
+    @MainActor
+    private func performUninstall(purgeLocalState: Bool) async {
+        let didUninstall = await store.uninstallLocalInstall(
+            purgeLocalState: purgeLocalState,
+            removeShellConfiguration: true
+        )
+        if didUninstall {
+            showUninstallCompleteAndTerminate(purgeLocalState: purgeLocalState)
+        }
+    }
+
+    @MainActor
+    private func showUninstallCompleteAndTerminate(purgeLocalState: Bool) {
+        let alert = NSAlert()
+        alert.alertStyle = .informational
+        alert.messageText = purgeLocalState ? "Agentic Secrets Was Totally Deleted" : "Agentic Secrets Was Removed"
+        alert.informativeText = purgeLocalState
+            ? "The local app, daemon, helper links, command shims, managed shell PATH entries, local state, and known Agentic Secrets Keychain integrity sidecars were removed. The app will now quit."
+            : "The local app, daemon, helper links, command shims, and managed shell PATH entries were removed. Local Agentic Secrets state was kept. The app will now quit."
+        alert.addButton(withTitle: "Quit")
+        alert.runModal()
+        NSApp.terminate(nil)
+    }
+}
+
+private struct TotalDeleteConfirmationSheet: View {
+    @Binding var confirmationText: String
+    var isDeleting: Bool
+    var errorMessage: String?
+    var onCancel: () -> Void
+    var onConfirm: () -> Void
+
+    private var canConfirm: Bool {
+        confirmationText.trimmingCharacters(in: .whitespacesAndNewlines) == "delete" && !isDeleting
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            Label("Totally Delete Agentic Secrets?", systemImage: "trash")
+                .font(.title3.bold())
+            Text("This is a full system removal. It removes the local app, daemon, helper links, command shims, managed shell PATH entries, local state, and known Agentic Secrets Keychain integrity sidecars. Secret values are never displayed.")
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+            VStack(alignment: .leading, spacing: 6) {
+                Text("Type 'delete' to confirm")
+                    .font(.headline)
+                TextField("delete", text: $confirmationText)
+                    .textFieldStyle(.roundedBorder)
+                    .disabled(isDeleting)
+                    .accessibilityLabel("Type 'delete' to confirm total deletion")
+            }
+            if let errorMessage {
+                Text(errorMessage)
+                    .foregroundStyle(.red)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            HStack {
+                Spacer()
+                Button("Cancel") {
+                    onCancel()
+                }
+                .keyboardShortcut(.cancelAction)
+                .disabled(isDeleting)
+                Button(role: .destructive) {
+                    onConfirm()
+                } label: {
+                    if isDeleting {
+                        ProgressView()
+                            .controlSize(.small)
+                    } else {
+                        Label("Totally Delete and Quit", systemImage: "trash")
+                    }
+                }
+                .disabled(!canConfirm)
+                .help("Permanently remove Agentic Secrets and quit this app")
+            }
+        }
+        .padding(24)
+        .frame(width: 500)
     }
 }
 
@@ -1410,6 +1513,10 @@ struct SnapshotUnavailablePanel: View {
         .padding()
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 8))
+        .task(id: store.brokerStatus.state) {
+            guard store.brokerStatus.state == .healthy, store.snapshot == nil, !store.isLoading else { return }
+            await store.refresh()
+        }
     }
 
     private var title: String {
@@ -1440,10 +1547,10 @@ struct LocalStateUnavailableView: View {
                 Button {
                     store.presentDiagnostics()
                 } label: {
-                    Label("Open Diagnostics", systemImage: "stethoscope")
+                    Label("Open Diagnostic & Uninstall", systemImage: "stethoscope")
                 }
                 .buttonStyle(.borderedProminent)
-                .help("Open daemon diagnostics and repair actions")
+                .help("Open daemon diagnostics, repair, and uninstall actions")
             }
         }
     }

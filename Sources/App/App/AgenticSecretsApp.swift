@@ -63,11 +63,6 @@ struct AgenticSecretsApp: App {
                 }
                 .disabled(!store.canManageBrokerState)
 
-                Button("Install Command Policy Pack") {
-                    CommandPolicyPackInstaller.presentOpenPanel(store: store)
-                }
-                .disabled(!store.canManageBrokerState)
-
                 Divider()
 
                 Button("Refresh") {
@@ -85,7 +80,7 @@ struct AgenticSecretsApp: App {
                 }
                 .disabled(store.isCheckingForUpdates)
 
-                Button("Open Diagnostics") {
+                Button("Open Diagnostic & Uninstall") {
                     openDiagnostics(store: store)
                 }
                 .keyboardShortcut("d", modifiers: [.command, .shift])
@@ -373,7 +368,7 @@ private struct MenuBarActions: View {
             }
             .disabled(store.isLoading)
         }
-        Button("Open Diagnostics") {
+        Button("Open Diagnostic & Uninstall") {
             openDiagnostics(store: store)
         }
         Button("Open Installed Copy") {

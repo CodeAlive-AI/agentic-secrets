@@ -94,21 +94,19 @@ func signedPack(payload: CommandPolicyPackPayload, key: P256.Signing.PrivateKey,
 func runContracts() throws {
     let classifier = CommandClassifier()
     let hcloudRead = classifier.classify(executableName: "hcloud", arguments: ["server", "list"], observedVersion: "1.52.0")
-    try expect(hcloudRead.risk == .readOnly, "hcloud server list must be read-only")
-    try expect(hcloudRead.confidence == .adapterTested, "hcloud read-only command must be adapter-tested")
-    try expect(hcloudRead.adapterIdentity?.policyPackID == "com.agenticsecrets.policyPacks.hcloud", "hcloud classification must come from adapter registry")
-    try expect(hcloudRead.adapterIdentity?.policyPackHash.isEmpty == false, "adapter identity must include adapter hash")
+    try expect(hcloudRead.risk == .unknown, "hcloud server list has no built-in policy pack by default")
+    try expect(hcloudRead.confidence == .highRisk, "commands without an installed policy pack stay high-risk")
+    try expect(hcloudRead.adapterIdentity == nil, "default classification must not attach a bundled adapter identity")
 
     let customConfig = classifier.classify(executableName: "hcloud", arguments: ["--config", "./custom.toml", "server", "list"], observedVersion: "1.52.0")
-    try expect(customConfig.leaseInvalidators.contains("config"), "custom hcloud config must invalidate remembered lease")
+    try expect(customConfig.risk == .unknown, "custom hcloud config remains unknown without a policy pack")
 
     let hcloudServerCreate = classifier.classify(executableName: "hcloud", arguments: ["server", "create", "--name", "codex-test", "--type", "cax11", "--image", "ubuntu-26.04", "--location", "fsn1"], observedVersion: "1.52.0")
-    try expect(hcloudServerCreate.risk == .mutating, "hcloud server create with command flags must be mutating")
+    try expect(hcloudServerCreate.risk == .unknown, "hcloud server create is unknown without a policy pack")
     try expect(hcloudServerCreate.confidence == .highRisk, "unknown hcloud mutating command must still require one-time approval")
-    try expect(!hcloudServerCreate.leaseInvalidators.contains("unknown-flag"), "hcloud command-local flags must not invalidate delivery grants")
 
     let hcloudFirewallRule = classifier.classify(executableName: "hcloud", arguments: ["firewall", "add-rule", "codex-test", "--direction", "in", "--protocol", "tcp", "--port", "22", "--source-ips", "178.88.45.241/32"], observedVersion: "1.52.0")
-    try expect(hcloudFirewallRule.risk == .mutating, "hcloud firewall add-rule with command flags must be mutating")
+    try expect(hcloudFirewallRule.risk == .unknown, "hcloud firewall add-rule is unknown without a policy pack")
 
     let hcloudUnknownGlobal = classifier.classify(executableName: "hcloud", arguments: ["--plugin-mode", "server", "list"], observedVersion: "1.52.0")
     try expect(hcloudUnknownGlobal.risk == .unknown, "unknown hcloud global flags must remain high-risk unknown")
@@ -125,7 +123,7 @@ func runContracts() throws {
     let removeCommand = classifier.classify(executableName: "hcloud", arguments: ["server", "remove", "prod-db-01"], observedVersion: "1.52.0")
     try expect(removeCommand.risk == .destructive, "default command policy must treat remove as destructive")
     let destroyCommand = classifier.classify(executableName: "hcloud", arguments: ["server", "destroy", "prod-db-01"], observedVersion: "1.52.0")
-    try expect(destroyCommand.risk != .destructive, "default command policy must not treat destroy as destructive")
+    try expect(destroyCommand.risk == .destructive, "default command policy must treat destroy as destructive")
     let customClassifier = CommandClassifier(commandPolicy: CommandPolicyConfig(destructiveTerms: ["remove"], forbiddenTerms: []))
     let deleteWithoutTerm = customClassifier.classify(executableName: "hcloud", arguments: ["server", "delete", "prod-db-01"], observedVersion: "1.52.0")
     try expect(deleteWithoutTerm.risk != .destructive, "removing delete from command policy must stop treating delete as destructive")
@@ -347,13 +345,7 @@ func runContracts() throws {
     try expect(replaced.alias == "cli.demo.demo_secret", "management secret replacement must return alias only")
     let managementSnapshot = try managementService.snapshot(now: Date(timeIntervalSince1970: 100))
     try expect(managementSnapshot.secrets.contains(where: { $0.alias == "cli.demo.demo_secret" }), "management snapshot must include secret summary")
-    try expect(managementSnapshot.policyPacks.contains(where: { $0.policyPackID == BuiltInPolicyPacks.hcloud.policyPackID }), "management snapshot must show built-in command policy packs")
-    try managementService.revokeAdapter(ControlPlaneNameRequest(name: BuiltInPolicyPacks.hcloud.policyPackID))
-    let revokedPolicyPackSnapshot = try managementService.snapshot(now: Date(timeIntervalSince1970: 101))
-    try expect(revokedPolicyPackSnapshot.policyPacks.first(where: { $0.policyPackID == BuiltInPolicyPacks.hcloud.policyPackID })?.revokedAt != nil, "control plane must allow revoking a built-in command policy pack")
-    let revokedPolicyRegistry = try PolicyPackRegistryStore(url: managementService.adapterRegistryURL).activeRegistry()
-    let revokedHcloudCommand = CommandClassifier(registry: revokedPolicyRegistry).classify(executableName: "hcloud", arguments: ["server", "list"])
-    try expect(revokedHcloudCommand.adapterIdentity == nil && revokedHcloudCommand.risk == .unknown, "revoked built-in command policy pack must not classify runtime commands")
+    try expect(managementSnapshot.policyPacks.isEmpty, "management snapshot must not show bundled command policy packs")
     let encodedSnapshot = try AgenticSecretsJSON.encodePretty(managementSnapshot)
     try expect(!encodedSnapshot.contains("synthetic-management-value"), "management snapshot must not contain raw secret value")
     try expect(!encodedSnapshot.contains("Bearer "), "management snapshot must not contain bearer tokens")
@@ -862,7 +854,7 @@ func runContracts() throws {
     try expect(execPlan.targetPath == shimTarget.path, "shim planner must resolve target from policy, not argv")
     try expect(execPlan.environment["BWS_ACCESS_TOKEN"] == nil, "shim planner must scrub inherited secret-like env")
     try expect(execPlan.environment["HCLOUD_TOKEN"] == "super-secret-token", "shim planner must inject approved secret into fresh env")
-    let execBinding = InvocationBinding(peerIdentity: "peer:agentic-secrets-shim", injectorIdentity: "sig:agentic-secrets-shim", targetIdentity: execPlan.target.identity, actionClass: "hcloud.server.list", workspace: "/tmp/infra", originHint: "Codex", policyEpoch: 1, injectionMode: .env)
+    let execBinding = InvocationBinding(peerIdentity: "peer:agentic-secrets-shim", injectorIdentity: "sig:agentic-secrets-shim", targetIdentity: execPlan.target.identity, actionClass: "hcloud.unknown", workspace: "/tmp/infra", originHint: "Codex", policyEpoch: 1, injectionMode: .env)
     try shimHandles.consume(execPlan.invocationHandle, expectedBinding: execBinding, now: Date(timeIntervalSince1970: 2))
     try expectThrows(InvocationHandleError.unknown, {
         try shimHandles.consume(execPlan.invocationHandle, expectedBinding: execBinding, now: Date(timeIntervalSince1970: 3))
@@ -1136,7 +1128,7 @@ func runContracts() throws {
 
     let lease = CryptoLease(
         id: "lease_1",
-        scope: LeaseScope(subject: "hcloud", adapterIdentity: hcloudRead.adapterIdentity!.leaseComponent, secretAlias: "cloud.hcloud.dev", workspaceHash: "hmac:abc", originHint: "Codex", actionClass: "hcloud.server.list", configContext: "", deliveryMode: .env, targetIdentity: "sha256:hcloud"),
+        scope: LeaseScope(subject: "hcloud", adapterIdentity: "missing-adapter-identity", secretAlias: "cloud.hcloud.dev", workspaceHash: "hmac:abc", originHint: "Codex", actionClass: "hcloud.unknown", configContext: "", deliveryMode: .env, targetIdentity: "sha256:hcloud"),
         risk: .readOnly,
         expiresAt: Date(timeIntervalSince1970: 3600),
         policyEpoch: 1

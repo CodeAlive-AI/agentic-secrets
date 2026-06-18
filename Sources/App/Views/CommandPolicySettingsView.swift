@@ -149,7 +149,7 @@ private struct CommandPolicySummaryPanel: View {
                     Spacer()
                     Button("Restore Defaults", action: restoreDefaults)
                         .controlSize(.small)
-                        .help("Use the default policy: ask for delete and remove; block nothing")
+                        .help("Use the default policy: ask for delete, destroy, and remove; block nothing")
                 }
 
                 ViewThatFits(in: .horizontal) {
@@ -196,7 +196,7 @@ private struct CommandPolicySummaryPanel: View {
                     }
                 }
 
-                Text("Defaults ask before `delete` and `remove`. No command is blocked by default.")
+                Text("Defaults ask before `delete`, `destroy`, and `remove`. No command is blocked by default.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }

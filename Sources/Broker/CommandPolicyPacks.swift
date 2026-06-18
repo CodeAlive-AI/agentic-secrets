@@ -446,7 +446,7 @@ public enum PolicyPackGoldenFixtureRunner {
 }
 
 public enum BuiltInPolicyPacks {
-    public static let all = [hcloud, githubCLI, terraform]
+    public static let all: [CommandPolicyPackPayload] = []
 
     public static func registry() -> PolicyPackRegistry {
         var registry = PolicyPackRegistry()
@@ -455,76 +455,4 @@ public enum BuiltInPolicyPacks {
         }
         return registry
     }
-
-    public static let hcloud = CommandPolicyPackPayload(
-        policyPackID: "com.agenticsecrets.policyPacks.hcloud",
-        policyPackVersion: 1,
-        cliName: "hcloud",
-        supportedCLIVersions: ["1.*"],
-        publisher: "AgenticSecrets Builtins",
-        globalFlags: [
-            .init(names: ["--context"], normalizedName: "context", valueMode: .equalsOrRequired),
-            .init(names: ["--config"], normalizedName: "config", valueMode: .equalsOrRequired, invalidatesLease: true, warning: "Custom config changes auth/context; remembered leases must not apply."),
-            .init(names: ["--debug", "--json", "-o=json"], normalizedName: "format/debug", valueMode: .none)
-        ],
-        rules: hcloudReadOnly.map { AdapterRule(resource: $0.0, verb: $0.1, risk: .readOnly) }
-            + ["delete", "destroy", "rebuild", "poweroff", "shutdown", "disable-protection", "disable-backup"].map { AdapterRule(resource: "*", verb: $0, risk: .destructive, confidence: .highRisk) },
-        defaultRisk: .mutating,
-        defaultWarning: "Unknown hcloud command requires one-time approval and no remembered lease."
-    )
-
-    public static let githubCLI = CommandPolicyPackPayload(
-        policyPackID: "com.agenticsecrets.policyPacks.gh",
-        policyPackVersion: 1,
-        cliName: "gh",
-        supportedCLIVersions: ["2.*"],
-        publisher: "AgenticSecrets Builtins",
-        globalFlags: [
-            .init(names: ["--hostname"], normalizedName: "hostname", valueMode: .equalsOrRequired, invalidatesLease: true, warning: "Hostname changes GitHub auth/context; remembered leases must not apply."),
-            .init(names: ["--repo", "-R"], normalizedName: "repo", valueMode: .equalsOrRequired, invalidatesLease: true, warning: "Repository changes command context; remembered leases must not apply.")
-        ],
-        rules: [
-            .init(resource: "auth", verb: "status", risk: .readOnly),
-            .init(resource: "repo", verb: "view", risk: .readOnly),
-            .init(resource: "issue", verb: "list", risk: .readOnly),
-            .init(resource: "issue", verb: "view", risk: .readOnly),
-            .init(resource: "pr", verb: "list", risk: .readOnly),
-            .init(resource: "pr", verb: "view", risk: .readOnly),
-            .init(resource: "repo", verb: "delete", risk: .destructive, confidence: .highRisk),
-            .init(resource: "release", verb: "delete", risk: .destructive, confidence: .highRisk)
-        ],
-        defaultRisk: .mutating,
-        defaultWarning: "Unknown gh command requires one-time approval and no remembered lease."
-    )
-
-    public static let terraform = CommandPolicyPackPayload(
-        policyPackID: "com.agenticsecrets.policyPacks.terraform",
-        policyPackVersion: 0,
-        cliName: "terraform",
-        supportedCLIVersions: [],
-        publisher: "AgenticSecrets Builtins",
-        rules: [
-            .init(resource: "terraform", verb: "destroy", risk: .destructive, confidence: .highRisk)
-        ],
-        defaultRisk: .unknown,
-        defaultWarning: "Terraform is plugin/state/back-end dependent; raw env secret delivery is denied by default."
-    )
-
-    private static let hcloudReadOnly: [(String, String)] = [
-        ("datacenter", "list"), ("datacenter", "describe"),
-        ("location", "list"), ("location", "describe"),
-        ("server-type", "list"), ("server-type", "describe"),
-        ("image", "list"), ("image", "describe"),
-        ("iso", "list"), ("iso", "describe"),
-        ("server", "list"), ("server", "describe"), ("server", "ip"), ("server", "metrics"),
-        ("network", "list"), ("network", "describe"),
-        ("firewall", "list"), ("firewall", "describe"),
-        ("ssh-key", "list"), ("ssh-key", "describe"),
-        ("volume", "list"), ("volume", "describe"),
-        ("load-balancer", "list"), ("load-balancer", "describe"),
-        ("primary-ip", "list"), ("primary-ip", "describe"),
-        ("floating-ip", "list"), ("floating-ip", "describe"),
-        ("placement-group", "list"), ("placement-group", "describe"),
-        ("zone", "list"), ("zone", "describe")
-    ]
 }

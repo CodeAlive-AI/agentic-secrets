@@ -114,12 +114,7 @@ struct AgenticSecretsCLI {
         }
         switch subcommand {
         case "list":
-            let entries = [
-                PolicyPackRegistryEntry(payload: BuiltInPolicyPacks.hcloud, installedAt: Date(timeIntervalSince1970: 0)),
-                PolicyPackRegistryEntry(payload: BuiltInPolicyPacks.githubCLI, installedAt: Date(timeIntervalSince1970: 0)),
-                PolicyPackRegistryEntry(payload: BuiltInPolicyPacks.terraform, installedAt: Date(timeIntervalSince1970: 0))
-            ]
-            print(try AgenticSecretsJSON.encodePretty(PolicyPackRegistryDocument(entries: entries)))
+            print(try AgenticSecretsJSON.encodePretty(PolicyPackRegistryDocument(entries: [])))
         case "install-payload":
             guard args.count >= 3 else { throw CLIError.missingArgument("payload.json registry.json") }
             let payload = try JSONDecoder().decode(CommandPolicyPackPayload.self, from: Data(contentsOf: URL(fileURLWithPath: args[1])))

@@ -10,9 +10,19 @@ enum ControlPlaneSection: String, CaseIterable, Identifiable {
     case mcp = "MCP"
     case bitwardenProviderBindings = "Bitwarden Secrets"
     case audit = "Audit"
-    case diagnostics = "Diagnostics"
+    case diagnostics = "Diagnostic & Uninstall"
 
     var id: String { rawValue }
+
+    static let allCases: [ControlPlaneSection] = [
+        .overview,
+        .cliSecrets,
+        .apiSessions,
+        .mcp,
+        .bitwardenProviderBindings,
+        .audit,
+        .diagnostics
+    ]
 
     var systemImage: String {
         switch self {
@@ -330,7 +340,7 @@ final class ControlPlaneStore {
     func showDaemonRepairGuidance() {
         selectedSection = .diagnostics
         successMessage = nil
-        errorMessage = "Local daemon is not ready. Use Diagnostics to install or repair it."
+        errorMessage = "Local daemon is not ready. Use Diagnostic & Uninstall to install or repair it."
     }
 
     func clearFeedback() {
@@ -472,7 +482,8 @@ final class ControlPlaneStore {
         }
     }
 
-    func uninstallLocalInstall(purgeLocalState: Bool, removeShellConfiguration: Bool) async {
+    @discardableResult
+    func uninstallLocalInstall(purgeLocalState: Bool, removeShellConfiguration: Bool) async -> Bool {
         isLoading = true
         let plan: BrokerUninstallPlan
         if let brokerUninstallPlan {
@@ -500,9 +511,11 @@ final class ControlPlaneStore {
         if brokerStatus.message.hasPrefix("Uninstall failed") {
             successMessage = nil
             errorMessage = brokerStatus.message
+            return false
         } else {
             successMessage = brokerStatus.message
             errorMessage = nil
+            return true
         }
     }
 
@@ -828,7 +841,7 @@ final class ControlPlaneStore {
     private func userFacingError(_ error: Error) -> String {
         let description = String(describing: error)
         if isDaemonReachabilityError(error) {
-            return "Local daemon is not reachable. Open Diagnostics to install or repair it."
+            return "Local daemon is not reachable. Open Diagnostic & Uninstall to install or repair it."
         }
         return description
     }

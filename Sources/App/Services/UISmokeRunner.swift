@@ -367,7 +367,7 @@ enum UISmokeRunner {
             installShim: false
         )
         try expect(!store.showingRegisterCLI, "unavailable daemon direct register submit stays closed")
-        try expect(store.errorMessage == "Local daemon is not ready. Use Diagnostics to install or repair it.", "unavailable direct register submit shows repair guidance")
+        try expect(store.errorMessage == "Local daemon is not ready. Use Diagnostic & Uninstall to install or repair it.", "unavailable direct register submit shows repair guidance")
         CommandPolicyPackInstaller.presentOpenPanel(store: store)
         try expect(store.selectedSection == .diagnostics, "unavailable adapter install routes to diagnostics without opening a file picker")
     }
@@ -381,7 +381,7 @@ enum UISmokeRunner {
         await store.refresh()
         await store.replaceSecret(alias: "ai.openai.dev", value: "synthetic-secret", label: "OpenAI", environment: "api-session:openai")
         try expect(store.selectedSection == .diagnostics, "unavailable daemon action routes to diagnostics")
-        try expect(store.errorMessage == "Local daemon is not ready. Use Diagnostics to install or repair it.", "unavailable daemon action shows clear repair guidance")
+        try expect(store.errorMessage == "Local daemon is not ready. Use Diagnostic & Uninstall to install or repair it.", "unavailable daemon action shows clear repair guidance")
 
         let staleSnapshot = ControlPlaneStore(
             client: SequenceControlPlaneClient(snapshots: [emptySnapshot()]),
@@ -406,7 +406,7 @@ enum UISmokeRunner {
         try expect(!mcpDeleted, "MCP deletion reports failure when daemon is unavailable")
         let bwsDeleted = await staleSnapshot.deleteBitwardenBinding(alias: "cloud.hcloud.dev")
         try expect(!bwsDeleted, "Bitwarden provider deletion reports failure when daemon is unavailable")
-        let adapterRevoked = await staleSnapshot.revokeAdapter(policyPackID: BuiltInPolicyPacks.hcloud.policyPackID)
+        let adapterRevoked = await staleSnapshot.revokeAdapter(policyPackID: "com.example.policyPacks.demo")
         try expect(!adapterRevoked, "command policy pack revoke reports failure when daemon is unavailable")
         let sessionCreated = await staleSnapshot.createAPISession(profileName: "openai", bindPort: 48_177)
         try expect(!sessionCreated, "API session creation reports failure when daemon is unavailable")
@@ -431,7 +431,7 @@ enum UISmokeRunner {
             destructiveTerms: CommandPolicyConfig.default.destructiveTerms,
             forbiddenTerms: CommandPolicyConfig.default.forbiddenTerms
         )
-        try expect(CommandPolicyTermDraft.destructiveTerms(from: defaults) == ["delete", "remove"], "default command policy asks for delete and remove")
+        try expect(CommandPolicyTermDraft.destructiveTerms(from: defaults) == ["delete", "destroy", "remove"], "default command policy asks for delete, destroy, and remove")
         try expect(CommandPolicyTermDraft.forbiddenTerms(from: defaults).isEmpty, "default command policy does not block commands")
         try expect(CommandPolicyTermValidator.normalized(" Delete ") == "delete", "command policy term input is normalized")
         try expect(CommandPolicyTermValidator.validate("", existing: []) == .empty, "blank policy term is rejected")
@@ -641,9 +641,30 @@ enum UISmokeRunner {
         )
         await removable.refresh()
         try expect(removable.brokerUninstallPlan?.canUninstall == true, "diagnostics exposes local uninstall plan")
-        await removable.uninstallLocalInstall(purgeLocalState: true, removeShellConfiguration: true)
+        let removed = await removable.uninstallLocalInstall(purgeLocalState: true, removeShellConfiguration: true)
+        try expect(removed, "successful uninstall reports completion to the UI")
         try expect(removable.brokerStatus.message.contains("install and state were removed"), "uninstall reports explicit state purge")
         try expect(removable.snapshot == nil, "uninstall clears loaded local state")
+
+        let failedUninstall = ControlPlaneStore(
+            client: SequenceControlPlaneClient(snapshots: [emptySnapshot()]),
+            brokerController: StubBrokerStatusController(
+                statusValue: healthyBrokerStatus(),
+                uninstallValue: BrokerStatus(
+                    state: .healthy,
+                    socketPath: "/tmp/agentic-secrets-ui-smoke/run/agentic-secrets/core.sock",
+                    launchAgentPath: "/tmp/agentic-secrets-ui-smoke/Library/LaunchAgents/com.agenticsecrets.broker.plist",
+                    message: "Uninstall failed: synthetic failure",
+                    detail: nil,
+                    recoveryCommand: nil,
+                    checkedAt: Date()
+                )
+            )
+        )
+        await failedUninstall.refresh()
+        let failed = await failedUninstall.uninstallLocalInstall(purgeLocalState: true, removeShellConfiguration: true)
+        try expect(!failed, "failed uninstall is not treated as completion")
+        try expect(failedUninstall.errorMessage == "Uninstall failed: synthetic failure", "failed uninstall keeps error feedback visible")
     }
 
     private static func testManagedShellConfigurationCleanup() throws {
@@ -747,9 +768,6 @@ enum UISmokeRunner {
                 policy: BitwardenProviderLeasePolicy.policy(for: .dev)
             )
         ]
-        withResources.policyPacks = [
-            PolicyPackSummary(payload: BuiltInPolicyPacks.hcloud, policyPackHash: AdapterCanonicalizer.hash(BuiltInPolicyPacks.hcloud), installedAt: Date())
-        ]
         let store = ControlPlaneStore(
             client: SequenceControlPlaneClient(snapshots: [withResources, withResources, withResources, withResources, withResources]),
             brokerController: StubBrokerStatusController(statusValue: healthyBrokerStatus())
@@ -758,7 +776,7 @@ enum UISmokeRunner {
         try expect(store.selectedAPISessionProfileSummary?.name == "openai", "proxy selection is initialized")
         try expect(store.selectedMCPProfileSummary?.name == "linear", "MCP selection is initialized")
         try expect(store.selectedBitwardenBindingSummary?.alias == "cloud.hcloud.dev", "Bitwarden provider binding selection is initialized")
-        try expect(store.selectedPolicyPackSummary?.cliName == "hcloud", "command policy pack selection is initialized")
+        try expect(store.selectedPolicyPackSummary == nil, "fresh state does not invent a command policy pack selection")
         try expect(store.selectedCLIRegistration?.name == "hcloud", "CLI selection is initialized")
 
         let anchoredUnregisterStore = ControlPlaneStore(
@@ -809,7 +827,7 @@ enum UISmokeRunner {
         let bwsDeleted = await store.deleteBitwardenBinding(alias: "cloud.hcloud.dev")
         try expect(bwsDeleted, "Bitwarden provider binding delete reports success flag")
         try expect(store.successMessage == "Bitwarden provider binding deleted", "Bitwarden provider binding delete reports success")
-        let adapterRevoked = await store.revokeAdapter(policyPackID: BuiltInPolicyPacks.hcloud.policyPackID)
+        let adapterRevoked = await store.revokeAdapter(policyPackID: "com.example.policyPacks.demo")
         try expect(adapterRevoked, "command policy pack revoke reports success flag")
         try expect(store.successMessage == "Command policy pack revoked", "command policy pack revoke reports success")
         let policySaved = await store.updateCommandPolicy(destructiveTerms: ["remove"], forbiddenTerms: ["shutdown"])
