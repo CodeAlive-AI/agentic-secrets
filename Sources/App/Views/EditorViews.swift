@@ -69,7 +69,7 @@ struct RegisterCLIView: View {
                 TextField("CLI name", text: $name, prompt: Text("hcloud"))
                     .accessibilityLabel("CLI name")
                 HStack(alignment: .firstTextBaseline, spacing: 8) {
-                    TextField("Executable path", text: $targetPath, prompt: Text("/opt/homebrew/bin/hcloud"))
+                    TextField("Executable path", text: $targetPath)
                         .accessibilityLabel("Executable path")
                     Button {
                         chooseExecutable()
@@ -90,27 +90,36 @@ struct RegisterCLIView: View {
                 Text("Use the resolved executable path for the CLI you want Agentic Secrets to verify before delivery.")
                     .foregroundStyle(.secondary)
             }
-        case .bindings:
-            Section("Environment bindings") {
-                ForEach($bindings) { $binding in
-                    HStack {
-                        TextField("ENV_NAME", text: $binding.environmentName)
-                            .accessibilityLabel("Environment variable name")
-                        Button {
-                            bindings.removeAll { $0.id == binding.id }
-                            if bindings.isEmpty { bindings.append(SecretDraft()) }
-                        } label: {
-                            Image(systemName: "minus.circle")
-                        }
-                        .buttonStyle(.borderless)
-                        .help("Remove binding")
-                        .accessibilityLabel("Remove environment binding")
+        case .secrets:
+            Section("Environment secrets") {
+                Grid(alignment: .leading, horizontalSpacing: 12, verticalSpacing: 8) {
+                    GridRow {
+                        Text("ENV_NAME")
+                            .font(.caption.weight(.semibold))
+                            .foregroundStyle(.secondary)
+                        Text("Value")
+                            .font(.caption.weight(.semibold))
+                            .foregroundStyle(.secondary)
+                        Text("")
+                            .accessibilityHidden(true)
+                    }
+                    Divider()
+                        .gridCellColumns(3)
+                    ForEach($bindings) { $binding in
+                        RegisterCLISecretRow(
+                            binding: $binding,
+                            canRemove: bindings.count > 1,
+                            remove: {
+                                bindings.removeAll { $0.id == binding.id }
+                                if bindings.isEmpty { bindings.append(SecretDraft()) }
+                            }
+                        )
                     }
                 }
                 Button {
                     bindings.append(SecretDraft())
                 } label: {
-                    Label("Add Environment Binding", systemImage: "plus")
+                    Label("Add Environment Secret", systemImage: "plus")
                 }
                 if RegisterCLIFormValidation.hasDuplicateEnvironmentNames(bindings) {
                     Text("Environment names must be unique.")
@@ -119,13 +128,6 @@ struct RegisterCLIView: View {
                 if !RegisterCLIFormValidation.invalidEnvironmentNames(bindings).isEmpty {
                     Text("Use shell-style names such as HCLOUD_TOKEN: letters, numbers, and underscores; do not start with a number.")
                         .foregroundStyle(.red)
-                }
-            }
-        case .secrets:
-            Section("Write-only secrets") {
-                ForEach($bindings) { $binding in
-                    SecureField(binding.environmentName.isEmpty ? "Secret value" : binding.environmentName, text: $binding.secretValue)
-                        .accessibilityLabel("Secret value for \(binding.environmentName.isEmpty ? "environment binding" : binding.environmentName)")
                 }
                 if bindings.contains(where: { !$0.secretValue.isEmpty && !SecretInputValidation.hasNonWhitespace($0.secretValue) }) {
                     Text("Secret values cannot be only whitespace.")
@@ -158,10 +160,6 @@ struct RegisterCLIView: View {
             !name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
                 && !targetPath.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
                 && RegisterCLIFormValidation.isValidExecutablePath(targetPath)
-        case .bindings:
-            bindings.contains { !$0.environmentName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
-                && !RegisterCLIFormValidation.hasDuplicateEnvironmentNames(bindings)
-                && RegisterCLIFormValidation.invalidEnvironmentNames(bindings).isEmpty
         case .secrets:
             bindings.allSatisfy {
                 !$0.environmentName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
@@ -279,14 +277,12 @@ enum BitwardenBindingEditorDefaults {
 
 private enum RegisterCLIStep: Int, CaseIterable {
     case target
-    case bindings
     case secrets
     case review
 
     var title: String {
         switch self {
         case .target: "Target"
-        case .bindings: "Bindings"
         case .secrets: "Secrets"
         case .review: "Review"
         }
@@ -295,8 +291,7 @@ private enum RegisterCLIStep: Int, CaseIterable {
     var subtitle: String {
         switch self {
         case .target: "Choose the CLI executable to verify."
-        case .bindings: "Name the environment variables Agentic Secrets may deliver."
-        case .secrets: "Enter secret material once; it will not be shown again."
+        case .secrets: "Add environment names and write-only values in one table."
         case .review: "Confirm the target and write-only bindings."
         }
     }
@@ -307,6 +302,30 @@ private enum RegisterCLIStep: Int, CaseIterable {
 
     var previous: RegisterCLIStep {
         RegisterCLIStep(rawValue: rawValue - 1) ?? .target
+    }
+}
+
+private struct RegisterCLISecretRow: View {
+    @Binding var binding: SecretDraft
+    var canRemove: Bool
+    var remove: () -> Void
+
+    var body: some View {
+        GridRow {
+            TextField("HCLOUD_TOKEN", text: $binding.environmentName)
+                .textFieldStyle(.roundedBorder)
+                .accessibilityLabel("Environment variable name")
+            SecureField("Secret value", text: $binding.secretValue)
+                .textFieldStyle(.roundedBorder)
+                .accessibilityLabel("Secret value for \(binding.environmentName.isEmpty ? "environment variable" : binding.environmentName)")
+            Button(action: remove) {
+                Image(systemName: "minus.circle")
+            }
+            .buttonStyle(.borderless)
+            .disabled(!canRemove)
+            .help(canRemove ? "Remove environment secret" : "At least one environment secret is required")
+            .accessibilityLabel("Remove environment secret")
+        }
     }
 }
 
