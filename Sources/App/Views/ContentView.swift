@@ -173,7 +173,7 @@ struct SidebarView: View {
         List(selection: $store.selectedSection) {
             Section("Manage") {
                 ForEach(ControlPlaneSection.allCases) { section in
-                    Label(section.rawValue, systemImage: section.systemImage)
+                    SidebarSectionRow(section: section)
                         .tag(section)
                 }
                 Button {
@@ -201,6 +201,29 @@ struct SidebarView: View {
             SidebarReleaseFooter(store: store)
         }
         .navigationSplitViewColumnWidth(min: 220, ideal: 240, max: 300)
+    }
+}
+
+private struct SidebarSectionRow: View {
+    var section: ControlPlaneSection
+
+    var body: some View {
+        HStack(spacing: 8) {
+            Label(section.rawValue, systemImage: section.systemImage)
+                .foregroundStyle(section.isPreview ? .secondary : .primary)
+            Spacer(minLength: 4)
+            if section.isPreview {
+                Text("Preview")
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+                    .padding(.horizontal, 5)
+                    .padding(.vertical, 1)
+                    .background(.quaternary, in: Capsule())
+                    .accessibilityHidden(true)
+            }
+        }
+        .help(section.isPreview ? "\(section.rawValue) is a preview feature" : section.rawValue)
+        .accessibilityLabel(section.isPreview ? "\(section.rawValue), preview feature" : section.rawValue)
     }
 }
 

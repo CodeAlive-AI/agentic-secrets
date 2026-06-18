@@ -14,6 +14,7 @@ narrow, approved, bounded, auditable, and fail-closed.
 2. Full command audit and usage statistics without logging secret values.
 3. Native workflows for OpenClaw, Hermes Agent, and other autonomous agents.
 4. Rework API Sessions proxy delivery with a clear UX and verified end-to-end tests.
+5. Finish Bitwarden Secrets preview with guided setup and tested provider flows.
 
 ## Direction 1: Cross-Platform Support With a Reusable Core
 
@@ -198,6 +199,38 @@ Acceptance criteria:
   upstream call is broken and provide one clear next action.
 - UI smoke and contract tests cover the complete happy path and major failure
   paths before the feature is visible by default.
+
+## Direction 5: Bitwarden Secrets Preview
+
+Goal: move Bitwarden Secrets from preview to a finished, tested provider
+workflow.
+
+The current Bitwarden surface is useful for early validation, but it should
+remain clearly marked as preview until the setup, repair, credential lifecycle,
+and failure states are understandable without implementation knowledge.
+
+Milestones:
+
+1. Design a guided setup flow that explains project ID, secret ID, environment,
+   local approval behavior, and what Agentic Secrets stores.
+2. Add clear empty, repair, rotation, delete, and provider-auth failure states
+   with one best next action.
+3. Verify that no Bitwarden token, fetched secret value, or upstream identifier
+   is displayed or logged beyond redacted metadata.
+4. Add end-to-end tests for binding creation, provider fetch, lease behavior,
+   rotation, deletion, redacted audit output, and provider failure recovery.
+5. Remove the preview label only after the UI and tests are complete.
+
+Acceptance criteria:
+
+- A new user can configure Bitwarden Secrets from the app without reading
+  internal docs.
+- The UI explains exactly which local metadata is stored and which upstream
+  secret is referenced.
+- Provider failures identify whether local config, provider auth, project ID,
+  secret ID, or lease state needs action.
+- UI smoke and contract tests cover happy path and major failure paths before
+  Bitwarden is presented as a stable feature.
 
 ## Roadmap Principles
 

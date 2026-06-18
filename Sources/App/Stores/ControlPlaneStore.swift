@@ -35,6 +35,10 @@ enum ControlPlaneSection: String, CaseIterable, Identifiable {
         case .diagnostics: "stethoscope"
         }
     }
+
+    var isPreview: Bool {
+        self == .bitwardenProviderBindings
+    }
 }
 
 enum BrokerNextAction: Equatable {
