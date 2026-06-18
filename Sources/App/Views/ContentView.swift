@@ -32,12 +32,12 @@ struct ContentView: View {
     }
 
     private var splitView: some View {
-        NavigationSplitView {
+        HSplitView {
             SidebarView(store: store)
-        } detail: {
+                .frame(minWidth: 220, idealWidth: 240, maxWidth: 300)
             DetailView(store: store)
+                .frame(minWidth: 560)
         }
-        .navigationSplitViewStyle(.balanced)
         .toolbar {
             ToolbarItemGroup {
                 ToolbarIconButton(
@@ -170,23 +170,36 @@ struct SidebarView: View {
     @Bindable var store: ControlPlaneStore
 
     var body: some View {
-        List(selection: $store.selectedSection) {
-            Section("Manage") {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 4) {
+                Text("Manage")
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(.secondary)
+                    .padding(.horizontal, 8)
+                    .padding(.top, 12)
                 ForEach(ControlPlaneSection.allCases) { section in
-                    SidebarSectionRow(section: section)
-                        .tag(section)
+                    Button {
+                        store.selectedSection = section
+                    } label: {
+                        SidebarSectionRow(
+                            section: section,
+                            isSelected: store.selectedSection == section
+                        )
+                    }
+                    .buttonStyle(.plain)
+                    .help(section.isPreview ? "\(section.rawValue) is a preview feature" : section.rawValue)
+                    .accessibilityLabel(section.isPreview ? "\(section.rawValue), preview feature" : section.rawValue)
                 }
                 Button {
                     AboutWindowController.shared.show()
                 } label: {
-                    Label("About", systemImage: "info.circle")
+                    SidebarUtilityRow(title: "About", systemImage: "info.circle")
                 }
                 .buttonStyle(.plain)
                 .help("About Agentic Secrets")
                 .accessibilityLabel("About Agentic Secrets")
-            }
-            Section {
                 SidebarDivider()
+                    .padding(.top, 18)
                 ExternalSidebarLink(
                     store: store,
                     title: "SSH",
@@ -195,35 +208,70 @@ struct SidebarView: View {
                     destination: URL(string: "https://secretive.dev/")!
                 )
             }
+            .padding(.horizontal, 14)
+            .padding(.bottom, 12)
+            .frame(maxWidth: .infinity, alignment: .leading)
         }
-        .listStyle(.sidebar)
         .safeAreaInset(edge: .bottom, spacing: 0) {
             SidebarReleaseFooter(store: store)
         }
-        .navigationSplitViewColumnWidth(min: 220, ideal: 240, max: 300)
+        .background(.bar)
     }
 }
 
 private struct SidebarSectionRow: View {
     var section: ControlPlaneSection
+    var isSelected: Bool
 
     var body: some View {
         HStack(spacing: 8) {
             Label(section.rawValue, systemImage: section.systemImage)
-                .foregroundStyle(section.isPreview ? .secondary : .primary)
+                .lineLimit(1)
+                .foregroundStyle(labelStyle)
             Spacer(minLength: 4)
             if section.isPreview {
                 Text("Preview")
                     .font(.caption2)
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(isSelected ? .white.opacity(0.82) : .secondary)
                     .padding(.horizontal, 5)
                     .padding(.vertical, 1)
-                    .background(.quaternary, in: Capsule())
+                    .background(previewBadgeBackground, in: Capsule())
                     .accessibilityHidden(true)
             }
         }
-        .help(section.isPreview ? "\(section.rawValue) is a preview feature" : section.rawValue)
-        .accessibilityLabel(section.isPreview ? "\(section.rawValue), preview feature" : section.rawValue)
+        .padding(.horizontal, 10)
+        .frame(height: 36)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(isSelected ? Color.accentColor : Color.clear, in: RoundedRectangle(cornerRadius: 8))
+        .contentShape(RoundedRectangle(cornerRadius: 8))
+    }
+
+    private var labelStyle: AnyShapeStyle {
+        if isSelected {
+            AnyShapeStyle(.white)
+        } else if section.isPreview {
+            AnyShapeStyle(.secondary)
+        } else {
+            AnyShapeStyle(.primary)
+        }
+    }
+
+    private var previewBadgeBackground: AnyShapeStyle {
+        isSelected ? AnyShapeStyle(.white.opacity(0.18)) : AnyShapeStyle(.quaternary)
+    }
+}
+
+private struct SidebarUtilityRow: View {
+    var title: String
+    var systemImage: String
+
+    var body: some View {
+        Label(title, systemImage: systemImage)
+            .lineLimit(1)
+            .padding(.horizontal, 10)
+            .frame(height: 36)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .contentShape(RoundedRectangle(cornerRadius: 8))
     }
 }
 
@@ -232,8 +280,8 @@ private struct SidebarDivider: View {
         Rectangle()
             .fill(Color(nsColor: .separatorColor))
             .frame(height: 1)
-            .padding(.leading, 27)
             .padding(.vertical, 8)
+            .padding(.horizontal, 12)
             .accessibilityHidden(true)
     }
 }
