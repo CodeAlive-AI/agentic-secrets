@@ -1,12 +1,18 @@
-# AgenticFortress Roadmap
+# Agentic Secrets Roadmap
 
 This roadmap describes post-alpha product directions. It is not a release
 commitment, but it should guide architecture decisions so short-term macOS work
 does not block Linux, Windows, or richer audit workflows later.
 
-AgenticFortress remains a lower-leakage secret delivery system. It does not make
+Agentic Secrets remains a lower-leakage secret delivery system. It does not make
 arbitrary command execution safe. Future work should keep secret access explicit,
 narrow, approved, bounded, auditable, and fail-closed.
+
+## Roadmap At A Glance
+
+1. Cross-platform support with a reusable core for macOS, Linux, and Windows.
+2. Full command audit and usage statistics without logging secret values.
+3. Native workflows for OpenClaw, Hermes Agent, and other autonomous agents.
 
 ## Direction 1: Cross-Platform Support With a Reusable Core
 
@@ -29,7 +35,7 @@ platform layers:
   Windows service or per-user background process lifecycle, named pipe
   authorization, Windows Hello or local credential prompt integration, and MSI
   or winget packaging.
-- `Adapters`: dynamic signed adapter packs and deterministic decision manifests
+- `Command Policy Packs`: dynamic signed command policy packs and deterministic decision manifests
   that remain portable unless a specific CLI requires platform-specific rules.
 - `Tests`: contract tests shared across platforms, plus platform-specific
   conformance suites for identity, storage, IPC, lifecycle, and prompt behavior.
@@ -38,7 +44,7 @@ If the source tree needs platform-specific implementations, they should be
 separated intentionally rather than mixed into core modules. A likely structure:
 
 ```text
-Sources/Core/
+Sources/Broker/
 Sources/Platform/macOS/
 Sources/Platform/Linux/
 Sources/Platform/Windows/
@@ -81,7 +87,7 @@ Acceptance criteria:
 Goal: provide complete local auditability for command execution and secret
 delivery without logging secret values or sensitive command bodies.
 
-AgenticFortress should answer operational questions such as:
+Agentic Secrets should answer operational questions such as:
 
 - Who approved or initiated a command?
 - When did it run?
@@ -89,7 +95,7 @@ AgenticFortress should answer operational questions such as:
 - Which secret alias was delivered?
 - How many times was a secret alias delivered in a selected time window?
 - Which commands were denied, why, and under which policy epoch?
-- Which approvals reused a scoped unlock grant instead of prompting again?
+- Which approvals reused a scoped delivery grant instead of prompting again?
 
 Audit records should include stable, redacted metadata:
 
@@ -99,7 +105,7 @@ Audit records should include stable, redacted metadata:
 - target binary path, target identity digest, and command classification;
 - workspace hash, command digest, action class, risk level, and delivery mode;
 - secret alias, provider name, and provider record identifier where available;
-- policy epoch, config hash, approval session ID, unlock grant ID, and lease
+- policy epoch, config hash, approval session ID, delivery grant ID, and lease
   scope;
 - decision result, denial reason, error class, and repair hint;
 - duration, exit status, and coarse success/failure outcome when available.
@@ -114,7 +120,7 @@ separate source of truth. Initial views:
 
 - secret alias usage count by day, CLI, adapter, workspace, and local user;
 - command allow/deny counts by policy epoch and risk level;
-- prompt frequency, unlock grant reuse, and grant expiry patterns;
+- prompt frequency, delivery grant reuse, and grant expiry patterns;
 - adapter version distribution and stale adapter usage;
 - top denied actions and repair recommendations;
 - exportable redacted reports for incident review and policy tuning.
@@ -142,6 +148,19 @@ Acceptance criteria:
   token-shaped values.
 - Audit data remains useful after adapter upgrades, policy migrations, and
   platform-specific storage changes.
+
+## Direction 3: Native Autonomous Agent Integrations
+
+Goal: extend Agentic Secrets from registered local CLI delivery into native
+workflows for OpenClaw, Hermes Agent, and other autonomous agents without
+weakening the local secret-authority boundary.
+
+Future integrations should expose bounded capabilities, pinned profiles, and
+redacted audit events rather than raw secret retrieval APIs. The
+[The-17/agentsecrets](https://github.com/The-17/agentsecrets) repository is a
+useful source of approaches, implementations, and product ideas for
+agent-facing secret workflows, but any borrowed pattern must preserve Agentic
+Secrets' stricter approval, secret-delivery, and fail-closed guarantees.
 
 ## Roadmap Principles
 
