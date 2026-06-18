@@ -269,7 +269,11 @@ struct AgenticSecretsBrokerDaemon {
         let manifest = try InstallManifestStore.load(path: manifestPath)
         let handler = BrokerIPCHandler(
             authorizer: BrokerIPCAuthorizer(installManifest: manifest),
-            management: ControlPlane(stateDirectory: stateDirectory(from: args))
+            management: ControlPlane(
+                stateDirectory: stateDirectory(from: args),
+                installPrefix: URL(fileURLWithPath: manifest.prefix, isDirectory: true),
+                shimRequirement: manifest.requirement(for: "agentic-secrets-shim")
+            )
         )
         return UnixDomainSocketIPCServer(socketPath: socket, handler: handler)
     }

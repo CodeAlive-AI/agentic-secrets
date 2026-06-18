@@ -192,15 +192,27 @@ default_shell_config() {
   esac
 }
 
+shell_single_quote() {
+  if printf '%s' "$1" | LC_ALL=C grep -q '[[:cntrl:]]'; then
+    printf 'Refusing to write shell PATH block for a path containing control characters.\n' >&2
+    exit 64
+  fi
+  printf "'"
+  printf '%s' "$1" | sed "s/'/'\\\\''/g"
+  printf "'"
+}
+
 configure_shell_path() {
   target="${SHELL_CONFIG:-$(default_shell_config)}"
+  quoted_bin_dir="$(shell_single_quote "$BIN_DIR")"
   mkdir -p "$(dirname "$target")"
   touch "$target"
   {
     printf '\n# Agentic Secrets PATH\n'
+    printf 'agentic_secrets_path_dir=%s\n' "$quoted_bin_dir"
     printf 'case ":$PATH:" in\n'
-    printf '  *":%s:"*) ;;\n' "$BIN_DIR"
-    printf '  *) export PATH="%s:$PATH" ;;\n' "$BIN_DIR"
+    printf '  *":$agentic_secrets_path_dir:"*) ;;\n'
+    printf '  *) export PATH="$agentic_secrets_path_dir:$PATH" ;;\n'
     printf 'esac\n'
   } >>"$target"
   printf 'Configured shell PATH in %s\n' "$target"

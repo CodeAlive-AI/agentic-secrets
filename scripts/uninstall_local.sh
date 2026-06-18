@@ -74,8 +74,45 @@ for executable in agentic-secrets AgenticSecrets agentic-secrets-shim agentic-se
   rm -f "$BIN_DIR/$executable"
 done
 
+normalize_link_destination() {
+  link_path="$1"
+  destination="$2"
+  case "$destination" in
+    /*)
+      printf '%s\n' "$destination"
+      ;;
+    *)
+      link_dir="$(dirname "$link_path")"
+      destination_dir="$(dirname "$destination")"
+      destination_base="$(basename "$destination")"
+      if cd "$link_dir/$destination_dir" 2>/dev/null; then
+        printf '%s/%s\n' "$(pwd -P)" "$destination_base"
+      else
+        printf '%s/%s\n' "$link_dir" "$destination"
+      fi
+      ;;
+  esac
+}
+
+remove_managed_shims() {
+  [ -d "$SHIM_DIR" ] || return 0
+  expected_bin="$BIN_DIR/agentic-secrets-shim"
+  expected_app="$APP_DEST/Contents/MacOS/agentic-secrets-shim"
+  for shim in "$SHIM_DIR"/* "$SHIM_DIR"/.[!.]* "$SHIM_DIR"/..?*; do
+    [ -e "$shim" ] || [ -L "$shim" ] || continue
+    [ -L "$shim" ] || continue
+    target="$(readlink "$shim" 2>/dev/null || printf '')"
+    [ -n "$target" ] || continue
+    normalized="$(normalize_link_destination "$shim" "$target")"
+    if [ "$normalized" = "$expected_bin" ] || [ "$normalized" = "$expected_app" ]; then
+      rm -f "$shim"
+    fi
+  done
+  rmdir "$SHIM_DIR" 2>/dev/null || true
+}
+
 rm -f "$CORE_PLIST"
-rm -rf "$SHIM_DIR"
+remove_managed_shims
 rm -rf "$RUN_DIR"
 rm -rf "$SOCKET_DIR"
 
@@ -127,7 +164,11 @@ clean_shell_config() {
             break
           }
         }
-        if (count >= 3 && block[2] == "case \":$PATH:\" in" && block[count] == "esac" && block_has_managed_path(count)) {
+        case_index = 2
+        if (block[2] ~ /^[[:space:]]*agentic_secrets_path_dir=/) {
+          case_index = 3
+        }
+        if (count >= case_index + 2 && block[case_index] == "case \":$PATH:\" in" && block[count] == "esac" && block_has_managed_path(count)) {
           next
         }
         for (i = 1; i <= count; i++) {

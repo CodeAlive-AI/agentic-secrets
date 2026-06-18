@@ -369,8 +369,11 @@ struct LocalBrokerStatusController: BrokerStatusControlling {
             _ = runProcess(executable: "/bin/launchctl", arguments: ["bootout", "gui/\(getuid())", launchAgent.path])
         }
 
-        removeManagedShims(in: shimDirectory, appDestination: appDestination)
-        try? fileManager.removeItem(at: shimDirectory)
+        removeManagedShims(
+            in: shimDirectory,
+            expectedShimBinary: binDirectory.appendingPathComponent("agentic-secrets-shim")
+        )
+        removeDirectoryIfEmpty(shimDirectory)
 
         for executable in Self.installExecutables {
             try? fileManager.removeItem(at: binDirectory.appendingPathComponent(executable))
@@ -394,16 +397,20 @@ struct LocalBrokerStatusController: BrokerStatusControlling {
         removeEmptyDirectories(from: URL(fileURLWithPath: plan.prefixPath, isDirectory: true))
     }
 
-    private func removeManagedShims(in shimDirectory: URL, appDestination: URL) {
+    private func removeManagedShims(in shimDirectory: URL, expectedShimBinary: URL) {
         let fileManager = FileManager.default
         guard let entries = try? fileManager.contentsOfDirectory(at: shimDirectory, includingPropertiesForKeys: [.isSymbolicLinkKey]) else { return }
-        let expectedTargets = Set([
-            appDestination.appendingPathComponent("Contents/MacOS/agentic-secrets-shim").path,
-            appDestination.appendingPathComponent("Contents/MacOS/agentic-secrets-shim").standardizedFileURL.path
-        ])
-        for entry in entries where expectedTargets.contains(entry.resolvingSymlinksInPath().path) {
+        for entry in entries where CommandShimInstallationInspector.pointsToShimBinary(shimURL: entry, expectedShimBinary: expectedShimBinary) {
             try? fileManager.removeItem(at: entry)
         }
+    }
+
+    private func removeDirectoryIfEmpty(_ directory: URL) {
+        let fileManager = FileManager.default
+        guard let entries = try? fileManager.contentsOfDirectory(atPath: directory.path), entries.isEmpty else {
+            return
+        }
+        try? fileManager.removeItem(at: directory)
     }
 
     private func removeManagedAppBundle(at appURL: URL, legacyAppDestination: URL) throws {
@@ -536,14 +543,17 @@ struct LocalBrokerStatusController: BrokerStatusControlling {
     private func daemonUnavailableReason(_ error: Error) -> DaemonUnavailableReason {
         let description = String(describing: error)
         let plan = makeInstallPlan()
-        if !plan.currentAppIsInstalledCopy && FileManager.default.fileExists(atPath: plan.appDestinationPath) {
-            return .wrongAppCopy
-        }
         if description.contains("No such file or directory") || description.contains("connect") {
             return FileManager.default.fileExists(atPath: plan.launchAgentPath) ? .notRunning : .notInstalled
         }
         if description.contains("unauthorizedPeer") || description.contains("wrongHash") || description.contains("wrongPath") || description.contains("wrongCDHash") {
+            if !plan.currentAppIsInstalledCopy && FileManager.default.fileExists(atPath: plan.appDestinationPath) {
+                return .wrongAppCopy
+            }
             return .manifestMismatch
+        }
+        if !plan.currentAppIsInstalledCopy && FileManager.default.fileExists(atPath: plan.appDestinationPath) {
+            return .wrongAppCopy
         }
         return .unreachable
     }
@@ -666,8 +676,15 @@ enum ShellConfigurationCleaner {
         guard index + 1 < lines.count else { return nil }
         let marker = lines[index].trimmingCharacters(in: .whitespaces)
         guard marker == "# Agentic Secrets PATH" || marker == "# AgenticSecrets CLI shims" else { return nil }
-        guard lines[index + 1].trimmingCharacters(in: .whitespaces) == #"case ":$PATH:" in"# else { return nil }
-        var cursor = index + 2
+        let caseIndex: Int
+        if lines[index + 1].trimmingCharacters(in: .whitespaces).hasPrefix("agentic_secrets_path_dir=") {
+            caseIndex = index + 2
+        } else {
+            caseIndex = index + 1
+        }
+        guard caseIndex < lines.count,
+              lines[caseIndex].trimmingCharacters(in: .whitespaces) == #"case ":$PATH:" in"# else { return nil }
+        var cursor = caseIndex + 1
         while cursor < lines.count {
             if lines[cursor].trimmingCharacters(in: .whitespaces) == "esac" {
                 return cursor

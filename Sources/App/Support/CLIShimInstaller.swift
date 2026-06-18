@@ -13,6 +13,7 @@ enum CLIShimInstaller {
         let process = Process()
         process.executableURL = URL(fileURLWithPath: try cliPath())
         process.arguments = arguments
+        process.environment = subprocessEnvironment()
 
         let output = Pipe()
         let errors = Pipe()
@@ -47,6 +48,19 @@ enum CLIShimInstaller {
             return sibling.path
         }
         throw CLIShimInstallerError.missingCLI
+    }
+
+    static func subprocessEnvironment(
+        base: [String: String] = ProcessInfo.processInfo.environment,
+        installPrefix: URL? = IPCControlPlaneClient.installPrefixFromBundle()
+    ) -> [String: String] {
+        var environment = base
+        if let installPrefix {
+            environment["AGENTIC_SECRETS_INSTALL_PREFIX"] = installPrefix.path
+            environment["AGENTIC_SECRETS_SHIM_DIR"] = installPrefix.appendingPathComponent("shims", isDirectory: true).path
+            environment["AGENTIC_SECRETS_SHIM_BINARY"] = installPrefix.appendingPathComponent("bin/agentic-secrets-shim").path
+        }
+        return environment
     }
 }
 

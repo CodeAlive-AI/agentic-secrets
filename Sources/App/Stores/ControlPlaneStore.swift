@@ -225,7 +225,9 @@ final class ControlPlaneStore {
             guard let plan = brokerInstallPlan else {
                 return brokerStatus.canRepair ? .restart : .check
             }
-            if !plan.currentAppIsInstalledCopy && FileManager.default.fileExists(atPath: plan.appDestinationPath) {
+            if brokerStatus.message.contains("Open the installed copy"),
+               !plan.currentAppIsInstalledCopy,
+               FileManager.default.fileExists(atPath: plan.appDestinationPath) {
                 return .openInstalledApp
             }
             if plan.canInstall {
@@ -438,11 +440,7 @@ final class ControlPlaneStore {
 
     func refreshAfterActivation() async {
         guard !isLoading else { return }
-        if snapshot == nil {
-            await refresh()
-        } else {
-            await checkDaemon()
-        }
+        await refresh()
     }
 
     func repairDaemon() async {
@@ -570,8 +568,12 @@ final class ControlPlaneStore {
                 successMessage = "CLI registered"
                 errorMessage = nil
             }
-            snapshot = try await client.loadSnapshot()
-            maintainSelections()
+            do {
+                snapshot = try await loadSnapshotWithTransientRetry()
+                maintainSelections()
+            } catch {
+                errorMessage = "\(successMessage ?? "CLI registered"), but the updated local state could not be refreshed. \(localStateLoadError(error))"
+            }
             return true
         } catch {
             errorMessage = userFacingError(error)
@@ -890,7 +892,10 @@ final class ControlPlaneStore {
         errorMessage = nil
         try? await Task.sleep(for: .milliseconds(350))
         brokerStatus = await brokerController.status()
-        guard brokerStatus.state == .healthy else { return }
+        guard brokerStatus.state == .healthy else {
+            snapshot = nil
+            return
+        }
         do {
             try await loadSnapshotAfterHealthyStatus()
             errorMessage = nil

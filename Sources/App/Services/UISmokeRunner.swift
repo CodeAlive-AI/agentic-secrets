@@ -26,6 +26,8 @@ enum UISmokeRunner {
         try await testEmptyState()
         try await testSettingsLayout()
         try await testRegisterWizardValidation()
+        try testCLIShimInstallerEnvironment()
+        try testCLIShimStatusPresentation()
         try testManagementEditorValidation()
         try testPasteboardCopy()
         try testCommandPolicyDraft()
@@ -198,6 +200,45 @@ enum UISmokeRunner {
         try expect(RegisterCLIFormValidation.environmentSecrets([
             SecretDraft(environmentName: "HCLOUD_TOKEN", secretValue: " \n\t ")
         ]).isEmpty, "whitespace-only secret values are omitted from registration payload")
+    }
+
+    private static func testCLIShimInstallerEnvironment() throws {
+        let prefix = URL(fileURLWithPath: "/tmp/agentic-secrets-custom-prefix", isDirectory: true)
+        let environment = CLIShimInstaller.subprocessEnvironment(
+            base: ["PATH": "/usr/bin"],
+            installPrefix: prefix
+        )
+        try expect(environment["AGENTIC_SECRETS_INSTALL_PREFIX"] == prefix.path, "shim installer subprocess receives the app install prefix")
+        try expect(environment["AGENTIC_SECRETS_SHIM_DIR"] == prefix.appendingPathComponent("shims", isDirectory: true).path, "shim installer subprocess uses the matching prefix shims directory")
+        try expect(environment["AGENTIC_SECRETS_SHIM_BINARY"] == prefix.appendingPathComponent("bin/agentic-secrets-shim").path, "shim installer subprocess uses the matching prefix shim helper")
+        try expect(environment["PATH"] == "/usr/bin", "shim installer subprocess preserves unrelated environment")
+    }
+
+    private static func testCLIShimStatusPresentation() throws {
+        let installed = CLIShimStatusPresentation(rawValue: "installed")
+        try expect(installed.label == "Installed", "installed shim status has a human label")
+        try expect(installed.canInstall, "installed shim can be repaired")
+        try expect(installed.canRemove, "installed shim can be removed")
+
+        let missing = CLIShimStatusPresentation(rawValue: "not installed")
+        try expect(missing.label == "Not Installed", "missing shim status has a human label")
+        try expect(missing.canInstall, "missing shim can be installed")
+        try expect(!missing.canRemove, "missing shim cannot be removed")
+
+        let blocked = CLIShimStatusPresentation(rawValue: "blocked")
+        try expect(blocked.label == "Blocked", "blocked shim status has a human label")
+        try expect(!blocked.canInstall, "blocked shim install action is disabled until the path is reviewed")
+        try expect(!blocked.canRemove, "blocked shim remove action is disabled because the path is not verified as managed")
+
+        let helperUnavailable = CLIShimStatusPresentation(rawValue: "helper unavailable")
+        try expect(helperUnavailable.label == "Helper Unavailable", "helper-unavailable shim status has a human label")
+        try expect(!helperUnavailable.canInstall, "helper-unavailable shim cannot be repaired through per-CLI install")
+        try expect(!helperUnavailable.canRemove, "helper-unavailable shim cannot be removed as a verified managed shim")
+
+        let unknown = CLIShimStatusPresentation(rawValue: "unexpected")
+        try expect(unknown.label == "Unknown", "unexpected shim status falls back to Unknown")
+        try expect(!unknown.canInstall, "unknown shim status does not enable install")
+        try expect(!unknown.canRemove, "unknown shim status does not enable remove")
     }
 
     private static func testManagementEditorValidation() throws {
@@ -397,6 +438,9 @@ enum UISmokeRunner {
         store.brokerInstallPlan = plan
         store.brokerStatus.message = "Open the installed copy so the authenticated IPC manifest matches the running UI."
         try expect(store.bestDaemonAction == .openInstalledApp, "wrong app copy state highlights opening the installed copy")
+        store.brokerStatus.message = "Local daemon is installed but not running."
+        try expect(store.bestDaemonAction != .openInstalledApp, "daemon-down state does not over-prioritize opening the installed copy")
+        store.brokerStatus.message = "Open the installed copy so the authenticated IPC manifest matches the running UI."
         try verifyHostingLayout(
             LocalStateUnavailableView(store: store),
             width: 680,
@@ -732,6 +776,13 @@ enum UISmokeRunner {
         case ":$PATH:" in
           *":\(binDir):"*) ;;
           *) export PATH="\(binDir):$PATH" ;;
+        esac
+
+        # AgenticSecrets CLI shims
+        agentic_secrets_path_dir='\(shimDir)'
+        case ":$PATH:" in
+          *":$agentic_secrets_path_dir:"*) ;;
+          *) export PATH="$agentic_secrets_path_dir:$PATH" ;;
         esac
 
         # AgenticSecrets CLI shims

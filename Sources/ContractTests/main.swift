@@ -413,6 +413,109 @@ func runContracts() throws {
     try expectThrows(BrokerIPCError.unauthorizedPeer("wrongHash"), {
         _ = try managementHandler.handle(BrokerIPCRequest(requestID: "req_management_bad_peer", operation: .loadControlPlaneSnapshot, peer: wrongHashPeer))
     }, "management IPC must reject unauthorized peers")
+
+    let shimInstallRoot = URL(fileURLWithPath: NSTemporaryDirectory())
+        .appendingPathComponent("agentic-secrets-shim-status-\(UUID().uuidString)", isDirectory: true)
+    defer { try? FileManager.default.removeItem(at: shimInstallRoot) }
+    let shimState = shimInstallRoot.appendingPathComponent("var/agentic-secrets", isDirectory: true)
+    let shimBin = shimInstallRoot.appendingPathComponent("bin", isDirectory: true)
+    let shimDir = shimInstallRoot.appendingPathComponent("shims", isDirectory: true)
+    let shimAppBin = shimInstallRoot.appendingPathComponent("AgenticSecrets.app/Contents/MacOS", isDirectory: true)
+    try FileManager.default.createDirectory(at: shimBin, withIntermediateDirectories: true)
+    try FileManager.default.createDirectory(at: shimDir, withIntermediateDirectories: true)
+    try FileManager.default.createDirectory(at: shimAppBin, withIntermediateDirectories: true)
+    let packagedShim = shimAppBin.appendingPathComponent("agentic-secrets-shim")
+    try "#!/bin/sh\nexit 0\n".data(using: .utf8)!.write(to: packagedShim)
+    try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: packagedShim.path)
+    let installedShim = shimBin.appendingPathComponent("agentic-secrets-shim")
+    try FileManager.default.createSymbolicLink(atPath: installedShim.path, withDestinationPath: packagedShim.path)
+    let shimIdentity = try SelfBuildPeerValidator.identity(
+        helperName: "agentic-secrets-shim",
+        path: installedShim.path,
+        version: "1.2.1"
+    )
+    let shimRequirement = SelfBuildPeerRequirement(
+        helperName: shimIdentity.helperName,
+        resolvedPath: shimIdentity.resolvedPath,
+        ownerUserID: shimIdentity.ownerUserID,
+        minimumVersion: "1.2.0",
+        binarySHA256: shimIdentity.binarySHA256,
+        cdHash: shimIdentity.cdHash,
+        allowDebugSigned: true
+    )
+    try expect(
+        CommandShimInstallationInspector.status(name: "missing", installPrefix: shimInstallRoot, helperRequirement: shimRequirement) == .notInstalled,
+        "shim status must report a missing command shim separately from helper availability"
+    )
+    try FileManager.default.createSymbolicLink(
+        atPath: shimDir.appendingPathComponent("demo").path,
+        withDestinationPath: "../bin/agentic-secrets-shim"
+    )
+    try expect(
+        CommandShimInstallationInspector.pointsToShimBinary(
+            shimURL: shimDir.appendingPathComponent("demo"),
+            expectedShimBinary: installedShim
+        ),
+        "shim inspector must accept managed two-hop command shim symlinks"
+    )
+    let externalHop = shimInstallRoot.appendingPathComponent("external-hop")
+    try FileManager.default.createSymbolicLink(atPath: externalHop.path, withDestinationPath: installedShim.path)
+    try FileManager.default.createSymbolicLink(atPath: shimDir.appendingPathComponent("external-hop-demo").path, withDestinationPath: externalHop.path)
+    try expect(
+        !CommandShimInstallationInspector.pointsToShimBinary(
+            shimURL: shimDir.appendingPathComponent("external-hop-demo"),
+            expectedShimBinary: installedShim
+        ),
+        "shim inspector must reject unmanaged intermediate symlink hops"
+    )
+    try expect(
+        CommandShimInstallationInspector.status(name: "external-hop-demo", installPrefix: shimInstallRoot, helperRequirement: shimRequirement) == .blocked,
+        "shim status must mark unmanaged intermediate symlink hops as blocked"
+    )
+    let blockedDirectory = shimDir.appendingPathComponent("directory-demo")
+    try FileManager.default.createDirectory(at: blockedDirectory, withIntermediateDirectories: true)
+    try expect(CommandShimInstallationInspector.replacementSafety(for: blockedDirectory) == .directory, "shim replacement safety must identify directories")
+    try expect(
+        CommandShimInstallationInspector.status(name: "directory-demo", installPrefix: shimInstallRoot, helperRequirement: shimRequirement) == .blocked,
+        "shim status must mark directories at command shim paths as blocked"
+    )
+    let blockedFile = shimDir.appendingPathComponent("file-demo")
+    try "not a shim".data(using: .utf8)!.write(to: blockedFile)
+    try expect(CommandShimInstallationInspector.replacementSafety(for: blockedFile) == .replaceable, "shim replacement safety may replace regular files only with explicit force")
+    try expect(
+        CommandShimInstallationInspector.status(name: "file-demo", installPrefix: shimInstallRoot, helperRequirement: shimRequirement) == .blocked,
+        "shim status must mark regular files at command shim paths as blocked"
+    )
+    let shimStatusControlPlane = ControlPlane(stateDirectory: shimState, installPrefix: shimInstallRoot, shimRequirement: shimRequirement)
+    _ = try shimStatusControlPlane.registerCLI(ControlPlaneCommandLineToolRegistrationRequest(
+        name: "demo",
+        targetPath: "/bin/echo",
+        environmentSecrets: ["DEMO_SECRET": "synthetic-shim-status-value"]
+    ))
+    let shimStatusSnapshot = try shimStatusControlPlane.snapshot(now: Date(timeIntervalSince1970: 106))
+    try expect(shimStatusSnapshot.cliRegistrations.first?.shimStatus == "installed", "management snapshot must report installed two-hop command shims")
+    let wrongHelperRoot = shimInstallRoot.appendingPathComponent("wrong-helper", isDirectory: true)
+    let wrongHelperState = wrongHelperRoot.appendingPathComponent("var/agentic-secrets", isDirectory: true)
+    let wrongHelperBin = wrongHelperRoot.appendingPathComponent("bin", isDirectory: true)
+    let wrongHelperShims = wrongHelperRoot.appendingPathComponent("shims", isDirectory: true)
+    try FileManager.default.createDirectory(at: wrongHelperBin, withIntermediateDirectories: true)
+    try FileManager.default.createDirectory(at: wrongHelperShims, withIntermediateDirectories: true)
+    let wrongHelper = wrongHelperBin.appendingPathComponent("agentic-secrets-shim")
+    try "#!/bin/sh\nexit 2\n".data(using: .utf8)!.write(to: wrongHelper)
+    try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: wrongHelper.path)
+    try FileManager.default.createSymbolicLink(
+        atPath: wrongHelperShims.appendingPathComponent("demo").path,
+        withDestinationPath: "../bin/agentic-secrets-shim"
+    )
+    let wrongHelperControlPlane = ControlPlane(stateDirectory: wrongHelperState, installPrefix: wrongHelperRoot, shimRequirement: shimRequirement)
+    _ = try wrongHelperControlPlane.registerCLI(ControlPlaneCommandLineToolRegistrationRequest(
+        name: "demo",
+        targetPath: "/bin/echo",
+        environmentSecrets: ["DEMO_SECRET": "synthetic-wrong-helper-value"]
+    ))
+    let wrongHelperSnapshot = try wrongHelperControlPlane.snapshot(now: Date(timeIntervalSince1970: 107))
+    try expect(wrongHelperSnapshot.cliRegistrations.first?.shimStatus == "helper unavailable", "shim status must reject helpers that do not match the install manifest requirement")
+
     let fixedFixture = ControlPlaneCommandLineToolRegistrationRequest(name: "demo", targetPath: "/bin/echo", environmentSecrets: ["DEMO_SECRET": "synthetic-management-value"])
     let decodedFixture = try JSONDecoder().decode(ControlPlaneCommandLineToolRegistrationRequest.self, from: JSONEncoder().encode(fixedFixture))
     try expect(decodedFixture == fixedFixture, "management request fixtures must preserve typed Codable shape")

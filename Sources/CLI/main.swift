@@ -230,14 +230,21 @@ struct AgenticSecretsCLI {
             throw CLIError.unknownCommand(options.joined(separator: " "))
         }
 
-        let shimBinary = try shimBinaryPath()
+        let shimBinary = URL(fileURLWithPath: try shimBinaryPath())
         try FileManager.default.createDirectory(at: shimDir, withIntermediateDirectories: true)
         try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: shimDir.path)
         let shimURL = shimDir.appendingPathComponent(name)
-        if FileManager.default.fileExists(atPath: shimURL.path) || isSymlink(shimURL) {
+        if FileManager.default.fileExists(atPath: shimURL.path) || CommandShimInstallationInspector.isSymlink(shimURL) {
             if force {
-                try FileManager.default.removeItem(at: shimURL)
-            } else if URL(fileURLWithPath: shimURL.path).resolvingSymlinksInPath().path != shimBinary {
+                switch CommandShimInstallationInspector.replacementSafety(for: shimURL) {
+                case .replaceable:
+                    try FileManager.default.removeItem(at: shimURL)
+                case .directory:
+                    throw CLIError.pathExists("refusing to replace directory at shim path: \(shimURL.path)")
+                case .absent:
+                    break
+                }
+            } else if !CommandShimInstallationInspector.pointsToShimBinary(shimURL: shimURL, expectedShimBinary: shimBinary) {
                 throw CLIError.pathExists("shim path already exists: \(shimURL.path). Re-run with --force only if this should be replaced.")
             } else {
                 printCLIShimInstallResult(name: name, shimURL: shimURL, shimDir: shimDir, configureShell: configureShell, alreadyInstalled: true)
@@ -247,7 +254,7 @@ struct AgenticSecretsCLI {
                 return
             }
         }
-        try FileManager.default.createSymbolicLink(atPath: shimURL.path, withDestinationPath: shimBinary)
+        try FileManager.default.createSymbolicLink(atPath: shimURL.path, withDestinationPath: shimBinary.path)
         if configureShell {
             try configureShellPath(directory: shimDir, label: "AgenticSecrets CLI shims")
         }
@@ -266,12 +273,14 @@ struct AgenticSecretsCLI {
             throw CLIError.unknownCommand(options.joined(separator: " "))
         }
         let shimURL = shimDir.appendingPathComponent(name)
-        guard FileManager.default.fileExists(atPath: shimURL.path) || isSymlink(shimURL) else {
+        guard FileManager.default.fileExists(atPath: shimURL.path) || CommandShimInstallationInspector.isSymlink(shimURL) else {
             print("AgenticSecrets shim for \(name) is not installed at \(shimURL.path).")
             return
         }
-        let resolved = URL(fileURLWithPath: shimURL.path).resolvingSymlinksInPath().path
-        guard resolved == (try shimBinaryPath()) else {
+        guard CommandShimInstallationInspector.pointsToShimBinary(
+            shimURL: shimURL,
+            expectedShimBinary: URL(fileURLWithPath: try shimBinaryPath())
+        ) else {
             throw CLIError.pathExists("refusing to remove non-AgenticSecrets path: \(shimURL.path)")
         }
         try FileManager.default.removeItem(at: shimURL)
@@ -386,6 +395,13 @@ struct AgenticSecretsCLI {
         if let override = ProcessInfo.processInfo.environment["AGENTIC_SECRETS_INSTALL_PREFIX"], !override.isEmpty {
             return URL(fileURLWithPath: override, isDirectory: true)
         }
+        for executable in executableCandidateURLs() {
+            let directory = executable.deletingLastPathComponent()
+            if directory.lastPathComponent == "bin",
+               FileManager.default.isExecutableFile(atPath: directory.appendingPathComponent("agentic-secrets-shim").path) {
+                return directory.deletingLastPathComponent()
+            }
+        }
         for invoked in executableCandidateURLs().map({ $0.resolvingSymlinksInPath() }) {
             if isUserApplicationsExecutable(invoked) {
                 return defaultLocalInstallPrefix()
@@ -393,7 +409,7 @@ struct AgenticSecretsCLI {
             let components = invoked.pathComponents
             if let applicationsIndex = components.lastIndex(of: "Applications"), applicationsIndex > 0 {
                 let prefix = URL(fileURLWithPath: "/" + components[1..<applicationsIndex].joined(separator: "/"), isDirectory: true)
-                if isLegacyLocalInstallPrefix(prefix) {
+                if isLegacyLocalInstallPrefix(prefix) || (prefix.path != "/" && components.indices.contains(applicationsIndex + 1) && components[applicationsIndex + 1] == "AgenticSecrets.app") {
                     return prefix
                 }
             }
@@ -480,14 +496,6 @@ struct AgenticSecretsCLI {
         return value
     }
 
-    private static func isSymlink(_ url: URL) -> Bool {
-        guard let attributes = try? FileManager.default.attributesOfItem(atPath: url.path),
-              let type = attributes[.type] as? FileAttributeType else {
-            return false
-        }
-        return type == .typeSymbolicLink
-    }
-
     private static func defaultShellConfig() -> URL {
         let shell = URL(fileURLWithPath: ProcessInfo.processInfo.environment["SHELL"] ?? "zsh").lastPathComponent
         switch shell {
@@ -502,6 +510,7 @@ struct AgenticSecretsCLI {
 
     private static func configureShellPath(directory: URL, label: String) throws {
         let target = defaultShellConfig()
+        let quotedDirectory = try shellSingleQuotedPath(directory.path)
         try FileManager.default.createDirectory(at: target.deletingLastPathComponent(), withIntermediateDirectories: true)
         if !FileManager.default.fileExists(atPath: target.path) {
             FileManager.default.createFile(atPath: target.path, contents: nil)
@@ -509,9 +518,10 @@ struct AgenticSecretsCLI {
         let block = """
 
         # \(label)
+        agentic_secrets_path_dir=\(quotedDirectory)
         case ":$PATH:" in
-          *":\(directory.path):"*) ;;
-          *) export PATH="\(directory.path):$PATH" ;;
+          *":$agentic_secrets_path_dir:"*) ;;
+          *) export PATH="$agentic_secrets_path_dir:$PATH" ;;
         esac
         """
         let handle = try FileHandle(forWritingTo: target)
@@ -520,6 +530,13 @@ struct AgenticSecretsCLI {
         try handle.write(contentsOf: Data(block.utf8))
         try handle.write(contentsOf: Data([10]))
         print("Configured shell PATH in \(target.path)")
+    }
+
+    private static func shellSingleQuotedPath(_ path: String) throws -> String {
+        guard path.rangeOfCharacter(from: .controlCharacters) == nil else {
+            throw CLIError.pathExists("refusing to write shell PATH block for a path containing control characters")
+        }
+        return "'" + path.replacingOccurrences(of: "'", with: "'\\''") + "'"
     }
 
     private static func validateCLIShimName(_ name: String) throws {

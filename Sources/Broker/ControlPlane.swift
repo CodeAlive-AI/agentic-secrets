@@ -402,6 +402,8 @@ public struct ControlPlane: Sendable {
     public var stateDirectory: URL
     public var configURL: URL
     public var adapterRegistryURL: URL
+    public var installPrefix: URL?
+    public var shimRequirement: SelfBuildPeerRequirement?
     public var auditLog: AuditLog
     public var witness: any DeliveryWitness
 
@@ -409,12 +411,16 @@ public struct ControlPlane: Sendable {
         stateDirectory: URL = LocalInstallLayout.defaultStateDirectory(),
         configURL: URL? = nil,
         adapterRegistryURL: URL? = nil,
+        installPrefix: URL? = nil,
+        shimRequirement: SelfBuildPeerRequirement? = nil,
         auditLog: AuditLog = AuditLog(),
         witness: any DeliveryWitness = PermissiveDeliveryWitness()
     ) {
         self.stateDirectory = stateDirectory
         self.configURL = configURL ?? stateDirectory.appendingPathComponent("config/agentic-secrets.json")
         self.adapterRegistryURL = adapterRegistryURL ?? stateDirectory.appendingPathComponent("policyPacks/adapter-registry.json")
+        self.installPrefix = installPrefix
+        self.shimRequirement = shimRequirement
         self.auditLog = auditLog
         self.witness = witness
     }
@@ -426,12 +432,13 @@ public struct ControlPlane: Sendable {
         let secrets = try loadSecretSummaries(layout: layout)
         let policyPacks = try adapterSummaries()
         let deliveryGrants = try loadUnlockGrantSummaries(layout: layout, now: now)
-        let health = securityHealth(registrations: registry.registrations.values.map { CLIRegistrationSummary(registration: $0) })
+        let cliRegistrations = cliSummaries(registry.registrations.values)
+        let health = securityHealth(registrations: cliRegistrations)
         return try assertRedacted(ControlPlaneSnapshot(
             generatedAt: now,
             stateDirectory: stateDirectory.path,
             configPath: configURL.path,
-            cliRegistrations: registry.registrations.values.map { CLIRegistrationSummary(registration: $0) }.sorted { $0.name < $1.name },
+            cliRegistrations: cliRegistrations.sorted { $0.name < $1.name },
             secrets: secrets.sorted { $0.alias < $1.alias },
             apiSessionProfiles: config.apiSessionProfiles.map(APISessionProfileSummary.init).sorted { $0.name < $1.name },
             mcpProfiles: config.mcpProfiles.map(MCPProfileSummary.init).sorted { $0.name < $1.name },
@@ -454,7 +461,7 @@ public struct ControlPlane: Sendable {
             targetPath: request.targetPath,
             environmentValues: values
         )
-        return CLIRegistrationSummary(registration: registration)
+        return cliSummary(registration)
     }
 
     @discardableResult
@@ -463,13 +470,13 @@ public struct ControlPlane: Sendable {
             name: request.name,
             deleteSecrets: request.deleteSecretMaterial
         )
-        return CLIRegistrationSummary(registration: registration)
+        return cliSummary(registration)
     }
 
     @discardableResult
     public func refreshCLITrust(_ request: ControlPlaneNameRequest) throws -> CLIRegistrationSummary {
         let registration = try LocalInstallLayout(stateDirectory: stateDirectory).registrationService.refreshTargetTrust(name: request.name) { _ in }
-        return CLIRegistrationSummary(registration: registration)
+        return cliSummary(registration)
     }
 
     public func replaceSecret(_ request: ControlPlaneSecretReplacementRequest) throws -> ManagedSecretSummary {
@@ -696,6 +703,20 @@ public struct ControlPlane: Sendable {
 
     private func effectivePolicyPackRegistry() throws -> PolicyPackRegistry {
         try PolicyPackRegistryStore(url: adapterRegistryURL).activeRegistry(including: BuiltInPolicyPacks.all)
+    }
+
+    private func cliSummaries<S: Sequence>(_ registrations: S) -> [CLIRegistrationSummary] where S.Element == CommandLineToolRegistration {
+        registrations.map(cliSummary)
+    }
+
+    private func cliSummary(_ registration: CommandLineToolRegistration) -> CLIRegistrationSummary {
+        let prefix = installPrefix ?? CommandShimInstallationInspector.inferredInstallPrefix(stateDirectory: stateDirectory)
+        let shimStatus = CommandShimInstallationInspector.status(
+            name: registration.name,
+            installPrefix: prefix,
+            helperRequirement: shimRequirement
+        )
+        return CLIRegistrationSummary(registration: registration, shimStatus: shimStatus.rawValue)
     }
 
     private func securityHealth(registrations: [CLIRegistrationSummary]) -> SecurityHealthSummary {

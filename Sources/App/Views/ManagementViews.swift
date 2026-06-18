@@ -142,11 +142,12 @@ private struct CLIRegistrationDetail: View {
     var body: some View {
         ScrollView {
             if let cli = store.selectedCLIRegistration {
+                let shimStatus = CLIShimStatusPresentation(rawValue: cli.shimStatus)
                 VStack(alignment: .leading, spacing: 18) {
                     header(cli.name, subtitle: cli.targetPath)
                     HStack {
                         StatusBadge(text: cli.trustStatus, systemImage: "checkmark.shield")
-                        StatusBadge(text: cli.shimStatus, systemImage: "link")
+                        StatusBadge(text: shimStatus.label, systemImage: "link")
                     }
                     Form {
                         Section("Environment bindings") {
@@ -175,23 +176,23 @@ private struct CLIRegistrationDetail: View {
                             }
                         }
                         Section("Shim") {
-                            LabeledContent("Status", value: cli.shimStatus)
+                            LabeledContent("Status", value: shimStatus.label)
                             HStack {
                                 Button {
                                     Task { await store.installShim(for: cli.name) }
                                 } label: {
-                                    Label(cli.shimStatus == "installed" ? "Repair Shim" : "Install Shim", systemImage: "link")
+                                    Label(shimStatus.primaryActionTitle, systemImage: shimStatus.primaryActionSystemImage)
                                 }
                                 .buttonStyle(.borderedProminent)
-                                .disabled(!store.canManageBrokerState)
+                                .disabled(!store.canManageBrokerState || !shimStatus.canInstall)
                                 .help("Install or repair the local command shim for this CLI")
                                 Button("Remove Shim", role: .destructive) {
                                     pendingShimRemoval = cli
                                 }
-                                .disabled(!store.canManageBrokerState)
+                                .disabled(!store.canManageBrokerState || !shimStatus.canRemove)
                                 .help("Remove the local command shim for this CLI")
                             }
-                            Text("A shim routes normal \(cli.name) invocations through Agentic Secrets when the local shims folder is before the native CLI on PATH.")
+                            Text(shimStatus.guidance(commandName: cli.name))
                                 .font(.caption)
                                 .foregroundStyle(.secondary)
                         }
@@ -249,6 +250,100 @@ private struct CLIRegistrationDetail: View {
             }
         } message: {
             Text("Normal \(pendingShimRemoval?.name ?? "CLI") invocations will stop routing through Agentic Secrets until the shim is installed again.")
+        }
+    }
+}
+
+enum CLIShimStatusPresentation: Equatable {
+    case installed
+    case notInstalled
+    case blocked
+    case helperUnavailable
+    case unknown(String)
+
+    init(rawValue: String) {
+        switch rawValue {
+        case "installed":
+            self = .installed
+        case "not installed":
+            self = .notInstalled
+        case "blocked":
+            self = .blocked
+        case "helper unavailable":
+            self = .helperUnavailable
+        default:
+            self = .unknown(rawValue)
+        }
+    }
+
+    var label: String {
+        switch self {
+        case .installed:
+            "Installed"
+        case .notInstalled:
+            "Not Installed"
+        case .blocked:
+            "Blocked"
+        case .helperUnavailable:
+            "Helper Unavailable"
+        case .unknown:
+            "Unknown"
+        }
+    }
+
+    var canInstall: Bool {
+        switch self {
+        case .installed, .notInstalled:
+            true
+        case .blocked, .helperUnavailable, .unknown:
+            false
+        }
+    }
+
+    var canRemove: Bool {
+        self == .installed
+    }
+
+    var primaryActionTitle: String {
+        switch self {
+        case .installed:
+            "Repair Shim"
+        case .notInstalled:
+            "Install Shim"
+        case .blocked:
+            "Shim Blocked"
+        case .helperUnavailable:
+            "Repair Daemon"
+        case .unknown:
+            "Check Daemon"
+        }
+    }
+
+    var primaryActionSystemImage: String {
+        switch self {
+        case .helperUnavailable:
+            "wrench.and.screwdriver"
+        case .unknown:
+            "questionmark.circle"
+        case .blocked:
+            "exclamationmark.triangle"
+        case .installed, .notInstalled:
+            "link"
+        }
+    }
+
+    func guidance(commandName: String) -> String {
+        switch self {
+        case .installed:
+            "Normal \(commandName) invocations use Agentic Secrets when the local shims folder is before the native CLI on PATH."
+        case .notInstalled:
+            "Install the local command shim to route normal \(commandName) invocations through Agentic Secrets."
+        case .blocked:
+            "A non-Agentic Secrets path already exists where this command shim should be. Review that path before replacing it."
+        case .helperUnavailable:
+            "The Agentic Secrets shim helper is missing or does not match the local install manifest. Repair the local daemon install."
+        case .unknown:
+            "The local daemon did not report enough install information to verify this command shim. Check the daemon status."
         }
     }
 }

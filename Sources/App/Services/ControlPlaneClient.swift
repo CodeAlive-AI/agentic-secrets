@@ -181,7 +181,10 @@ struct IPCControlPlaneClient: ControlPlaneClient {
             return nil
         }
         let prefix = URL(fileURLWithPath: "/" + components[1..<applicationsIndex].joined(separator: "/"), isDirectory: true)
-        return isLegacyLocalInstallPrefix(prefix) ? prefix : nil
+        guard prefix.path != "/" else {
+            return nil
+        }
+        return isLegacyLocalInstallPrefix(prefix) || bundle.lastPathComponent == "AgenticSecrets.app" ? prefix : nil
     }
 
     static func defaultInstallPrefix() -> URL {

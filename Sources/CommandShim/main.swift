@@ -45,7 +45,7 @@ struct AgenticSecretsCommandShim {
         try runProcess(
             executable: try coreDaemonPath(),
             arguments: ["run-cli", "--name", name, "--state-dir", defaultStateDirectory().path, "--"] + arguments,
-            environment: ProcessInfo.processInfo.environment
+            environment: try EnvironmentScrubber().scrub(parent: ProcessInfo.processInfo.environment, injectedValues: [:])
         )
     }
 
@@ -95,7 +95,8 @@ struct AgenticSecretsCommandShim {
     }
 
     private static func coreDaemonPath() throws -> String {
-        if let override = ProcessInfo.processInfo.environment["AGENTIC_SECRETS_CORE_BINARY"], !override.isEmpty {
+        if allowsDebugOverrides(),
+           let override = ProcessInfo.processInfo.environment["AGENTIC_SECRETS_CORE_BINARY"], !override.isEmpty {
             return override
         }
         for candidate in coreDaemonCandidateURLs() where FileManager.default.isExecutableFile(atPath: candidate.path) {
@@ -121,7 +122,8 @@ struct AgenticSecretsCommandShim {
     }
 
     private static func defaultStateDirectory() -> URL {
-        if let override = ProcessInfo.processInfo.environment["AGENTIC_SECRETS_STATE_DIR"], !override.isEmpty {
+        if allowsDebugOverrides(),
+           let override = ProcessInfo.processInfo.environment["AGENTIC_SECRETS_STATE_DIR"], !override.isEmpty {
             return URL(fileURLWithPath: override, isDirectory: true)
         }
         if let prefix = installPrefixFromExecutable() {
@@ -131,8 +133,15 @@ struct AgenticSecretsCommandShim {
     }
 
     private static func installPrefixFromExecutable() -> URL? {
-        if let override = ProcessInfo.processInfo.environment["AGENTIC_SECRETS_INSTALL_PREFIX"], !override.isEmpty {
+        if allowsDebugOverrides(),
+           let override = ProcessInfo.processInfo.environment["AGENTIC_SECRETS_INSTALL_PREFIX"], !override.isEmpty {
             return URL(fileURLWithPath: override, isDirectory: true)
+        }
+        for executable in executableCandidateURLs() {
+            let directory = executable.deletingLastPathComponent()
+            if directory.lastPathComponent == "shims" {
+                return directory.deletingLastPathComponent()
+            }
         }
         for invoked in executableCandidateURLs().map({ $0.resolvingSymlinksInPath() }) {
             if isUserApplicationsExecutable(invoked) {
@@ -141,12 +150,16 @@ struct AgenticSecretsCommandShim {
             let components = invoked.pathComponents
             if let applicationsIndex = components.lastIndex(of: "Applications"), applicationsIndex > 0 {
                 let prefix = URL(fileURLWithPath: "/" + components[1..<applicationsIndex].joined(separator: "/"), isDirectory: true)
-                if isLegacyLocalInstallPrefix(prefix) {
+                if isLegacyLocalInstallPrefix(prefix) || (prefix.path != "/" && components.indices.contains(applicationsIndex + 1) && components[applicationsIndex + 1] == "AgenticSecrets.app") {
                     return prefix
                 }
             }
         }
         return nil
+    }
+
+    private static func allowsDebugOverrides() -> Bool {
+        ProcessInfo.processInfo.environment["AGENTIC_SECRETS_ALLOW_DEBUG_OVERRIDES"] == "1"
     }
 
     private static func defaultLocalInstallPrefix() -> URL {
