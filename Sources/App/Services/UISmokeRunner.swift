@@ -1184,6 +1184,7 @@ enum UISmokeRunner {
             prefixPath: "/tmp/agentic-secrets-ui-smoke",
             appSourcePath: "/tmp/AgenticSecrets.app",
             appDestinationPath: "/tmp/agentic-secrets-ui-smoke/Applications/AgenticSecrets.app",
+            applicationsShortcutPath: "/tmp/agentic-secrets-ui-smoke-home/Applications/AgenticSecrets.app",
             binDirectoryPath: "/tmp/agentic-secrets-ui-smoke/bin",
             stateDirectoryPath: "/tmp/agentic-secrets-ui-smoke/var/agentic-secrets",
             runDirectoryPath: "/tmp/agentic-secrets-ui-smoke/run/agentic-secrets",

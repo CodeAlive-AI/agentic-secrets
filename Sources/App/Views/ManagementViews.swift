@@ -1250,7 +1250,7 @@ struct DiagnosticsView: View {
             }
             Button("Cancel", role: .cancel) {}
         } message: {
-            Text("Agentic Secrets will update the local app copy, helper links, install manifest, and per-user LaunchAgent. Secret material is not read or moved.")
+            Text("Agentic Secrets will update the local app copy, Applications shortcut, helper links, install manifest, and per-user LaunchAgent. Secret material is not read or moved.")
         }
         .confirmationDialog(
             "Uninstall Agentic Secrets?",
@@ -1270,7 +1270,7 @@ struct DiagnosticsView: View {
             .disabled(!store.canUninstallLocalInstall)
             Button("Cancel", role: .cancel) {}
         } message: {
-            Text("Totally Delete removes runtime files, command shims, helper links, the per-user LaunchAgent, managed shell PATH entries, local state, and known Agentic Secrets Keychain integrity sidecars. Secret values are never displayed.")
+            Text("Totally Delete removes runtime files, the Applications shortcut, command shims, helper links, the per-user LaunchAgent, managed shell PATH entries, local state, and known Agentic Secrets Keychain integrity sidecars. Secret values are never displayed.")
         }
         .sheet(isPresented: $confirmingTotalDelete) {
             TotalDeleteConfirmationSheet(
@@ -1317,8 +1317,8 @@ struct DiagnosticsView: View {
         alert.alertStyle = .informational
         alert.messageText = purgeLocalState ? "Agentic Secrets Was Totally Deleted" : "Agentic Secrets Was Removed"
         alert.informativeText = purgeLocalState
-            ? "The local app, daemon, helper links, command shims, managed shell PATH entries, local state, and known Agentic Secrets Keychain integrity sidecars were removed. The app will now quit."
-            : "The local app, daemon, helper links, command shims, and managed shell PATH entries were removed. Local Agentic Secrets state was kept. The app will now quit."
+            ? "The local app, daemon, Applications shortcut, helper links, command shims, managed shell PATH entries, local state, and known Agentic Secrets Keychain integrity sidecars were removed. The app will now quit."
+            : "The local app, daemon, Applications shortcut, helper links, command shims, and managed shell PATH entries were removed. Local Agentic Secrets state was kept. The app will now quit."
         alert.addButton(withTitle: "Quit")
         alert.runModal()
         NSApp.terminate(nil)
@@ -1340,7 +1340,7 @@ private struct TotalDeleteConfirmationSheet: View {
         VStack(alignment: .leading, spacing: 16) {
             Label("Totally Delete Agentic Secrets?", systemImage: "trash")
                 .font(.title3.bold())
-            Text("This is a full system removal. It removes the local app, daemon, helper links, command shims, managed shell PATH entries, local state, and known Agentic Secrets Keychain integrity sidecars. Secret values are never displayed.")
+            Text("This is a full system removal. It removes the local app, daemon, Applications shortcut, helper links, command shims, managed shell PATH entries, local state, and known Agentic Secrets Keychain integrity sidecars. Secret values are never displayed.")
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
             VStack(alignment: .leading, spacing: 6) {
@@ -1461,7 +1461,7 @@ struct BrokerRecommendedFixPanel: View {
         case .check:
             return store.brokerInstallPlan?.summary ?? "Check the local daemon and install state before continuing."
         case .installOrRepair:
-            return "Install or repair the local daemon, helper links, authenticated install manifest, and per-user LaunchAgent. Secret material is not read or moved."
+            return "Install or repair the local daemon, Applications shortcut, helper links, authenticated install manifest, and per-user LaunchAgent. Secret material is not read or moved."
         case .restart:
             return "The LaunchAgent exists but the daemon is not reachable. Restart the local daemon and then refresh state."
         case .openInstalledApp:
@@ -1594,7 +1594,7 @@ struct LocalStateUnavailableView: View {
             }
             Button("Cancel", role: .cancel) {}
         } message: {
-            Text("Agentic Secrets will update the local app copy, helper links, install manifest, and per-user LaunchAgent. Secret material is not read or moved.")
+            Text("Agentic Secrets will update the local app copy, Applications shortcut, helper links, install manifest, and per-user LaunchAgent. Secret material is not read or moved.")
         }
     }
 
@@ -1683,7 +1683,7 @@ struct BrokerStatusPanel: View {
             }
             Button("Cancel", role: .cancel) {}
         } message: {
-            Text("This updates the local app copy, helper links, install manifest, and per-user LaunchAgent. Secret material is not read or moved.")
+            Text("This updates the local app copy, Applications shortcut, helper links, install manifest, and per-user LaunchAgent. Secret material is not read or moved.")
         }
     }
 
@@ -1822,6 +1822,7 @@ struct BrokerInstallPlanView: View {
             Grid(alignment: .leading, horizontalSpacing: 12, verticalSpacing: 6) {
                 pathRow("Install prefix", plan.prefixPath)
                 pathRow("App copy", plan.appDestinationPath)
+                pathRow("Applications shortcut", plan.applicationsShortcutPath)
                 pathRow("Helpers", plan.binDirectoryPath)
                 pathRow("LaunchAgent", plan.launchAgentPath)
                 pathRow("Manifest", plan.manifestPath)
@@ -1867,6 +1868,7 @@ struct BrokerUninstallPlanView: View {
             Grid(alignment: .leading, horizontalSpacing: 12, verticalSpacing: 6) {
                 pathRow("Install prefix", plan.prefixPath)
                 pathRow("App copy", plan.appDestinationPath)
+                pathRow("Applications shortcut", plan.applicationsShortcutPath)
                 pathRow("Helpers", plan.binDirectoryPath)
                 pathRow("Shims", plan.shimDirectoryPath)
                 pathRow("LaunchAgent", plan.launchAgentPath)

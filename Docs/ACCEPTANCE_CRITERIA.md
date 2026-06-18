@@ -195,7 +195,7 @@ Pass condition:
 
 - The SwiftUI app checks broker daemon reachability on launch, refresh, and app activation.
 - If IPC is unavailable, the UI shows daemon status, socket path, LaunchAgent path when known, and install/repair actions when the local app bundle supports them.
-- Diagnostics shows a concrete install plan before writing files: app copy, helper links, state directory, run directory, install manifest, LaunchAgent, and socket path.
+- Diagnostics shows a concrete install plan before writing files: app copy, user Applications shortcut, helper links, state directory, run directory, install manifest, LaunchAgent, and socket path.
 - Install and repair actions require explicit confirmation and use the existing per-user LaunchAgent and install manifest model; the UI does not become the secret authority.
 - If the app is launched outside the install prefix, the UI explains that the installed copy should be opened after install because IPC authorization is bound to the installed bundle path.
 - Menu bar status reflects healthy, attention, locked, and daemon-unavailable states.

@@ -50,7 +50,7 @@ codesign --verify --strict --deep --verbose=4 "build/AgenticSecrets.app"
 
 ## Install
 
-For a native guided install, open `build/AgenticSecrets.app`, go to **Diagnostics**, review the daemon install plan, and choose **Install Local Daemon**. The app shows the app copy, helper links, state directory, run directory, install manifest, LaunchAgent, and socket path before writing files. It does not read or move local secret material.
+For a native guided install, open `build/AgenticSecrets.app`, go to **Diagnostics**, review the daemon install plan, and choose **Install Local Daemon**. The app shows the app copy, user Applications shortcut, helper links, state directory, run directory, install manifest, LaunchAgent, and socket path before writing files. It does not read or move local secret material.
 
 If you launched the app from `build/`, open the installed copy after installation so authenticated IPC uses the installed bundle path recorded in the manifest.
 
@@ -60,7 +60,9 @@ The default prefix is `~/Library/Application Support/AgenticSecrets/LocalInstall
 ./scripts/install_local.sh --load --configure-shell
 ```
 
-This recommended command installs the app, loads the LaunchAgent, waits for the broker daemon IPC health check, opens the installed app copy, and appends a guarded PATH block to your user shell config so future shell sessions can run `agentic-secrets` directly. Open a new terminal after installation, or run `source "$HOME/.zshrc"` in the current one.
+This recommended command installs the app, creates a user Applications shortcut at `~/Applications/AgenticSecrets.app`, loads the LaunchAgent, waits for the broker daemon IPC health check, opens the installed app copy, and appends a guarded PATH block to your user shell config so future shell sessions can run `agentic-secrets` directly. Open a new terminal after installation, or run `source "$HOME/.zshrc"` in the current one.
+
+Use `--no-link-user-applications` only when you intentionally do not want a Finder-visible app shortcut. The real app copy still stays under the local install prefix.
 
 For automation or CI where shell startup files must not be touched and the UI should not open, omit `--configure-shell` and pass `--no-open`:
 

@@ -29,6 +29,8 @@ while [ "$#" -gt 0 ]; do
 done
 
 APP_DEST="$PREFIX/Applications/$APP_NAME.app"
+USER_APPLICATIONS_DIR="$HOME/Applications"
+USER_APP_LINK="$USER_APPLICATIONS_DIR/$APP_NAME.app"
 BIN_DIR="$PREFIX/bin"
 SHIM_DIR="$PREFIX/shims"
 STATE_DIR="$PREFIX/var/agentic-secrets"
@@ -40,6 +42,16 @@ CORE_PLIST="$LAUNCH_DIR/com.agenticsecrets.broker.plist"
 if [ -f "$CORE_PLIST" ]; then
   launchctl bootout "gui/$(id -u)" "$CORE_PLIST" >/dev/null 2>&1 || true
 fi
+
+remove_managed_user_app_link() {
+  [ -L "$USER_APP_LINK" ] || return 0
+  link_target="$(readlink "$USER_APP_LINK" 2>/dev/null || printf '')"
+  if [ "$link_target" = "$APP_DEST" ]; then
+    rm -f "$USER_APP_LINK"
+  fi
+}
+
+remove_managed_user_app_link
 
 for executable in agentic-secrets AgenticSecrets agentic-secrets-shim agentic-secrets-brokerd agentic-secrets-api-sessiond agentic-secrets-bitwarden-providerd agentic-secrets-mcpd; do
   rm -f "$BIN_DIR/$executable"
