@@ -64,6 +64,7 @@ public enum PolicyError: Error, Equatable {
     case locked
     case genericEnvDenied
     case destructiveRememberDenied
+    case forbiddenCommand(String)
     case unknownDenied
 }
 
@@ -72,6 +73,9 @@ public struct PolicyEngine: Sendable {
 
     public func authorize(command: NormalizedCommand, intent: DeliveryIntent, target: TargetAssessment, approval: ApprovalOption, state: PolicyState, now: Date = Date()) throws -> PolicyDecision {
         guard !state.locked else { throw PolicyError.locked }
+        if let term = command.matchedForbiddenTerm {
+            throw PolicyError.forbiddenCommand(term)
+        }
         if command.confidence == .highRisk, intent.delivery == .env, command.cli != "hcloud", command.cli != "gh" {
             throw PolicyError.genericEnvDenied
         }

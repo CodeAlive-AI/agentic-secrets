@@ -32,6 +32,7 @@ APP_DEST="$PREFIX/Applications/$APP_NAME.app"
 BIN_DIR="$PREFIX/bin"
 STATE_DIR="$PREFIX/var/agentic-fortress"
 RUN_DIR="$PREFIX/run/agentic-fortress"
+SOCKET_DIR="/tmp/agentic-fortress-$(id -u)"
 LAUNCH_DIR="$PREFIX/Library/LaunchAgents"
 CORE_PLIST="$LAUNCH_DIR/com.agenticfortress.core.plist"
 
@@ -45,6 +46,7 @@ done
 
 rm -f "$CORE_PLIST"
 rm -rf "$RUN_DIR"
+rm -rf "$SOCKET_DIR"
 rm -rf "$APP_DEST"
 
 if [ "$PURGE_LOCAL_STATE" -eq 1 ]; then

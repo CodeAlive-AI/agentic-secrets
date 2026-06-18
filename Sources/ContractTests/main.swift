@@ -111,6 +111,25 @@ func runContracts() throws {
     try expect(!destructiveManifest.approvalOptions.contains(.readOnlyInWorkspace1h), "destructive actions must not offer remembered approval")
     try expect(destructiveManifest.typedChallenge == destructiveManifest.digest, "destructive manifest must expose typed challenge digest")
 
+    let removeCommand = classifier.classify(executableName: "hcloud", arguments: ["server", "remove", "prod-db-01"], observedVersion: "1.52.0")
+    try expect(removeCommand.risk == .destructive, "default command policy must treat remove as destructive")
+    let destroyCommand = classifier.classify(executableName: "hcloud", arguments: ["server", "destroy", "prod-db-01"], observedVersion: "1.52.0")
+    try expect(destroyCommand.risk != .destructive, "default command policy must not treat destroy as destructive")
+    let customClassifier = CommandClassifier(commandPolicy: CommandPolicyConfig(destructiveTerms: ["remove"], forbiddenTerms: []))
+    let deleteWithoutTerm = customClassifier.classify(executableName: "hcloud", arguments: ["server", "delete", "prod-db-01"], observedVersion: "1.52.0")
+    try expect(deleteWithoutTerm.risk != .destructive, "removing delete from command policy must stop treating delete as destructive")
+    let forbiddenClassifier = CommandClassifier(commandPolicy: CommandPolicyConfig(destructiveTerms: ["delete", "remove"], forbiddenTerms: ["delete"]))
+    let forbiddenCommand = forbiddenClassifier.classify(executableName: "hcloud", arguments: ["server", "delete", "prod-db-01"], observedVersion: "1.52.0")
+    let forbiddenManifest = DecisionManifestFactory().make(
+        command: forbiddenCommand,
+        intent: DeliveryIntent(flow: .cliEnv, secretAlias: "cloud.hcloud.dev", delivery: .env, environmentName: "HCLOUD_TOKEN", workspace: "/tmp/infra", parentApp: "Codex"),
+        target: TargetAssessor().synthetic(path: "/opt/homebrew/bin/hcloud")
+    )
+    try expect(forbiddenManifest.approvalOptions == [.deny], "forbidden command policy must expose deny-only approval options")
+    try expectThrows(PolicyError.forbiddenCommand("delete"), {
+        _ = try PolicyEngine().authorize(command: forbiddenCommand, intent: DeliveryIntent(flow: .cliEnv, secretAlias: "cloud.hcloud.dev", delivery: .env, environmentName: "HCLOUD_TOKEN", workspace: "/tmp/infra", parentApp: "Codex"), target: TargetAssessor().synthetic(path: "/opt/homebrew/bin/hcloud"), approval: .once, state: PolicyState())
+    }, "forbidden command policy must block policy authorization")
+
     let approvalManifest = DecisionManifestFactory().make(
         command: hcloudRead,
         intent: DeliveryIntent(flow: .cliEnv, secretAlias: "cloud.hcloud.dev", delivery: .env, environmentName: "HCLOUD_TOKEN", workspace: "/tmp/infra", parentApp: "Codex"),
@@ -272,7 +291,40 @@ func runContracts() throws {
     let encodedProxySnapshot = try AgenticFortressJSON.encodePretty(proxySnapshot)
     try expect(!encodedProxySnapshot.contains(proxyResponse.oneTimeToken), "management snapshot must not persist one-time proxy token")
 
+    let bwsSummary = try managementService.upsertBWSBinding(BWSSecretBinding(
+        alias: "cloud.demo.dev",
+        projectID: "project-demo",
+        secretID: "bws-secret-id",
+        environment: ProviderEnvironment.dev.rawValue
+    ))
+    try expect(bwsSummary.alias == "cloud.demo.dev", "management BWS upsert must return binding summary")
+    try expect(bwsSummary.secretIDDigest.hasPrefix("sha256:"), "management BWS summary must expose only secret ID digest")
+    let bwsSnapshot = try managementService.snapshot(now: Date(timeIntervalSince1970: 103))
+    let encodedBWSSnapshot = try AgenticFortressJSON.encodePretty(bwsSnapshot)
+    try expect(encodedBWSSnapshot.contains("cloud.demo.dev"), "management snapshot must include BWS binding alias")
+    try expect(!encodedBWSSnapshot.contains("bws-secret-id"), "management snapshot must not expose raw BWS secret ID")
+    try managementService.deleteBWSBinding(ManagementNameRequest(name: "cloud.demo.dev"))
+    let deletedBWSSnapshot = try managementService.snapshot(now: Date(timeIntervalSince1970: 104))
+    try expect(!deletedBWSSnapshot.bwsBindings.contains(where: { $0.alias == "cloud.demo.dev" }), "management BWS deletion must remove binding summary")
+
+    let commandPolicy = try managementService.updateCommandPolicy(ManagementCommandPolicyUpdateRequest(
+        destructiveTerms: [" remove ", "remove"],
+        forbiddenTerms: ["shutdown"]
+    ))
+    try expect(commandPolicy.destructiveTerms == ["remove"], "management command policy update must normalize destructive terms")
+    try expect(commandPolicy.forbiddenTerms == ["shutdown"], "management command policy update must normalize forbidden terms")
+    let commandPolicySnapshot = try managementService.snapshot(now: Date(timeIntervalSince1970: 105))
+    try expect(commandPolicySnapshot.commandPolicy.destructiveTerms == ["remove"], "management snapshot must include destructive command policy")
+    try expect(commandPolicySnapshot.commandPolicy.forbiddenTerms == ["shutdown"], "management snapshot must include forbidden command policy")
+
     let managementHandler = CoreIPCHandler(authorizer: ipcAuthorizer, management: managementService)
+    let commandPolicyIPCResponse = try managementHandler.handle(CoreIPCRequest(
+        requestID: "req_command_policy",
+        operation: .updateCommandPolicy,
+        peer: selfBuildPeer,
+        payload: try JSONEncoder().encode(ManagementCommandPolicyUpdateRequest(destructiveTerms: ["delete"], forbiddenTerms: []))
+    ))
+    try expect(commandPolicyIPCResponse.ok, "authorized management IPC command policy update must succeed")
     let managementIPCResponse = try managementHandler.handle(CoreIPCRequest(requestID: "req_management", operation: .loadManagementSnapshot, peer: selfBuildPeer))
     try expect(managementIPCResponse.ok, "authorized management IPC snapshot must succeed")
     let managementDecoder = JSONDecoder()
@@ -318,14 +370,16 @@ func runContracts() throws {
         _ = try unlockStore.grant(scope: unlockScope, ttl: 301, now: Date(timeIntervalSince1970: 100))
     }, "CLI unlock grant must cap TTL")
     let defaultUnlockRoot = URL(fileURLWithPath: NSTemporaryDirectory()).appendingPathComponent("agentic-fortress-default-unlock-\(UUID().uuidString)", isDirectory: true)
+    try expect(CLIUnlockGrantPolicy.defaultTTL == 300, "CLI unlock grant default TTL must be 300 seconds")
+    try expect(CLIUnlockGrantPolicy.maxTTL == 900, "CLI unlock grant max TTL must be 900 seconds")
     let defaultUnlockStore = CLIUnlockGrantStore(
         url: defaultUnlockRoot.appendingPathComponent("cli-unlock-grants.json"),
         keyURL: defaultUnlockRoot.appendingPathComponent("cli-unlock-grants.key")
     )
-    _ = try defaultUnlockStore.grant(scope: unlockScope, ttl: 3600, now: Date(timeIntervalSince1970: 100))
+    _ = try defaultUnlockStore.grant(scope: unlockScope, ttl: CLIUnlockGrantPolicy.maxTTL, now: Date(timeIntervalSince1970: 100))
     try expectThrows(CLIUnlockGrantError.invalidTTL, {
-        _ = try defaultUnlockStore.grant(scope: unlockScope, ttl: 3601, now: Date(timeIntervalSince1970: 100))
-    }, "CLI unlock grant default cap must be one hour")
+        _ = try defaultUnlockStore.grant(scope: unlockScope, ttl: CLIUnlockGrantPolicy.maxTTL + 1, now: Date(timeIntervalSince1970: 100))
+    }, "CLI unlock grant default cap must match policy max TTL")
     let secondGrant = try unlockStore.grant(scope: unlockScope, ttl: 120, now: Date(timeIntervalSince1970: 300))
     let otherReadCommand = classifier.classify(executableName: "hcloud", arguments: ["location", "list"], observedVersion: "1.52.0")
     let otherReadManifest = DecisionManifestFactory().make(
@@ -659,6 +713,29 @@ func runContracts() throws {
     )
     try expect(destructivePlan.environment["HCLOUD_TOKEN"] == "super-secret-token", "shim planner must inject approved secret for destructive registered hcloud commands")
     try expect(destructiveAudit.snapshot().first?.decision == "allow", "destructive registered hcloud delivery must write an allow audit event")
+    let forbiddenShimClassifier = CommandClassifier(commandPolicy: CommandPolicyConfig(destructiveTerms: ["delete", "remove"], forbiddenTerms: ["delete"]))
+    let forbiddenShimCommand = forbiddenShimClassifier.classify(executableName: "hcloud", arguments: ["server", "delete", "prod-db-01"])
+    let forbiddenShimManifest = DecisionManifestFactory().make(
+        command: forbiddenShimCommand,
+        intent: DeliveryIntent(flow: .cliEnv, secretAlias: "cloud.hcloud.dev", delivery: .env, environmentName: "HCLOUD_TOKEN", workspace: "/tmp/infra", parentApp: "Codex"),
+        target: shimTargetAssessment
+    )
+    let forbiddenShimApproval = shimApprovals.create(manifest: forbiddenShimManifest, policyEpoch: 1, ttl: 30, now: Date(timeIntervalSince1970: 0))
+    let forbiddenShimAudit = AuditLog()
+    try expectThrows(PolicyError.forbiddenCommand("delete"), {
+        _ = try ShimExecutionPlanner(classifier: forbiddenShimClassifier).plan(
+            request: ShimRequest(invokedName: "hcloud", arguments: ["server", "delete", "prod-db-01"], parentEnvironment: [:], workspace: "/tmp/infra", parentApp: "Codex", peerIdentity: "peer:agentic-fortress-shim", injectorIdentity: "sig:agentic-fortress-shim"),
+            targetPolicies: [shimPolicy],
+            policyState: PolicyState(epoch: 1),
+            approvalSessionID: forbiddenShimApproval.id,
+            approvalSessions: shimApprovals,
+            secrets: secretStore,
+            handles: InvocationHandleStore(),
+            audit: forbiddenShimAudit,
+            now: Date(timeIntervalSince1970: 1)
+        )
+    }, "shim planner must deny forbidden command policy matches before secret delivery")
+    try expect(forbiddenShimAudit.snapshot().first?.decision == "deny", "forbidden shim command must write a deny audit event")
     let npmTarget = shimRoot.appendingPathComponent("npm")
     try "fake npm".data(using: .utf8)!.write(to: npmTarget)
     let npmPolicy = TargetPolicy(commandName: "npm", targetPath: npmTarget.path, secretAlias: "cloud.hcloud.dev", environmentName: "OPENAI_API_KEY")

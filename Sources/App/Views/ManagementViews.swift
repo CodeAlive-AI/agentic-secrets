@@ -58,13 +58,26 @@ struct CLISecretsView: View {
         }
         .confirmationDialog("Unregister CLI?", isPresented: Binding(
             get: { pendingUnregister != nil },
-            set: { if !$0 { pendingUnregister = nil } }
+            set: {
+                if !$0 {
+                    pendingUnregister = nil
+                    deleteSecrets = false
+                }
+            }
         )) {
             Toggle("Delete secret material too", isOn: $deleteSecrets)
-            Button("Unregister", role: .destructive) {
-                Task { await store.unregisterSelectedCLI(deleteSecretMaterial: deleteSecrets) }
+            Button("Unregister \(pendingUnregister?.name ?? "CLI")", role: .destructive) {
+                guard let cli = pendingUnregister else { return }
+                let shouldDeleteSecrets = deleteSecrets
+                pendingUnregister = nil
+                deleteSecrets = false
+                Task { await store.unregisterCLI(name: cli.name, deleteSecretMaterial: shouldDeleteSecrets) }
             }
-            Button("Cancel", role: .cancel) {}
+            .disabled(!store.canManageCoreState)
+            Button("Cancel", role: .cancel) {
+                pendingUnregister = nil
+                deleteSecrets = false
+            }
         } message: {
             Text("Secret values will never be shown. Delete secret material only if you are sure no binding should keep it.")
         }
@@ -95,6 +108,7 @@ private struct CLIRegistrationList: View {
 private struct CLIRegistrationDetail: View {
     @Bindable var store: ManagementStore
     @Binding var pendingUnregister: CLIRegistrationSummary?
+    @State private var pendingShimRemoval: CLIRegistrationSummary?
 
     var body: some View {
         ScrollView {
@@ -117,17 +131,70 @@ private struct CLIRegistrationDetail: View {
                             LabeledContent("CDHash", value: cli.targetCDHash ?? "Unknown")
                             LabeledContent("Signing ID", value: cli.targetSigningIdentifier ?? "Unknown")
                             LabeledContent("Team ID", value: cli.targetTeamIdentifier ?? "Unknown")
+                            HStack {
+                                Button {
+                                    Task { await store.refreshTrust(for: cli.name) }
+                                } label: {
+                                    Label("Refresh Trust", systemImage: "arrow.clockwise")
+                                }
+                                .disabled(!store.canManageCoreState)
+                                .help("Refresh trust metadata for this executable")
+                                CopyButton(title: "Copy Identity", value: cli.targetIdentity ?? "", help: "Copy target identity")
+                                .disabled(cli.targetIdentity == nil)
+                                CopyButton(title: "Copy CDHash", value: cli.targetCDHash ?? "", help: "Copy target CDHash")
+                                .disabled(cli.targetCDHash == nil)
+                            }
+                        }
+                        Section("Shim") {
+                            LabeledContent("Status", value: cli.shimStatus)
+                            HStack {
+                                Button {
+                                    Task { await store.installShim(for: cli.name) }
+                                } label: {
+                                    Label(cli.shimStatus == "installed" ? "Repair Shim" : "Install Shim", systemImage: "link")
+                                }
+                                .buttonStyle(.borderedProminent)
+                                .disabled(!store.canManageCoreState)
+                                .help("Install or repair the local command shim for this CLI")
+                                Button("Remove Shim", role: .destructive) {
+                                    pendingShimRemoval = cli
+                                }
+                                .disabled(!store.canManageCoreState)
+                                .help("Remove the local command shim for this CLI")
+                            }
+                            Text("A shim routes normal \(cli.name) invocations through Agentic Fortress when the local shims folder is before the native CLI on PATH.")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
+                        Section("Grants") {
+                            LabeledContent("Active grants", value: "\(store.snapshot?.unlockGrants.count ?? 0)")
+                            Button {
+                                Task { await store.clearUnlockGrants() }
+                            } label: {
+                                Label("Lock All Grants on This Mac", systemImage: "lock")
+                            }
+                            .disabled(!store.canClearUnlockGrants)
+                            .help("Clear every active unlock grant on this Mac. Scoped CLI grant clearing is not available in the current core contract.")
+                        }
+                        Section("Danger Zone") {
+                            Button("Unregister CLI", role: .destructive) {
+                                pendingUnregister = cli
+                            }
+                            .disabled(!store.canManageCoreState)
+                            .help("Remove this CLI registration")
                         }
                     }
                     HStack {
-                        Button("Refresh Trust") {
-                            Task { await store.refreshTrust(for: cli.name) }
+                        Button {
+                            LocalFileOpener.reveal(
+                                path: cli.targetResolvedPath ?? cli.targetPath,
+                                label: "\(cli.name) executable",
+                                store: store
+                            )
+                        } label: {
+                            Label("Reveal Executable in Finder", systemImage: "finder")
                         }
-                        .help("Refresh trust metadata for this executable")
-                        Button("Unregister", role: .destructive) {
-                            pendingUnregister = cli
-                        }
-                        .help("Remove this CLI registration")
+                        .disabled((cli.targetResolvedPath ?? cli.targetPath).isEmpty)
                     }
                 }
                 .padding(24)
@@ -138,6 +205,22 @@ private struct CLIRegistrationDetail: View {
             }
         }
         .frame(maxWidth: .infinity, alignment: .topLeading)
+        .confirmationDialog("Remove command shim?", isPresented: Binding(
+            get: { pendingShimRemoval != nil },
+            set: { if !$0 { pendingShimRemoval = nil } }
+        )) {
+            Button("Remove Shim", role: .destructive) {
+                guard let cli = pendingShimRemoval else { return }
+                pendingShimRemoval = nil
+                Task { await store.uninstallShim(for: cli.name) }
+            }
+            .disabled(!store.canManageCoreState)
+            Button("Cancel", role: .cancel) {
+                pendingShimRemoval = nil
+            }
+        } message: {
+            Text("Normal \(pendingShimRemoval?.name ?? "CLI") invocations will stop routing through Agentic Fortress until the shim is installed again.")
+        }
     }
 }
 
@@ -199,7 +282,11 @@ struct SecretBindingRow: View {
             }
             Spacer()
             Button("Replace") { showingReplace = true }
+                .disabled(!store.canManageCoreState)
+                .help(store.canManageCoreState ? "Replace write-only secret material" : "Repair the daemon before replacing secret material")
             Button("Delete", role: .destructive) { showingDelete = true }
+                .disabled(!store.canManageCoreState)
+                .help(store.canManageCoreState ? "Delete write-only secret material" : "Repair the daemon before deleting secret material")
         }
         .sheet(isPresented: $showingReplace) {
             ReplaceSecretView(store: store, alias: binding.secretAlias, label: "\(cliName) \(binding.environmentName)", environment: "cli:\(cliName)")
@@ -208,6 +295,7 @@ struct SecretBindingRow: View {
             Button("Delete Secret Material", role: .destructive) {
                 Task { await store.deleteSecret(alias: binding.secretAlias) }
             }
+            .disabled(!store.canManageCoreState)
             Button("Cancel", role: .cancel) {}
         } message: {
             Text("This removes encrypted local material for \(binding.secretAlias). The value cannot be revealed first.")
@@ -217,60 +305,15 @@ struct SecretBindingRow: View {
 
 struct ProxyProfilesView: View {
     @Bindable var store: ManagementStore
-    @State private var sessionProfile = ""
-    @State private var bindPort = 48177
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 16) {
-            header("Proxy", subtitle: "Bounded localhost sessions")
-
-            List {
-                ForEach(store.snapshot?.proxyProfiles ?? []) { profile in
-                    HStack(alignment: .center, spacing: 12) {
-                        VStack(alignment: .leading, spacing: 6) {
-                            Text(profile.name).font(.headline)
-                            Text(profile.upstreamOrigin.absoluteString).foregroundStyle(.secondary)
-                            Text("\(profile.allowedMethods.joined(separator: ", ")) · \(profile.allowedPathPrefixes.joined(separator: ", ")) · \(Int(profile.tokenTTLSeconds))s")
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
-                        }
-                        Spacer()
-                        Button {
-                            sessionProfile = profile.name
-                            Task { await store.createProxySession(profileName: profile.name, bindPort: bindPort) }
-                        } label: {
-                            Label("Create Session", systemImage: "bolt.horizontal")
-                        }
-                        .help("Create a one-time localhost proxy session for \(profile.name)")
-                    }
-                    .contextMenu {
-                        Button("Create Session") {
-                            sessionProfile = profile.name
-                            Task { await store.createProxySession(profileName: profile.name, bindPort: bindPort) }
-                        }
-                    }
-                }
-            }
-
-            Form {
-                Section("Session") {
-                    Stepper(value: $bindPort, in: 1024...65535) {
-                        Text("Bind port: \(bindPort.formatted(.number.grouping(.never)))")
-                    }
-                    .help("Local port for the next proxy session")
-                }
-                if let token = store.oneTimeProxyToken {
-                    CopyableSecretOnceView(title: "One-time proxy token", value: token)
-                }
-            }
-            .formStyle(.grouped)
-            .frame(maxHeight: 170)
-        }
-        .padding(24)
-        .overlay {
+        ManagementPageFrame(
+            title: "Proxy",
+            subtitle: "Bounded localhost sessions that keep upstream API keys out of client apps."
+        ) {
             if store.snapshot == nil {
                 LocalStateUnavailableView(store: store)
-            } else if store.snapshot?.proxyProfiles.isEmpty == true {
+            } else if store.proxyProfiles.isEmpty {
                 ContentUnavailableView {
                     Label("No Proxy Profiles", systemImage: "point.3.connected.trianglepath.dotted")
                 } description: {
@@ -284,6 +327,190 @@ struct ProxyProfilesView: View {
                     .buttonStyle(.borderedProminent)
                     .disabled(!store.canManageCoreState)
                 }
+            } else {
+                HSplitView {
+                    List(selection: $store.selectedProxyProfile) {
+                        ForEach(store.proxyProfiles) { profile in
+                            ProxyProfileRow(profile: profile)
+                                .tag(Optional(profile.name))
+                        }
+                    }
+                    .frame(minWidth: 260, idealWidth: 320, maxWidth: 420)
+
+                    ProxyProfileDetail(store: store)
+                        .frame(minWidth: 480)
+                }
+                .frame(minHeight: 440)
+            }
+        }
+    }
+}
+
+private struct ProxyProfileRow: View {
+    var profile: ProxyProfileSummary
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            HStack {
+                Text(profile.name).font(.headline)
+                Spacer()
+                Text("\(Int(profile.tokenTTLSeconds))s")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+            Text(profile.upstreamOrigin.host() ?? profile.upstreamOrigin.absoluteString)
+                .foregroundStyle(.secondary)
+                .lineLimit(1)
+            Text(profile.allowedMethods.joined(separator: ", "))
+                .font(.caption)
+                .foregroundStyle(.secondary)
+        }
+        .padding(.vertical, 4)
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel("Proxy profile \(profile.name)")
+    }
+}
+
+private struct ProxyProfileDetail: View {
+    @Bindable var store: ManagementStore
+    @State private var bindPort = 48177
+    @State private var showingEdit = false
+    @State private var showingReplaceSecret = false
+    @State private var confirmingDeleteSecret = false
+    @State private var confirmingDeleteProfile = false
+    @State private var deleteCredentialWithProfile = false
+
+    var body: some View {
+        ScrollView {
+            if let profile = store.selectedProxyProfileSummary {
+                VStack(alignment: .leading, spacing: 18) {
+                    header(profile.name, subtitle: profile.upstreamOrigin.absoluteString)
+                    Form {
+                        Section("Configuration") {
+                            LabeledContent("Allowed methods", value: profile.allowedMethods.joined(separator: ", "))
+                            LabeledContent("Path prefixes", value: profile.allowedPathPrefixes.joined(separator: ", "))
+                            LabeledContent("Session TTL", value: "\(Int(profile.tokenTTLSeconds))s")
+                            Button {
+                                showingEdit = true
+                            } label: {
+                                Label("Edit Profile", systemImage: "slider.horizontal.3")
+                            }
+                            .disabled(!store.canManageCoreState)
+                            .help("Update origin, allowed paths, methods, secret alias, and session TTL")
+                        }
+                        Section("Credential") {
+                            LabeledContent("Status", value: "Alias configured")
+                            LabeledContent("Secret alias", value: profile.secretAlias)
+                            Text("Use Replace API Key to write or rotate material. Saved values are never returned to the UI.")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                            HStack {
+                                Button {
+                                    showingReplaceSecret = true
+                                } label: {
+                                    Label("Replace API Key", systemImage: "key.fill")
+                                }
+                                .buttonStyle(.borderedProminent)
+                                .disabled(!store.canManageCoreState)
+                                .help("Write a replacement upstream API key. The saved value is never shown.")
+                                Button("Delete API Key", role: .destructive) {
+                                    confirmingDeleteSecret = true
+                                }
+                                .disabled(!store.canManageCoreState)
+                                .help("Delete stored credential material for this proxy alias")
+                                if let dashboard = ProviderDashboardResolver.link(for: profile) {
+                                    Button {
+                                        ExternalURLOpener.open(dashboard.url, label: dashboard.title, store: store)
+                                    } label: {
+                                        Label(dashboard.title, systemImage: "arrow.up.right.square")
+                                    }
+                                    .help("Open provider key management in your browser")
+                                }
+                            }
+                        }
+                        Section("Session") {
+                            Stepper(value: $bindPort, in: 1024...65535) {
+                                Text("Bind port: \(bindPort.formatted(.number.grouping(.never)))")
+                            }
+                            .help("Local port for the next proxy session")
+                            Button {
+                                Task { await store.createProxySession(profileName: profile.name, bindPort: bindPort) }
+                            } label: {
+                                Label("Create Session", systemImage: "bolt.horizontal")
+                            }
+                            .buttonStyle(.borderedProminent)
+                            .disabled(!store.canManageCoreState)
+                            .help("Create a one-time localhost proxy session for this profile")
+                            if let endpoint = store.selectedProxySession?.endpoint {
+                                CopyableValueView(title: "Proxy URL", value: endpoint.absoluteString)
+                            }
+                            if let token = store.selectedProxySession?.token {
+                                CopyableSecretOnceView(title: "One-time proxy token", value: token)
+                                Button {
+                                    store.clearProxySession(profileName: profile.name)
+                                } label: {
+                                    Label("Hide Token", systemImage: "eye.slash")
+                                }
+                                .help("Hide this one-time token from the UI. It will not revoke an already copied token.")
+                            }
+                        }
+                        Section("Danger Zone") {
+                            Toggle("Delete API key material too", isOn: $deleteCredentialWithProfile)
+                            Button("Delete Profile", role: .destructive) {
+                                confirmingDeleteProfile = true
+                            }
+                            .disabled(!store.canManageCoreState)
+                            .help("Remove this proxy profile. Credential material is kept unless the checkbox is selected.")
+                        }
+                    }
+                    .formStyle(.grouped)
+                }
+                .padding(24)
+                .frame(maxWidth: 900, alignment: .leading)
+                .sheet(isPresented: $showingEdit) {
+                    ProxyProfileEditor(store: store, profile: profile)
+                }
+                .sheet(isPresented: $showingReplaceSecret) {
+                    ReplaceSecretView(store: store, alias: profile.secretAlias, label: "\(profile.name) proxy API key", environment: "proxy:\(profile.name)")
+                }
+                .confirmationDialog("Delete API key?", isPresented: $confirmingDeleteSecret) {
+                    Button("Delete API Key", role: .destructive) {
+                        Task { await store.deleteSecret(alias: profile.secretAlias) }
+                    }
+                    .disabled(!store.canManageCoreState)
+                    Button("Cancel", role: .cancel) {}
+                } message: {
+                    Text("This deletes local encrypted material for \(profile.secretAlias). The saved value cannot be displayed first.")
+                }
+                .confirmationDialog("Delete proxy profile?", isPresented: $confirmingDeleteProfile) {
+                    Button("Delete Profile", role: .destructive) {
+                        let shouldDeleteCredential = deleteCredentialWithProfile
+                        deleteCredentialWithProfile = false
+                        Task {
+                            await store.deleteProxyProfile(
+                                name: profile.name,
+                                deleteSecretAlias: shouldDeleteCredential ? profile.secretAlias : nil
+                            )
+                        }
+                    }
+                    .disabled(!store.canManageCoreState)
+                    Button("Cancel", role: .cancel) {
+                        deleteCredentialWithProfile = false
+                    }
+                } message: {
+                    Text("The profile is removed from local configuration. Secret material is deleted only if selected.")
+                }
+                .onChange(of: confirmingDeleteProfile) { _, isPresented in
+                    if !isPresented {
+                        deleteCredentialWithProfile = false
+                    }
+                }
+                .onChange(of: profile.name) { _, _ in
+                    deleteCredentialWithProfile = false
+                }
+            } else {
+                ContentUnavailableView("Select a Proxy Profile", systemImage: "point.3.connected.trianglepath.dotted")
+                    .padding(24)
             }
         }
     }
@@ -293,21 +520,10 @@ struct MCPProfilesView: View {
     @Bindable var store: ManagementStore
 
     var body: some View {
-        List {
-            ForEach(store.snapshot?.mcpProfiles ?? []) { profile in
-                VStack(alignment: .leading, spacing: 6) {
-                    Text(profile.name).font(.headline)
-                    Text(profile.origin.absoluteString).foregroundStyle(.secondary)
-                    Text("\(profile.authorizationHeaderName) · \(profile.allowedPathPrefixes.joined(separator: ", "))")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                }
-            }
-        }
-        .overlay {
+        ManagementPageFrame(title: "MCP", subtitle: "Pinned upstream profiles for authorization injection.") {
             if store.snapshot == nil {
                 LocalStateUnavailableView(store: store)
-            } else if store.snapshot?.mcpProfiles.isEmpty == true {
+            } else if store.mcpProfiles.isEmpty {
                 ContentUnavailableView {
                     Label("No MCP Profiles", systemImage: "server.rack")
                 } description: {
@@ -321,62 +537,290 @@ struct MCPProfilesView: View {
                     .buttonStyle(.borderedProminent)
                     .disabled(!store.canManageCoreState)
                 }
+            } else {
+                HSplitView {
+                    List(selection: $store.selectedMCPProfile) {
+                        ForEach(store.mcpProfiles) { profile in
+                            VStack(alignment: .leading, spacing: 4) {
+                                Text(profile.name).font(.headline)
+                                Text(profile.origin.host() ?? profile.origin.absoluteString)
+                                    .foregroundStyle(.secondary)
+                                Text(profile.allowedPathPrefixes.joined(separator: ", "))
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                            }
+                            .padding(.vertical, 4)
+                            .tag(Optional(profile.name))
+                        }
+                    }
+                    .frame(minWidth: 260, idealWidth: 320, maxWidth: 420)
+                    MCPProfileDetail(store: store)
+                        .frame(minWidth: 480)
+                }
+                .frame(minHeight: 420)
             }
         }
     }
 }
 
-struct BWSView: View {
-    var store: ManagementStore
+private struct MCPProfileDetail: View {
+    @Bindable var store: ManagementStore
+    @State private var showingEdit = false
+    @State private var confirmingDelete = false
+    @State private var validationMessage: String?
 
     var body: some View {
-        List {
-            ForEach(store.snapshot?.bwsBindings ?? []) { binding in
-                VStack(alignment: .leading) {
-                    Text(binding.alias).font(.headline)
-                    Text("\(binding.environment) · lease \(Int(binding.maxLeaseSeconds))s · \(binding.secretIDDigest)")
-                        .foregroundStyle(.secondary)
+        ScrollView {
+            if let profile = store.selectedMCPProfileSummary {
+                VStack(alignment: .leading, spacing: 18) {
+                    header(profile.name, subtitle: profile.origin.absoluteString)
+                    Form {
+                        Section("Configuration") {
+                            LabeledContent("Authorization header", value: profile.authorizationHeaderName)
+                            LabeledContent("Path prefixes", value: profile.allowedPathPrefixes.joined(separator: ", "))
+                            LabeledContent("Cross-origin redirects", value: profile.allowCrossOriginRedirects ? "Allowed" : "Blocked")
+                            Button {
+                                showingEdit = true
+                            } label: {
+                                Label("Edit MCP Profile", systemImage: "slider.horizontal.3")
+                            }
+                            .disabled(!store.canManageCoreState)
+                        }
+                        Section("Client Setup") {
+                            CopyableValueView(title: "Profile origin", value: profile.origin.absoluteString)
+                            CopyButton(
+                                title: "Copy MCP Client Config",
+                                value: mcpClientConfig(profile),
+                                help: "Copy redacted MCP client configuration for this profile"
+                            )
+                        }
+                        Section("Credential") {
+                            StatusBadge(text: "No stored credential alias", systemImage: "key.slash")
+                            Text("This MCP profile defines where authorization can be injected, but it does not currently bind a saved secret alias. Edit the profile if the upstream authorization metadata changes.")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
+                        Section("Trust") {
+                            StatusBadge(text: "Pinned origin", systemImage: "pin")
+                            Button {
+                                validationMessage = validate(profile: profile)
+                            } label: {
+                                Label("Validate Profile", systemImage: "checkmark.shield")
+                            }
+                            .help("Validate the pinned origin and allowed path configuration locally")
+                            if let validationMessage {
+                                Text(validationMessage)
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                            }
+                        }
+                        Section("Danger Zone") {
+                            Button("Delete Profile", role: .destructive) {
+                                confirmingDelete = true
+                            }
+                            .disabled(!store.canManageCoreState)
+                        }
+                    }
+                    .formStyle(.grouped)
                 }
+                .padding(24)
+                .frame(maxWidth: 900, alignment: .leading)
+                .sheet(isPresented: $showingEdit) {
+                    MCPProfileEditor(store: store, profile: profile)
+                }
+                .confirmationDialog("Delete MCP profile?", isPresented: $confirmingDelete) {
+                    Button("Delete Profile", role: .destructive) {
+                        Task { await store.deleteMCPProfile(name: profile.name) }
+                    }
+                    .disabled(!store.canManageCoreState)
+                    Button("Cancel", role: .cancel) {}
+                } message: {
+                    Text("The pinned MCP upstream profile is removed from local configuration.")
+                }
+            } else {
+                ContentUnavailableView("Select an MCP Profile", systemImage: "server.rack")
+                    .padding(24)
             }
         }
-        .overlay {
+    }
+
+    private func validate(profile: MCPProfileSummary) -> String {
+        guard profile.origin.scheme == "https", profile.origin.host()?.isEmpty == false else {
+            return "Profile needs an HTTPS origin with a host."
+        }
+        guard !profile.allowedPathPrefixes.isEmpty else {
+            return "Profile needs at least one allowed path prefix."
+        }
+        return "Profile shape is valid. Network verification is intentionally explicit and not run automatically."
+    }
+
+    private func mcpClientConfig(_ profile: MCPProfileSummary) -> String {
+        """
+        {
+          "name": "\(profile.name)",
+          "origin": "\(profile.origin.absoluteString)",
+          "authorizationHeader": "\(profile.authorizationHeaderName)",
+          "allowedPathPrefixes": \(jsonStringArray(profile.allowedPathPrefixes)),
+          "allowCrossOriginRedirects": \(profile.allowCrossOriginRedirects),
+          "credential": "managed-by-agentic-fortress"
+        }
+        """
+    }
+}
+
+struct BWSView: View {
+    @Bindable var store: ManagementStore
+
+    var body: some View {
+        ManagementPageFrame(title: "BWS", subtitle: "External secret provider bindings, without exposing fetched values.") {
             if store.snapshot == nil {
                 LocalStateUnavailableView(store: store)
-            } else if store.snapshot?.bwsBindings.isEmpty == true {
+            } else if store.bwsBindings.isEmpty {
                 ContentUnavailableView {
                     Label("No BWS Bindings", systemImage: "key.horizontal")
                 } description: {
-                    Text("BWS runtime remains one approved secret per invocation. Binding management is configured through core/provider setup.")
+                    Text("Create a binding to authorize one exact BWS secret per invocation.")
                 } actions: {
+                    Button {
+                        store.presentBWSBindingEditor()
+                    } label: {
+                        Label("Create BWS Binding", systemImage: "plus")
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .disabled(!store.canManageCoreState)
+                    .help("Create a Bitwarden Secrets Manager binding")
                     Button {
                         store.presentDiagnostics()
                     } label: {
                         Label("Review Diagnostics", systemImage: "stethoscope")
                     }
-                    .buttonStyle(.borderedProminent)
+                    .buttonStyle(.bordered)
                     .help("Review local core and provider setup")
                 }
+            } else {
+                HSplitView {
+                    List(selection: $store.selectedBWSBinding) {
+                        ForEach(store.bwsBindings) { binding in
+                            VStack(alignment: .leading, spacing: 5) {
+                                Text(binding.alias).font(.headline)
+                                Text("\(binding.environment) · \(binding.requiresPerFetchApproval ? "approval required" : "\(Int(binding.maxLeaseSeconds))s lease")")
+                                    .foregroundStyle(.secondary)
+                                    .lineLimit(1)
+                                Text(binding.secretIDDigest)
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                                    .lineLimit(1)
+                            }
+                            .padding(.vertical, 4)
+                            .tag(Optional(binding.alias))
+                        }
+                    }
+                    .frame(minWidth: 280, idealWidth: 340, maxWidth: 440)
+                    BWSBindingDetail(store: store)
+                        .frame(minWidth: 460)
+                }
+                .frame(minHeight: 420)
             }
         }
     }
 }
 
-struct AdaptersView: View {
-    var store: ManagementStore
+private struct BWSBindingDetail: View {
+    @Bindable var store: ManagementStore
+    @State private var showingEdit = false
+    @State private var confirmingDelete = false
 
     var body: some View {
-        Table(store.snapshot?.adapters ?? []) {
-            TableColumn("CLI", value: \.cliName)
-            TableColumn("Publisher", value: \.publisher)
-            TableColumn("Version") { Text("\($0.adapterVersion)") }
-            TableColumn("Rules") { Text("\($0.ruleCount)") }
-            TableColumn("Hash") { Text($0.adapterHash).lineLimit(1) }
+        ScrollView {
+            if let binding = store.selectedBWSBindingSummary {
+                VStack(alignment: .leading, spacing: 18) {
+                    header(binding.alias, subtitle: "Bitwarden Secrets Manager binding")
+                    Form {
+                        Section("Binding") {
+                            LabeledContent("Project ID", value: binding.projectID)
+                            LabeledContent("Environment", value: binding.environment)
+                            LabeledContent("Secret ID digest", value: binding.secretIDDigest)
+                            HStack {
+                                Button {
+                                    showingEdit = true
+                                } label: {
+                                    Label("Replace Binding", systemImage: "slider.horizontal.3")
+                                }
+                                .disabled(!store.canManageCoreState)
+                                .help("Update binding metadata and provide the write-only BWS secret ID again")
+                                Button {
+                                    ExternalURLOpener.open(
+                                        URL(string: "https://vault.bitwarden.com/#/sm/secrets")!,
+                                        label: "Bitwarden Secrets Manager",
+                                        store: store
+                                    )
+                                } label: {
+                                    Label("Open Bitwarden", systemImage: "arrow.up.right.square")
+                                }
+                                CopyButton(
+                                    title: "Copy Reference",
+                                    value: bwsBindingReference(binding),
+                                    help: "Copy a redacted binding reference"
+                                )
+                            }
+                        }
+                        Section("Runtime Policy") {
+                            LabeledContent("Max lease", value: binding.requiresPerFetchApproval ? "Per fetch approval" : "\(Int(binding.maxLeaseSeconds))s")
+                            LabeledContent("Secret values", value: "Never shown in UI")
+                        }
+                        Section("Danger Zone") {
+                            Button("Delete Binding", role: .destructive) {
+                                confirmingDelete = true
+                            }
+                            .disabled(!store.canManageCoreState)
+                        }
+                    }
+                    .formStyle(.grouped)
+                }
+                .padding(24)
+                .frame(maxWidth: 820, alignment: .leading)
+                .sheet(isPresented: $showingEdit) {
+                    BWSBindingEditor(store: store, binding: binding)
+                }
+                .confirmationDialog("Delete BWS binding?", isPresented: $confirmingDelete) {
+                    Button("Delete Binding", role: .destructive) {
+                        Task { await store.deleteBWSBinding(alias: binding.alias) }
+                    }
+                    .disabled(!store.canManageCoreState)
+                    Button("Cancel", role: .cancel) {}
+                } message: {
+                    Text("This removes the local binding metadata. It does not delete any upstream Bitwarden secret.")
+                }
+            } else {
+                ContentUnavailableView("Select a BWS Binding", systemImage: "key.horizontal")
+                    .padding(24)
+            }
         }
-        .padding()
-        .overlay {
+    }
+
+    private func bwsBindingReference(_ binding: BWSBindingSummary) -> String {
+        """
+        alias: \(binding.alias)
+        provider: bitwarden-secrets-manager
+        projectID: \(binding.projectID)
+        secretIDDigest: \(binding.secretIDDigest)
+        environment: \(binding.environment)
+        """
+    }
+}
+
+struct AdaptersView: View {
+    @Bindable var store: ManagementStore
+    @State private var confirmingRevoke = false
+
+    var body: some View {
+        ManagementPageFrame(
+            title: "Adapters",
+            subtitle: "Signed command-classification packs. CLIs use adapters; adapters are not secrets."
+        ) {
             if store.snapshot == nil {
                 LocalStateUnavailableView(store: store)
-            } else if store.snapshot?.adapters.isEmpty == true {
+            } else if store.adapters.isEmpty {
                 ContentUnavailableView {
                     Label("No Adapters", systemImage: "puzzlepiece.extension")
                 } description: {
@@ -390,27 +834,196 @@ struct AdaptersView: View {
                     .buttonStyle(.borderedProminent)
                     .disabled(!store.canManageCoreState)
                 }
+            } else {
+                HSplitView {
+                    Table(store.adapters, selection: $store.selectedAdapter) {
+                        TableColumn("CLI", value: \.cliName)
+                        TableColumn("Publisher", value: \.publisher)
+                        TableColumn("Version") { Text("\($0.adapterVersion)") }
+                        TableColumn("Rules") { Text("\($0.ruleCount)") }
+                    }
+                    .frame(minWidth: 440)
+                    AdapterDetail(store: store, confirmingRevoke: $confirmingRevoke)
+                        .frame(minWidth: 380)
+                }
+                .frame(minHeight: 440)
             }
         }
+        .confirmationDialog("Revoke adapter?", isPresented: $confirmingRevoke) {
+            if let adapter = store.selectedAdapterSummary {
+                Button("Revoke Adapter", role: .destructive) {
+                    Task { await store.revokeAdapter(adapterID: adapter.adapterID) }
+                }
+                .disabled(!store.canManageCoreState || adapter.revokedAt != nil)
+            }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("Revoked adapters no longer classify commands. Built-in adapters may reappear from the bundled registry.")
+        }
+    }
+}
+
+private struct AdapterDetail: View {
+    @Bindable var store: ManagementStore
+    @Binding var confirmingRevoke: Bool
+    @State private var showingManifest = false
+
+    var body: some View {
+        ScrollView {
+            if let adapter = store.selectedAdapterSummary {
+                VStack(alignment: .leading, spacing: 18) {
+                    header(adapter.cliName, subtitle: adapter.adapterID)
+                    Form {
+                        Section("Manifest") {
+                            LabeledContent("Publisher", value: adapter.publisher)
+                            LabeledContent("Version", value: "\(adapter.adapterVersion)")
+                            LabeledContent("Rules", value: "\(adapter.ruleCount)")
+                            LabeledContent("Hash", value: adapter.adapterHash)
+                            if let installedAt = adapter.installedAt {
+                                LabeledContent("Installed", value: installedAt.formatted())
+                            }
+                        }
+                        Section("Trust") {
+                            StatusBadge(text: adapter.revokedAt == nil ? "Active" : "Revoked", systemImage: adapter.revokedAt == nil ? "checkmark.shield" : "xmark.shield")
+                            HStack {
+                                Button {
+                                    showingManifest = true
+                                } label: {
+                                    Label("View Manifest", systemImage: "doc.text.magnifyingglass")
+                                }
+                                .help("View installed adapter manifest metadata")
+                                CopyButton(
+                                    title: "Copy Report",
+                                    value: adapterReport(adapter),
+                                    help: "Copy a redacted adapter report"
+                                )
+                            }
+                        }
+                        Section("Affected CLIs") {
+                            Text(adapter.cliName)
+                            Button("Open CLI Registration") {
+                                store.selectedSection = .cliSecrets
+                                store.selectedCLI = adapter.cliName
+                            }
+                            .disabled(store.snapshot?.cliRegistrations.contains(where: { $0.name == adapter.cliName }) != true)
+                        }
+                        Section("Danger Zone") {
+                            Button("Revoke Adapter", role: .destructive) {
+                                confirmingRevoke = true
+                            }
+                            .disabled(!store.canManageCoreState || adapter.revokedAt != nil)
+                        }
+                    }
+                    .formStyle(.grouped)
+                }
+                .padding(24)
+                .frame(maxWidth: 760, alignment: .leading)
+                .sheet(isPresented: $showingManifest) {
+                    AdapterManifestView(adapter: adapter)
+                }
+            } else {
+                ContentUnavailableView("Select an Adapter", systemImage: "puzzlepiece.extension")
+                    .padding(24)
+            }
+        }
+    }
+
+    private func adapterReport(_ adapter: AdapterSummary) -> String {
+        """
+        adapterID: \(adapter.adapterID)
+        cli: \(adapter.cliName)
+        publisher: \(adapter.publisher)
+        version: \(adapter.adapterVersion)
+        rules: \(adapter.ruleCount)
+        hash: \(adapter.adapterHash)
+        status: \(adapter.revokedAt == nil ? "active" : "revoked")
+        """
+    }
+}
+
+private struct AdapterManifestView: View {
+    @Environment(\.dismiss) private var dismiss
+    var adapter: AdapterSummary
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            header("Adapter Manifest", subtitle: adapter.adapterID)
+            Form {
+                Section("Identity") {
+                    LabeledContent("CLI", value: adapter.cliName)
+                    LabeledContent("Publisher", value: adapter.publisher)
+                    LabeledContent("Version", value: "\(adapter.adapterVersion)")
+                    LabeledContent("Rules", value: "\(adapter.ruleCount)")
+                }
+                Section("Integrity") {
+                    LabeledContent("Hash", value: adapter.adapterHash)
+                    LabeledContent("Status", value: adapter.revokedAt == nil ? "Active" : "Revoked")
+                    Text("The management summary exposes hash, publisher, and version. Signed payload verification happens before install in core.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+            }
+            HStack {
+                Spacer()
+                Button("Done") { dismiss() }
+                    .keyboardShortcut(.return)
+            }
+        }
+        .formStyle(.grouped)
+        .frame(width: 560)
+        .padding()
     }
 }
 
 struct AuditView: View {
     @Bindable var store: ManagementStore
+    @State private var selectedEventID: AuditEventSummary.ID?
+    @State private var filterText = ""
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             HStack {
                 header("Audit", subtitle: "Redacted events only")
                 Spacer()
+                CopyButton(title: "Copy Event", value: redactedEventText(selectedEvent), help: "Copy selected redacted audit event")
+                .disabled(selectedEvent == nil)
+                .help(selectedEvent == nil ? "Select an audit event first" : "Copy selected redacted audit event")
+
+                Button {
+                    openRelatedItem(selectedEvent)
+                } label: {
+                    Label("Open Related Item", systemImage: "arrowshape.turn.up.right")
+                }
+                .disabled(relatedItemTitle(for: selectedEvent) == nil)
+                .help(relatedItemTitle(for: selectedEvent) ?? "Select an event with a related local item")
+
                 Button("Export Redacted JSON") {
-                    Task { await store.exportAudit() }
+                    AuditExportWriter.export(store: store)
+                }
+                .disabled(!store.canExportAudit)
+                .help(store.canExportAudit ? "Save all redacted audit events as a JSON file" : "Load local state before exporting audit")
+            }
+            HStack {
+                Label("Filter", systemImage: "line.3.horizontal.decrease.circle")
+                    .foregroundStyle(.secondary)
+                TextField("Decision, flow, subject, alias, action, outcome", text: $filterText)
+                    .textFieldStyle(.roundedBorder)
+                    .accessibilityLabel("Audit filter")
+                if !filterText.isEmpty {
+                    Button {
+                        filterText = ""
+                    } label: {
+                        Label("Clear Filter", systemImage: "xmark.circle")
+                    }
+                    .buttonStyle(.borderless)
+                    .help("Clear audit filter")
                 }
             }
-            Table(store.snapshot?.auditEvents ?? []) {
+            Table(filteredEvents, selection: $selectedEventID) {
                 TableColumn("Time") { Text($0.time, style: .time) }
                 TableColumn("Decision", value: \.decision)
                 TableColumn("Flow") { Text($0.flow.rawValue) }
+                TableColumn("Subject", value: \.subjectID)
                 TableColumn("Action", value: \.actionClass)
                 TableColumn("Outcome", value: \.outcome)
             }
@@ -430,6 +1043,19 @@ struct AuditView: View {
                         }
                         .buttonStyle(.borderedProminent)
                     }
+                } else if filteredEvents.isEmpty {
+                    ContentUnavailableView {
+                        Label("No Matching Audit Events", systemImage: "magnifyingglass")
+                    } description: {
+                        Text("No redacted event matches this filter.")
+                    } actions: {
+                        Button {
+                            filterText = ""
+                        } label: {
+                            Label("Clear Filter", systemImage: "xmark.circle")
+                        }
+                        .buttonStyle(.borderedProminent)
+                    }
                 }
             }
             if let exported = store.exportedAudit {
@@ -439,6 +1065,51 @@ struct AuditView: View {
             }
         }
         .padding(24)
+    }
+
+    private var allEvents: [AuditEventSummary] {
+        store.snapshot?.auditEvents ?? []
+    }
+
+    private var filteredEvents: [AuditEventSummary] {
+        AuditEventFilter.filtered(allEvents, query: filterText)
+    }
+
+    private var selectedEvent: AuditEventSummary? {
+        AuditEventFilter.selectedVisibleEvent(selectedID: selectedEventID, visibleEvents: filteredEvents)
+    }
+
+    private func redactedEventText(_ event: AuditEventSummary?) -> String {
+        guard let event else { return "" }
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+        encoder.dateEncodingStrategy = .iso8601
+        guard let data = try? encoder.encode(event), let text = String(data: data, encoding: .utf8) else {
+            return "\(event.time.formatted()) \(event.flow.rawValue) \(event.subjectID) \(event.outcome)"
+        }
+        return text
+    }
+
+    private func relatedItemTitle(for event: AuditEventSummary?) -> String? {
+        AuditRelatedItemRouter.route(for: event, snapshot: store.snapshot)?.title
+    }
+
+    private func openRelatedItem(_ event: AuditEventSummary?) {
+        guard let route = AuditRelatedItemRouter.route(for: event, snapshot: store.snapshot) else { return }
+        switch route {
+        case .cli(let name):
+            store.selectedSection = .cliSecrets
+            store.selectedCLI = name
+        case .proxy(let name):
+            store.selectedSection = .proxy
+            store.selectedProxyProfile = name
+        case .bws(let alias):
+            store.selectedSection = .bws
+            store.selectedBWSBinding = alias
+        case .mcp(let name):
+            store.selectedSection = .mcp
+            store.selectedMCPProfile = name
+        }
     }
 }
 
@@ -465,7 +1136,7 @@ struct DiagnosticsView: View {
                     DaemonActionButtons(store: store, confirmingInstall: $confirmingInstall, includeAdvancedActions: true)
                 }
                 if let plan = store.daemonInstallPlan {
-                    DaemonInstallPlanView(plan: plan)
+                    DaemonInstallPlanView(store: store, plan: plan)
                 }
             }
             Section("State") {
@@ -662,8 +1333,8 @@ struct DaemonActionButtons: View {
         case .restart:
             return store.daemonStatus.state != .healthy && store.daemonStatus.canRepair
         case .openInstalledApp:
-            guard let plan = store.daemonInstallPlan, !plan.currentAppIsInstalledCopy else { return false }
-            return FileManager.default.fileExists(atPath: plan.appDestinationPath)
+            guard store.daemonInstallPlan?.currentAppIsInstalledCopy == false else { return false }
+            return store.canOpenInstalledApp
         }
     }
 
@@ -679,8 +1350,7 @@ struct DaemonActionButtons: View {
         case .restart:
             return !store.daemonStatus.canRepair
         case .openInstalledApp:
-            guard let plan = store.daemonInstallPlan else { return true }
-            return !FileManager.default.fileExists(atPath: plan.appDestinationPath)
+            return !store.canOpenInstalledApp
         }
     }
 
@@ -710,13 +1380,13 @@ struct DaemonActionButtons: View {
         case .restart:
             Task { await store.repairDaemon() }
         case .openInstalledApp:
-            guard let plan = store.daemonInstallPlan else { return }
-            NSWorkspace.shared.open(URL(fileURLWithPath: plan.appDestinationPath, isDirectory: true))
+            InstalledAppOpener.open(store: store)
         }
     }
 }
 
 struct DaemonInstallPlanView: View {
+    var store: ManagementStore
     var plan: DaemonInstallPlan
 
     var body: some View {
@@ -739,13 +1409,13 @@ struct DaemonInstallPlanView: View {
             }
             HStack {
                 Button("Open Install Folder") {
-                    NSWorkspace.shared.open(URL(fileURLWithPath: plan.prefixPath, isDirectory: true))
+                    LocalFileOpener.openDirectory(path: plan.prefixPath, label: "install folder", store: store)
                 }
-                .disabled(!FileManager.default.fileExists(atPath: plan.prefixPath))
+                .disabled(!LocalFileOpener.fileExists(atPath: plan.prefixPath))
                 Button("Open Installed App") {
-                    NSWorkspace.shared.open(URL(fileURLWithPath: plan.appDestinationPath, isDirectory: true))
+                    InstalledAppOpener.open(store: store)
                 }
-                .disabled(!FileManager.default.fileExists(atPath: plan.appDestinationPath))
+                .disabled(InstalledAppOpener.installedAppURL(store: store) == nil)
             }
         }
     }
@@ -832,6 +1502,49 @@ struct StatusBadge: View {
             .padding(.vertical, 4)
             .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 6))
     }
+}
+
+struct ManagementPageFrame<Content: View>: View {
+    var title: String
+    var subtitle: String
+    @ViewBuilder var content: Content
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 18) {
+            header(title, subtitle: subtitle)
+            content
+        }
+        .padding(24)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+    }
+}
+
+struct CopyableValueView: View {
+    var title: String
+    var value: String
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text(title).font(.headline)
+            HStack {
+                Text(value)
+                    .font(.system(.body, design: .monospaced))
+                    .textSelection(.enabled)
+                    .lineLimit(1)
+                Spacer()
+                CopyButton(value: value, help: "Copy \(title)")
+            }
+        }
+    }
+}
+
+func jsonStringArray(_ values: [String]) -> String {
+    let escaped = values.map { value in
+        "\"" + value
+            .replacingOccurrences(of: "\\", with: "\\\\")
+            .replacingOccurrences(of: "\"", with: "\\\"") + "\""
+    }
+    return "[" + escaped.joined(separator: ", ") + "]"
 }
 
 func header(_ title: String, subtitle: String) -> some View {

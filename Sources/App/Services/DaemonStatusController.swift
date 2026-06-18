@@ -181,7 +181,7 @@ struct LocalDaemonStatusController: DaemonStatusControlling {
         let runDirectory = prefix.appendingPathComponent("run/agentic-fortress", isDirectory: true)
         let launchAgent = prefix.appendingPathComponent("Library/LaunchAgents/com.agenticfortress.core.plist")
         let manifest = stateDirectory.appendingPathComponent("install-manifest.json")
-        let socket = runDirectory.appendingPathComponent("core.sock")
+        let socket = URL(fileURLWithPath: IPCAgenticFortressClient.defaultRuntimeSocketPath())
         let sourceMacOS = source.appendingPathComponent("Contents/MacOS", isDirectory: true)
         let missing = Self.installExecutables.filter {
             !FileManager.default.isExecutableFile(atPath: sourceMacOS.appendingPathComponent($0).path)
@@ -224,6 +224,7 @@ struct LocalDaemonStatusController: DaemonStatusControlling {
         let binDirectory = URL(fileURLWithPath: plan.binDirectoryPath, isDirectory: true)
         let stateDirectory = URL(fileURLWithPath: plan.stateDirectoryPath, isDirectory: true)
         let runDirectory = URL(fileURLWithPath: plan.runDirectoryPath, isDirectory: true)
+        let socketDirectory = URL(fileURLWithPath: plan.socketPath).deletingLastPathComponent()
         let launchAgent = URL(fileURLWithPath: plan.launchAgentPath)
         let manifest = URL(fileURLWithPath: plan.manifestPath)
         let source = URL(fileURLWithPath: plan.appSourcePath, isDirectory: true)
@@ -232,7 +233,9 @@ struct LocalDaemonStatusController: DaemonStatusControlling {
         try fileManager.createDirectory(at: binDirectory, withIntermediateDirectories: true)
         try fileManager.createDirectory(at: stateDirectory, withIntermediateDirectories: true)
         try fileManager.createDirectory(at: runDirectory, withIntermediateDirectories: true)
+        try fileManager.createDirectory(at: socketDirectory, withIntermediateDirectories: true)
         try fileManager.createDirectory(at: launchAgent.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try? fileManager.setAttributes([.posixPermissions: 0o700], ofItemAtPath: socketDirectory.path)
 
         if !plan.currentAppIsInstalledCopy {
             try? fileManager.removeItem(at: appDestination)
@@ -284,6 +287,8 @@ struct LocalDaemonStatusController: DaemonStatusControlling {
             <string>\(manifestPath)</string>
           </array>
           <key>RunAtLoad</key>
+          <true/>
+          <key>KeepAlive</key>
           <true/>
           <key>StandardOutPath</key>
           <string>\(stdoutPath)</string>

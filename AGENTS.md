@@ -61,6 +61,7 @@ Run the standard gates before presenting a production-ready change:
 swift build
 swift run agentic-fortress-contract-tests
 ./script/ui_smoke.sh
+./script/build_and_run.sh --verify
 ./scripts/ci.sh
 ./scripts/tahoe_compatibility_check.sh
 ./scripts/check_secret_authority.sh

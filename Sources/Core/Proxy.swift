@@ -16,6 +16,35 @@ public struct ProxyProfile: Codable, Equatable, Sendable {
         self.secretAlias = secretAlias
         self.tokenTTLSeconds = tokenTTLSeconds
     }
+
+    enum CodingKeys: String, CodingKey {
+        case name
+        case upstreamOrigin
+        case allowedPathPrefixes
+        case allowedMethods
+        case secretAlias
+        case tokenTTLSeconds
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        self.name = try container.decode(String.self, forKey: .name)
+        self.upstreamOrigin = try container.decode(URL.self, forKey: .upstreamOrigin)
+        self.allowedPathPrefixes = try container.decode([String].self, forKey: .allowedPathPrefixes)
+        self.allowedMethods = Set(try container.decode([String].self, forKey: .allowedMethods))
+        self.secretAlias = try container.decode(String.self, forKey: .secretAlias)
+        self.tokenTTLSeconds = try container.decode(TimeInterval.self, forKey: .tokenTTLSeconds)
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(name, forKey: .name)
+        try container.encode(upstreamOrigin, forKey: .upstreamOrigin)
+        try container.encode(allowedPathPrefixes, forKey: .allowedPathPrefixes)
+        try container.encode(allowedMethods.sorted(), forKey: .allowedMethods)
+        try container.encode(secretAlias, forKey: .secretAlias)
+        try container.encode(tokenTTLSeconds, forKey: .tokenTTLSeconds)
+    }
 }
 
 public struct ProxySession: Codable, Equatable, Sendable {

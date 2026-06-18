@@ -10,8 +10,14 @@ protocol AgenticFortressClient: Sendable {
     func replaceSecret(_ request: ManagementSecretReplacementRequest) async throws -> ManagedSecretSummary
     func deleteSecret(_ request: ManagementSecretDeletionRequest) async throws
     func upsertProxyProfile(_ profile: ProxyProfile) async throws -> ProxyProfileSummary
+    func deleteProxyProfile(_ request: ManagementNameRequest) async throws
     func upsertMCPProfile(_ profile: MCPUpstreamProfile) async throws -> MCPProfileSummary
+    func deleteMCPProfile(_ request: ManagementNameRequest) async throws
+    func upsertBWSBinding(_ binding: BWSSecretBinding) async throws -> BWSBindingSummary
+    func deleteBWSBinding(_ request: ManagementNameRequest) async throws
     func installAdapter(_ payload: AdapterPackPayload) async throws -> AdapterSummary
+    func revokeAdapter(_ request: ManagementNameRequest) async throws
+    func updateCommandPolicy(_ request: ManagementCommandPolicyUpdateRequest) async throws -> CommandPolicySummary
     func createProxySession(_ request: ManagementProxySessionRequest) async throws -> ManagementProxySessionResponse
     func clearUnlockGrants() async throws
     func exportRedactedAuditJSON() async throws -> String
@@ -65,12 +71,36 @@ struct IPCAgenticFortressClient: AgenticFortressClient {
         try await send(operation: .upsertProxyProfile, payload: profile, response: ProxyProfileSummary.self)
     }
 
+    func deleteProxyProfile(_ request: ManagementNameRequest) async throws {
+        try await sendWithoutPayloadResponse(operation: .deleteProxyProfile, payload: request)
+    }
+
     func upsertMCPProfile(_ profile: MCPUpstreamProfile) async throws -> MCPProfileSummary {
         try await send(operation: .upsertMCPProfile, payload: profile, response: MCPProfileSummary.self)
     }
 
+    func deleteMCPProfile(_ request: ManagementNameRequest) async throws {
+        try await sendWithoutPayloadResponse(operation: .deleteMCPProfile, payload: request)
+    }
+
+    func upsertBWSBinding(_ binding: BWSSecretBinding) async throws -> BWSBindingSummary {
+        try await send(operation: .upsertBWSBinding, payload: binding, response: BWSBindingSummary.self)
+    }
+
+    func deleteBWSBinding(_ request: ManagementNameRequest) async throws {
+        try await sendWithoutPayloadResponse(operation: .deleteBWSBinding, payload: request)
+    }
+
     func installAdapter(_ payload: AdapterPackPayload) async throws -> AdapterSummary {
         try await send(operation: .installAdapter, payload: payload, response: AdapterSummary.self)
+    }
+
+    func revokeAdapter(_ request: ManagementNameRequest) async throws {
+        try await sendWithoutPayloadResponse(operation: .revokeAdapter, payload: request)
+    }
+
+    func updateCommandPolicy(_ request: ManagementCommandPolicyUpdateRequest) async throws -> CommandPolicySummary {
+        try await send(operation: .updateCommandPolicy, payload: request, response: CommandPolicySummary.self)
     }
 
     func createProxySession(_ request: ManagementProxySessionRequest) async throws -> ManagementProxySessionResponse {
@@ -123,7 +153,7 @@ struct IPCAgenticFortressClient: AgenticFortressClient {
         }
         if let prefix = installPrefixFromBundle() {
             return (
-                prefix.appendingPathComponent("run/agentic-fortress/core.sock").path,
+                Self.defaultRuntimeSocketPath(),
                 prefix.appendingPathComponent("var/agentic-fortress/install-manifest.json").path
             )
         }
@@ -131,6 +161,10 @@ struct IPCAgenticFortressClient: AgenticFortressClient {
             AgenticFortressStateLayout.defaultStateDirectory().appendingPathComponent("core.sock").path,
             nil
         )
+    }
+
+    static func defaultRuntimeSocketPath() -> String {
+        "/tmp/agentic-fortress-\(getuid())/core.sock"
     }
 
     static func installPrefixFromBundle() -> URL? {
@@ -185,9 +219,19 @@ struct StubAgenticFortressClient: AgenticFortressClient {
     func replaceSecret(_ request: ManagementSecretReplacementRequest) async throws -> ManagedSecretSummary { snapshot.secrets.first! }
     func deleteSecret(_ request: ManagementSecretDeletionRequest) async throws {}
     func upsertProxyProfile(_ profile: ProxyProfile) async throws -> ProxyProfileSummary { ProxyProfileSummary(profile: profile) }
+    func deleteProxyProfile(_ request: ManagementNameRequest) async throws {}
     func upsertMCPProfile(_ profile: MCPUpstreamProfile) async throws -> MCPProfileSummary { MCPProfileSummary(profile: profile) }
+    func deleteMCPProfile(_ request: ManagementNameRequest) async throws {}
+    func upsertBWSBinding(_ binding: BWSSecretBinding) async throws -> BWSBindingSummary {
+        BWSBindingSummary(binding: binding, policy: BWSProviderLeasePolicy.policy(for: ProviderEnvironment(rawValue: binding.environment) ?? .dev))
+    }
+    func deleteBWSBinding(_ request: ManagementNameRequest) async throws {}
     func installAdapter(_ payload: AdapterPackPayload) async throws -> AdapterSummary {
         AdapterSummary(payload: payload, adapterHash: AdapterCanonicalizer.hash(payload), installedAt: Date())
+    }
+    func revokeAdapter(_ request: ManagementNameRequest) async throws {}
+    func updateCommandPolicy(_ request: ManagementCommandPolicyUpdateRequest) async throws -> CommandPolicySummary {
+        CommandPolicySummary(config: request.config)
     }
     func createProxySession(_ request: ManagementProxySessionRequest) async throws -> ManagementProxySessionResponse {
         let profile = ProxyProfile(name: request.profileName, upstreamOrigin: URL(string: "https://api.example.com")!, allowedPathPrefixes: ["/v1/"], allowedMethods: ["GET"], secretAlias: "example.secret")

@@ -95,7 +95,8 @@ struct AgenticFortressCoreDaemon {
         let layout = AgenticFortressStateLayout(stateDirectory: stateDirectory(from: controlArguments))
         let registration = try layout.registrationService.registration(named: name)
         let executableName = URL(fileURLWithPath: registration.targetPath).lastPathComponent
-        let command = CommandClassifier().classify(executableName: executableName, arguments: targetArguments)
+        let commandPolicy = (try? ConfigurationLoader.load(path: layout.configURL.path).commandPolicy) ?? .default
+        let command = CommandClassifier(commandPolicy: commandPolicy).classify(executableName: executableName, arguments: targetArguments)
         let target = try TargetAssessor().assess(path: registration.targetPath)
         try layout.registrationService.validateTargetIdentity(registration: registration, assessedTarget: target)
         let environmentNames = registration.environmentBindings.map(\.environmentName)
@@ -117,6 +118,7 @@ struct AgenticFortressCoreDaemon {
                 parentApp: parentApp
             )
             let manifest = DecisionManifestFactory().make(command: command, intent: intent, target: target)
+            try authorizeCLIRun(command: command, intent: intent, target: target)
             let unlockScope = CLIUnlockScope(manifest: manifest).withParentApp(parentApp)
             let cachedGrant = unlockTTL > 0 ? try unlockGrants.validGrant(scope: unlockScope) : nil
             let session = ApprovalSession(
@@ -232,8 +234,17 @@ struct AgenticFortressCoreDaemon {
 
     private static func serve(_ args: [String]) throws -> Never {
         while true {
-            try serveOnce(args)
+            do {
+                try serveOnce(args)
+            } catch CoreIPCError.socket(let message) where isRecoverableClientDisconnect(message) {
+                fputs("AgenticFortress: ignored incomplete IPC client connection.\n", stderr)
+                continue
+            }
         }
+    }
+
+    private static func isRecoverableClientDisconnect(_ message: String) -> Bool {
+        message.hasPrefix("read:") || message.hasPrefix("write:")
     }
 
     private static func runLocalSecretSmoke(_ args: [String]) throws {
@@ -309,9 +320,9 @@ struct AgenticFortressCoreDaemon {
     private static func cliUnlockTTL(from args: [String]) throws -> TimeInterval {
         let raw = value(after: "--unlock-ttl-seconds", in: args)
             ?? ProcessInfo.processInfo.environment["AGENTIC_FORTRESS_CLI_UNLOCK_TTL_SECONDS"]
-            ?? "3600"
-        guard let seconds = TimeInterval(raw), seconds >= 0, seconds <= 3600 else {
-            throw CoreDaemonError.invalidArguments("--unlock-ttl-seconds must be between 0 and 3600")
+            ?? String(Int(CLIUnlockGrantPolicy.defaultTTL))
+        guard let seconds = TimeInterval(raw), seconds >= 0, seconds <= CLIUnlockGrantPolicy.maxTTL else {
+            throw CoreDaemonError.invalidArguments("--unlock-ttl-seconds must be between 0 and \(Int(CLIUnlockGrantPolicy.maxTTL))")
         }
         return seconds
     }
@@ -338,6 +349,8 @@ struct AgenticFortressCoreDaemon {
             "Generic runners are not allowed to receive raw environment secrets."
         case .destructiveRememberDenied:
             "High-risk or destructive commands are denied for cli run."
+        case .forbiddenCommand(let term):
+            "Command matched forbidden term '\(term)'."
         case .unknownDenied:
             "Unknown-risk commands are denied for cli run."
         }

@@ -6,6 +6,10 @@ import UniformTypeIdentifiers
 @MainActor
 enum AdapterPackInstaller {
     static func presentOpenPanel(store: ManagementStore) {
+        guard store.canManageCoreState else {
+            store.showDaemonRepairGuidance()
+            return
+        }
         let panel = NSOpenPanel()
         panel.title = "Install Adapter Pack"
         panel.prompt = "Install"

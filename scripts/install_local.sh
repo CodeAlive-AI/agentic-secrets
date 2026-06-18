@@ -44,11 +44,14 @@ APP_DEST="$PREFIX/Applications/$APP_NAME.app"
 BIN_DIR="$PREFIX/bin"
 STATE_DIR="$PREFIX/var/agentic-fortress"
 RUN_DIR="$PREFIX/run/agentic-fortress"
+SOCKET_DIR="/tmp/agentic-fortress-$(id -u)"
+SOCKET_PATH="$SOCKET_DIR/core.sock"
 LAUNCH_DIR="$PREFIX/Library/LaunchAgents"
 MANIFEST_PATH="$STATE_DIR/install-manifest.json"
 
 rm -rf "$APP_DEST"
-mkdir -p "$(dirname "$APP_DEST")" "$BIN_DIR" "$STATE_DIR" "$RUN_DIR" "$LAUNCH_DIR"
+mkdir -p "$(dirname "$APP_DEST")" "$BIN_DIR" "$STATE_DIR" "$RUN_DIR" "$SOCKET_DIR" "$LAUNCH_DIR"
+chmod 700 "$SOCKET_DIR"
 ditto "$APP_SOURCE" "$APP_DEST"
 
 for executable in AgenticFortress agentic-fortress agentic-fortress-shim agentic-fortressd-core agentic-fortress-proxyd agentic-fortress-bwsd agentic-fortress-mcpd; do
@@ -68,11 +71,13 @@ cat >"$CORE_PLIST" <<PLIST
     <string>$APP_DEST/Contents/MacOS/agentic-fortressd-core</string>
     <string>serve</string>
     <string>--socket</string>
-    <string>$RUN_DIR/core.sock</string>
+    <string>$SOCKET_PATH</string>
     <string>--manifest</string>
     <string>$MANIFEST_PATH</string>
   </array>
   <key>RunAtLoad</key>
+  <true/>
+  <key>KeepAlive</key>
   <true/>
   <key>StandardOutPath</key>
   <string>$RUN_DIR/core.stdout.log</string>

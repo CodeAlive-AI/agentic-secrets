@@ -12,6 +12,18 @@
     "rejectAdapterRollback" : true,
     "requireSignatureForExternalPacks" : true
   },
+  "bwsBindings" : [
+
+  ],
+  "commandPolicy" : {
+    "destructiveTerms" : [
+      "delete",
+      "remove"
+    ],
+    "forbiddenTerms" : [
+
+    ]
+  },
   "deliveryDefaults" : {
     "bwsRuntimeSingleSecretOnly" : true,
     "denyRawEnvForGenericRunners" : true,
@@ -21,9 +33,9 @@
   },
   "macOSCompatibility" : {
     "minimumRuntimeMajor" : 14,
-    "requiredSDKMajor" : 26,
     "requireHardenedRuntime" : true,
     "requireNotarizationForDistribution" : true,
+    "requiredSDKMajor" : 26,
     "validatedRuntimeMajor" : 26
   },
   "mcpProfiles" : [
@@ -59,4 +71,3 @@
   ],
   "schemaVersion" : 1
 }
-

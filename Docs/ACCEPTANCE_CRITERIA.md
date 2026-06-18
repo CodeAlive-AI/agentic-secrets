@@ -389,7 +389,7 @@ Pass condition:
 - Approval proof expires quickly and is bound to the decision manifest.
 - Prompt cancellation denies the operation without reading the secret.
 - Repeated CLI runs may use a short signed unlock grant only when CLI name, target identity, workspace hash, parent app, delivery mode, and secret alias match. Action-level command policy is still evaluated before each secret delivery.
-- CLI unlock grants store no secret material, expire by default after 3600 seconds, and cannot exceed 3600 seconds.
+- CLI unlock grants store no secret material, expire by default after 300 seconds, and cannot exceed 900 seconds.
 
 Verification:
 

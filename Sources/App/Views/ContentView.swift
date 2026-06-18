@@ -6,13 +6,38 @@ struct ContentView: View {
     @Bindable var store: ManagementStore
 
     var body: some View {
+        rootContent
+            .sheet(isPresented: $store.showingRegisterCLI) {
+                RegisterCLIView(store: store)
+            }
+            .sheet(isPresented: $store.showingProxyProfileEditor) {
+                ProxyProfileEditor(store: store)
+            }
+            .sheet(isPresented: $store.showingMCPProfileEditor) {
+                MCPProfileEditor(store: store)
+            }
+            .sheet(isPresented: $store.showingBWSBindingEditor) {
+                BWSBindingEditor(store: store)
+            }
+    }
+
+    @ViewBuilder
+    private var rootContent: some View {
+        if store.usesToolbarSearch {
+            splitView
+                .searchable(text: $store.searchText, placement: .toolbar, prompt: "Search CLIs, aliases, targets")
+        } else {
+            splitView
+        }
+    }
+
+    private var splitView: some View {
         NavigationSplitView {
             SidebarView(store: store)
         } detail: {
             DetailView(store: store)
         }
         .navigationSplitViewStyle(.balanced)
-        .searchable(text: $store.searchText, placement: .toolbar, prompt: "Search CLIs, aliases, targets")
         .toolbar {
             ToolbarItemGroup {
                 ToolbarIconButton(
@@ -25,15 +50,6 @@ struct ContentView: View {
                 }
                 ContextToolbarActionSlot(store: store)
             }
-        }
-        .sheet(isPresented: $store.showingRegisterCLI) {
-            RegisterCLIView(store: store)
-        }
-        .sheet(isPresented: $store.showingProxyProfileEditor) {
-            ProxyProfileEditor(store: store)
-        }
-        .sheet(isPresented: $store.showingMCPProfileEditor) {
-            MCPProfileEditor(store: store)
         }
     }
 }
@@ -82,7 +98,7 @@ private struct ContextToolbarActionSlot: View {
 
     private var action: ContextToolbarAction? {
         switch store.selectedSection {
-        case .overview, .cliSecrets, .bws:
+        case .overview, .cliSecrets:
             ContextToolbarAction(
                 title: "Register CLI",
                 systemImage: "plus",
@@ -90,6 +106,15 @@ private struct ContextToolbarActionSlot: View {
                 isEnabled: store.canRegisterCLI
             ) {
                 store.presentRegisterCLI()
+            }
+        case .bws:
+            ContextToolbarAction(
+                title: "Create BWS Binding",
+                systemImage: "plus",
+                help: "Create a Bitwarden Secrets Manager binding",
+                isEnabled: store.canManageCoreState
+            ) {
+                store.presentBWSBindingEditor()
             }
         case .proxy:
             ContextToolbarAction(
@@ -116,7 +141,7 @@ private struct ContextToolbarActionSlot: View {
                 help: "Export redacted audit JSON",
                 isEnabled: store.canExportAudit
             ) {
-                Task { await store.exportAudit() }
+                AuditExportWriter.export(store: store)
             }
         case .adapters:
             ContextToolbarAction(
@@ -155,6 +180,7 @@ struct SidebarView: View {
             Section {
                 SidebarDivider()
                 ExternalSidebarLink(
+                    store: store,
                     title: "SSH",
                     subtitle: "secretive.dev",
                     systemImage: "key",
@@ -179,6 +205,7 @@ private struct SidebarDivider: View {
 }
 
 private struct ExternalSidebarLink: View {
+    var store: ManagementStore
     var title: String
     var subtitle: String
     var systemImage: String
@@ -187,7 +214,7 @@ private struct ExternalSidebarLink: View {
 
     var body: some View {
         Button {
-            NSWorkspace.shared.open(destination)
+            ExternalURLOpener.open(destination, label: title, store: store)
         } label: {
             HStack(spacing: 10) {
                 Image(systemName: systemImage)
@@ -290,5 +317,12 @@ private struct FeedbackBanner: View {
         .padding(.vertical, 10)
         .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 8))
         .accessibilityElement(children: .contain)
+        .task(id: store.successMessage) {
+            guard let message = store.successMessage, store.errorMessage == nil else { return }
+            try? await Task.sleep(nanoseconds: 3_500_000_000)
+            await MainActor.run {
+                store.clearSuccessIfCurrent(message)
+            }
+        }
     }
 }

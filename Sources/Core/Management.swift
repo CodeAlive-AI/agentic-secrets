@@ -190,6 +190,16 @@ public struct SecurityHealthSummary: Codable, Equatable, Sendable {
     }
 }
 
+public struct CommandPolicySummary: Codable, Equatable, Sendable {
+    public var destructiveTerms: [String]
+    public var forbiddenTerms: [String]
+
+    public init(config: CommandPolicyConfig) {
+        self.destructiveTerms = CommandPolicyConfig.normalizedTerms(config.destructiveTerms)
+        self.forbiddenTerms = CommandPolicyConfig.normalizedTerms(config.forbiddenTerms)
+    }
+}
+
 public struct ManagementSnapshot: Codable, Equatable, Sendable {
     public var generatedAt: Date
     public var stateDirectory: String
@@ -203,6 +213,7 @@ public struct ManagementSnapshot: Codable, Equatable, Sendable {
     public var unlockGrants: [UnlockGrantSummary]
     public var auditEvents: [AuditEventSummary]
     public var securityHealth: SecurityHealthSummary
+    public var commandPolicy: CommandPolicySummary
 
     public init(
         generatedAt: Date,
@@ -216,7 +227,8 @@ public struct ManagementSnapshot: Codable, Equatable, Sendable {
         adapters: [AdapterSummary],
         unlockGrants: [UnlockGrantSummary],
         auditEvents: [AuditEventSummary],
-        securityHealth: SecurityHealthSummary
+        securityHealth: SecurityHealthSummary,
+        commandPolicy: CommandPolicySummary
     ) {
         self.generatedAt = generatedAt
         self.stateDirectory = stateDirectory
@@ -230,6 +242,7 @@ public struct ManagementSnapshot: Codable, Equatable, Sendable {
         self.unlockGrants = unlockGrants
         self.auditEvents = auditEvents
         self.securityHealth = securityHealth
+        self.commandPolicy = commandPolicy
     }
 }
 
@@ -299,8 +312,23 @@ public struct ManagementProxySessionResponse: Codable, Equatable, Sendable {
     }
 }
 
+public struct ManagementCommandPolicyUpdateRequest: Codable, Equatable, Sendable {
+    public var destructiveTerms: [String]
+    public var forbiddenTerms: [String]
+
+    public init(destructiveTerms: [String], forbiddenTerms: [String]) {
+        self.destructiveTerms = destructiveTerms
+        self.forbiddenTerms = forbiddenTerms
+    }
+
+    public var config: CommandPolicyConfig {
+        CommandPolicyConfig(destructiveTerms: destructiveTerms, forbiddenTerms: forbiddenTerms)
+    }
+}
+
 public enum ManagementError: Error, Equatable, CustomStringConvertible {
     case missingProfile(String)
+    case missingBinding(String)
     case deleteSecretMaterialNotConfirmed
     case unsupportedConfigSchema(Int)
     case rawSecretInResponse
@@ -309,6 +337,8 @@ public enum ManagementError: Error, Equatable, CustomStringConvertible {
         switch self {
         case .missingProfile(let name):
             "No profile found named \(name)."
+        case .missingBinding(let name):
+            "No binding found named \(name)."
         case .deleteSecretMaterialNotConfirmed:
             "Deleting secret material requires explicit confirmation."
         case .unsupportedConfigSchema(let schema):
@@ -367,11 +397,14 @@ public struct CoreManagementService: Sendable {
             secrets: secrets.sorted { $0.alias < $1.alias },
             proxyProfiles: config.proxyProfiles.map(ProxyProfileSummary.init).sorted { $0.name < $1.name },
             mcpProfiles: config.mcpProfiles.map(MCPProfileSummary.init).sorted { $0.name < $1.name },
-            bwsBindings: [],
+            bwsBindings: config.bwsBindings.map {
+                BWSBindingSummary(binding: $0, policy: BWSProviderLeasePolicy.policy(for: ProviderEnvironment(rawValue: $0.environment) ?? .dev))
+            }.sorted { $0.alias < $1.alias },
             adapters: adapters.sorted { $0.cliName < $1.cliName },
             unlockGrants: unlockGrants.sorted { $0.expiresAt < $1.expiresAt },
             auditEvents: auditLog.snapshot().map(AuditEventSummary.init).sorted { $0.time > $1.time },
-            securityHealth: health
+            securityHealth: health,
+            commandPolicy: CommandPolicySummary(config: config.commandPolicy)
         ))
     }
 
@@ -434,12 +467,48 @@ public struct CoreManagementService: Sendable {
         return ProxyProfileSummary(profile: profile)
     }
 
+    public func deleteProxyProfile(_ request: ManagementNameRequest) throws {
+        var config = try loadConfig()
+        guard config.proxyProfiles.contains(where: { $0.name == request.name }) else {
+            throw ManagementError.missingProfile(request.name)
+        }
+        config.proxyProfiles.removeAll { $0.name == request.name }
+        try saveConfig(config)
+    }
+
     public func upsertMCPProfile(_ profile: MCPUpstreamProfile) throws -> MCPProfileSummary {
         var config = try loadConfig()
         config.mcpProfiles.removeAll { $0.name == profile.name }
         config.mcpProfiles.append(profile)
         try saveConfig(config)
         return MCPProfileSummary(profile: profile)
+    }
+
+    public func deleteMCPProfile(_ request: ManagementNameRequest) throws {
+        var config = try loadConfig()
+        guard config.mcpProfiles.contains(where: { $0.name == request.name }) else {
+            throw ManagementError.missingProfile(request.name)
+        }
+        config.mcpProfiles.removeAll { $0.name == request.name }
+        try saveConfig(config)
+    }
+
+    public func upsertBWSBinding(_ binding: BWSSecretBinding) throws -> BWSBindingSummary {
+        var config = try loadConfig()
+        config.bwsBindings.removeAll { $0.alias == binding.alias }
+        config.bwsBindings.append(binding)
+        try saveConfig(config)
+        let environment = ProviderEnvironment(rawValue: binding.environment) ?? .dev
+        return BWSBindingSummary(binding: binding, policy: BWSProviderLeasePolicy.policy(for: environment))
+    }
+
+    public func deleteBWSBinding(_ request: ManagementNameRequest) throws {
+        var config = try loadConfig()
+        guard config.bwsBindings.contains(where: { $0.alias == request.name }) else {
+            throw ManagementError.missingBinding(request.name)
+        }
+        config.bwsBindings.removeAll { $0.alias == request.name }
+        try saveConfig(config)
     }
 
     public func createProxySession(_ request: ManagementProxySessionRequest) throws -> ManagementProxySessionResponse {
@@ -458,6 +527,13 @@ public struct CoreManagementService: Sendable {
 
     public func revokeAdapter(_ request: ManagementNameRequest) throws {
         try AdapterRegistryStore(url: adapterRegistryURL).revoke(adapterID: request.name)
+    }
+
+    public func updateCommandPolicy(_ request: ManagementCommandPolicyUpdateRequest) throws -> CommandPolicySummary {
+        var config = try loadConfig()
+        config.commandPolicy = request.config
+        try saveConfig(config)
+        return CommandPolicySummary(config: config.commandPolicy)
     }
 
     public func clearUnlockGrants() throws {

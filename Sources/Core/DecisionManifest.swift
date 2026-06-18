@@ -70,15 +70,21 @@ public struct DecisionManifestFactory: Sendable {
         if intent.delivery == .env {
             warnings.append("Environment variables may be inherited by child processes.")
         }
-        if command.risk >= .destructive {
+        if command.isForbidden {
+            warnings.insert("This command is blocked by local command policy.", at: 0)
+        } else if command.risk >= .destructive {
             warnings.insert("High-risk approvals require fresh local authentication and typed challenge.", at: 0)
         }
 
-        let options: [ApprovalOption] = switch command.risk {
-        case .readOnly:
-            [.once, .readOnlyInWorkspace1h, .deny]
-        case .mutating, .destructive, .unknown:
-            [.once, .deny]
+        let options: [ApprovalOption] = if command.isForbidden {
+            [.deny]
+        } else {
+            switch command.risk {
+            case .readOnly:
+                [.once, .readOnlyInWorkspace1h, .deny]
+            case .mutating, .destructive, .unknown:
+                [.once, .deny]
+            }
         }
 
         let seed = [

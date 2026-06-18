@@ -58,6 +58,8 @@ public struct NormalizedCommand: Codable, Equatable, Sendable {
     public var warnings: [String]
     public var canonicalCommand: [String]
     public var leaseInvalidators: [String]
+    public var matchedDestructiveTerm: String?
+    public var matchedForbiddenTerm: String?
 
     public init(
         cli: String,
@@ -72,7 +74,9 @@ public struct NormalizedCommand: Codable, Equatable, Sendable {
         confidence: ClassificationConfidence,
         warnings: [String],
         canonicalCommand: [String],
-        leaseInvalidators: [String] = []
+        leaseInvalidators: [String] = [],
+        matchedDestructiveTerm: String? = nil,
+        matchedForbiddenTerm: String? = nil
     ) {
         self.cli = cli
         self.version = version
@@ -87,6 +91,12 @@ public struct NormalizedCommand: Codable, Equatable, Sendable {
         self.warnings = warnings
         self.canonicalCommand = canonicalCommand
         self.leaseInvalidators = leaseInvalidators
+        self.matchedDestructiveTerm = matchedDestructiveTerm
+        self.matchedForbiddenTerm = matchedForbiddenTerm
+    }
+
+    public var isForbidden: Bool {
+        matchedForbiddenTerm != nil
     }
 }
 
@@ -98,20 +108,23 @@ public protocol CommandAdapter: Sendable {
 
 public struct CommandClassifier: Sendable {
     private let adapters: [String: any CommandAdapter]
+    private let commandPolicy: CommandPolicyConfig
     private let genericRunners: Set<String> = ["sh", "bash", "zsh", "fish", "node", "npm", "pnpm", "yarn", "python", "python3", "make", "docker", "docker-compose", "ansible", "terraform"]
 
-    public init(adapters: [any CommandAdapter] = BuiltInAdapterPacks.registry().adapters) {
+    public init(adapters: [any CommandAdapter] = BuiltInAdapterPacks.registry().adapters, commandPolicy: CommandPolicyConfig = .default) {
         self.adapters = Dictionary(uniqueKeysWithValues: adapters.map { ($0.cliName, $0) })
+        self.commandPolicy = commandPolicy
     }
 
-    public init(registry: AdapterRegistry) {
+    public init(registry: AdapterRegistry, commandPolicy: CommandPolicyConfig = .default) {
         self.adapters = Dictionary(uniqueKeysWithValues: registry.adapters.map { ($0.cliName, $0) })
+        self.commandPolicy = commandPolicy
     }
 
     public func classify(executableName: String, arguments: [String], observedVersion: String? = nil) -> NormalizedCommand {
         let cli = executableName.split(separator: "/").last.map(String.init) ?? executableName
         if genericRunners.contains(cli) {
-            return NormalizedCommand(
+            return applyCommandPolicy(NormalizedCommand(
                 cli: cli,
                 version: observedVersion,
                 resource: "generic-runner",
@@ -124,10 +137,10 @@ public struct CommandClassifier: Sendable {
                 warnings: ["Generic runners do not receive raw long-lived secrets by default; use a proxy, fd/stdin, or token-file profile."],
                 canonicalCommand: [cli] + arguments,
                 leaseInvalidators: ["generic-runner-execution-graph"]
-            )
+            ))
         }
         guard let adapter = adapters[cli] else {
-            return NormalizedCommand(
+            return applyCommandPolicy(NormalizedCommand(
                 cli: cli,
                 version: observedVersion,
                 resource: "unknown",
@@ -139,8 +152,45 @@ public struct CommandClassifier: Sendable {
                 confidence: .highRisk,
                 warnings: ["No versioned adapter is installed for \(cli); env delivery is denied by default."],
                 canonicalCommand: [cli] + arguments
-            )
+            ))
         }
-        return adapter.classify(arguments: arguments, observedVersion: observedVersion)
+        return applyCommandPolicy(adapter.classify(arguments: arguments, observedVersion: observedVersion))
+    }
+
+    private func applyCommandPolicy(_ command: NormalizedCommand) -> NormalizedCommand {
+        let tokens = command.canonicalCommand.flatMap(Self.policyTokens(in:))
+        var updated = command
+        if let term = firstMatch(in: tokens, terms: commandPolicy.forbiddenTerms) {
+            updated.risk = .unknown
+            updated.confidence = .highRisk
+            updated.matchedForbiddenTerm = term
+            updated.warnings.append("Command matched forbidden term '\(term)' and will be denied by policy.")
+        } else if let term = firstMatch(in: tokens, terms: commandPolicy.destructiveTerms) {
+            updated.risk = .destructive
+            updated.confidence = .highRisk
+            updated.matchedDestructiveTerm = term
+            updated.warnings.append("Command matched destructive term '\(term)' and requires fresh approval.")
+        } else if updated.risk == .destructive {
+            updated.risk = .mutating
+            updated.warnings.append("Adapter marked this command destructive, but no local destructive term matched.")
+        }
+        updated.warnings = Array(NSOrderedSet(array: updated.warnings)) as? [String] ?? updated.warnings
+        return updated
+    }
+
+    private func firstMatch(in tokens: [String], terms: [String]) -> String? {
+        let normalizedTerms = CommandPolicyConfig.normalizedTerms(terms)
+        return normalizedTerms.first { term in
+            tokens.contains { $0.contains(term) }
+        }
+    }
+
+    private static func policyTokens(in value: String) -> [String] {
+        value
+            .lowercased()
+            .split { character in
+                character == "/" || character == "\\" || character == "." || character == "_" || character == "-" || character == ":" || character == "="
+            }
+            .map(String.init)
     }
 }

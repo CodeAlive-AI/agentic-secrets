@@ -15,10 +15,15 @@ public enum CoreIPCOperation: String, Codable, CaseIterable, Sendable {
     case replaceSecret = "replace-secret-management"
     case deleteSecret = "delete-secret-management"
     case upsertProxyProfile = "upsert-proxy-profile"
+    case deleteProxyProfile = "delete-proxy-profile"
     case upsertMCPProfile = "upsert-mcp-profile"
+    case deleteMCPProfile = "delete-mcp-profile"
+    case upsertBWSBinding = "upsert-bws-binding"
+    case deleteBWSBinding = "delete-bws-binding"
     case createManagedProxySession = "create-managed-proxy-session"
     case installAdapter = "install-adapter-management"
     case revokeAdapter = "revoke-adapter-management"
+    case updateCommandPolicy = "update-command-policy"
     case clearUnlockGrants = "clear-unlock-grants"
     case exportRedactedAudit = "export-redacted-audit"
     case classifyCommand = "classify-command"
@@ -146,8 +151,19 @@ public struct CoreIPCHandler: Sendable {
             return CoreIPCResponse(requestID: request.requestID, ok: true)
         case .upsertProxyProfile:
             return try encodeResponse(requestID: request.requestID, management.upsertProxyProfile(decodePayload(request.payload, as: ProxyProfile.self)))
+        case .deleteProxyProfile:
+            try management.deleteProxyProfile(decodePayload(request.payload, as: ManagementNameRequest.self))
+            return CoreIPCResponse(requestID: request.requestID, ok: true)
         case .upsertMCPProfile:
             return try encodeResponse(requestID: request.requestID, management.upsertMCPProfile(decodePayload(request.payload, as: MCPUpstreamProfile.self)))
+        case .deleteMCPProfile:
+            try management.deleteMCPProfile(decodePayload(request.payload, as: ManagementNameRequest.self))
+            return CoreIPCResponse(requestID: request.requestID, ok: true)
+        case .upsertBWSBinding:
+            return try encodeResponse(requestID: request.requestID, management.upsertBWSBinding(decodePayload(request.payload, as: BWSSecretBinding.self)))
+        case .deleteBWSBinding:
+            try management.deleteBWSBinding(decodePayload(request.payload, as: ManagementNameRequest.self))
+            return CoreIPCResponse(requestID: request.requestID, ok: true)
         case .createManagedProxySession:
             return try encodeResponse(requestID: request.requestID, management.createProxySession(decodePayload(request.payload, as: ManagementProxySessionRequest.self)))
         case .installAdapter:
@@ -155,6 +171,8 @@ public struct CoreIPCHandler: Sendable {
         case .revokeAdapter:
             try management.revokeAdapter(decodePayload(request.payload, as: ManagementNameRequest.self))
             return CoreIPCResponse(requestID: request.requestID, ok: true)
+        case .updateCommandPolicy:
+            return try encodeResponse(requestID: request.requestID, management.updateCommandPolicy(decodePayload(request.payload, as: ManagementCommandPolicyUpdateRequest.self)))
         case .clearUnlockGrants:
             try management.clearUnlockGrants()
             return CoreIPCResponse(requestID: request.requestID, ok: true)

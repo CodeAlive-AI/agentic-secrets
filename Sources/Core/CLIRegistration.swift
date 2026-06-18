@@ -375,6 +375,10 @@ public struct AgenticFortressStateLayout: Sendable {
         stateDirectory.appendingPathComponent("secrets/cli-unlock-grants.key")
     }
 
+    public var configURL: URL {
+        stateDirectory.appendingPathComponent("config/agentic-fortress.json")
+    }
+
     public var registrationService: CLIRegistrationService {
         CLIRegistrationService(
             registryStore: CLIRegistrationStore(
