@@ -167,6 +167,9 @@ enum UISmokeRunner {
         let restartNotice = AgentRestartNotice.afterCLIRegistration(cliName: "hcloud", shimInstalled: true)
         try expect(restartNotice.contains("Restart Codex"), "register success notice names the agent restart action")
         try expect(AgentRestartNotice.requiresManualDismiss(restartNotice), "agent restart notice stays visible until the user dismisses it")
+        let modalMessage = AgentRestartNotice.modalMessageAfterCLIRegistration(cliName: "hcloud")
+        try expect(modalMessage.contains("Codex, Claude Code"), "register modal names common agent apps")
+        try expect(modalMessage.contains("Cmd+Q"), "register modal tells users to fully quit agent apps")
         try expect(
             ExecutablePathSelection.inferredCLIName(from: URL(fileURLWithPath: "/opt/homebrew/bin/hcloud")) == "hcloud",
             "register CLI infers a CLI name from the selected executable path"
@@ -236,6 +239,8 @@ enum UISmokeRunner {
         )
         try expect(registered, "valid direct register submit succeeds")
         try expect(store.successMessage == AgentRestartNotice.afterCLIRegistration(cliName: "hcloud", shimInstalled: false), "successful registration tells the user to restart already-running agent apps")
+        try expect(store.agentRestartPrompt?.title == AgentRestartNotice.restartPromptTitle, "successful registration opens a modal restart prompt")
+        try expect(store.agentRestartPrompt?.message == AgentRestartNotice.modalMessageAfterCLIRegistration(cliName: "hcloud"), "modal restart prompt uses concise Cmd+Q guidance")
     }
 
     private static func testCLIShimInstallerEnvironment() throws {

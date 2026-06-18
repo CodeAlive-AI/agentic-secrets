@@ -19,6 +19,15 @@ struct ContentView: View {
             .sheet(isPresented: $store.showingBitwardenBindingEditor) {
                 BitwardenBindingEditor(store: store)
             }
+            .alert(item: $store.agentRestartPrompt) { prompt in
+                Alert(
+                    title: Text(prompt.title),
+                    message: Text(prompt.message),
+                    dismissButton: .default(Text("OK")) {
+                        store.agentRestartPrompt = nil
+                    }
+                )
+            }
     }
 
     @ViewBuilder

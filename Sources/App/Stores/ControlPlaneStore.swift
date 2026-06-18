@@ -84,6 +84,19 @@ struct APISessionPresentation: Equatable {
     var token: String
 }
 
+struct AgentRestartPrompt: Identifiable, Equatable {
+    let id = UUID()
+    var cliName: String
+
+    var title: String {
+        AgentRestartNotice.restartPromptTitle
+    }
+
+    var message: String {
+        AgentRestartNotice.modalMessageAfterCLIRegistration(cliName: cliName)
+    }
+}
+
 @Observable
 @MainActor
 final class ControlPlaneStore {
@@ -115,6 +128,7 @@ final class ControlPlaneStore {
     var showingBitwardenBindingEditor = false
     var exportedAudit: String?
     var oneTimeAPISession: APISessionPresentation?
+    var agentRestartPrompt: AgentRestartPrompt?
     var availableUpdate: AppUpdateRelease?
     var isCheckingForUpdates = false
     var lastUpdateCheck: Date?
@@ -555,6 +569,7 @@ final class ControlPlaneStore {
             let summary = try await client.registerCLI(ControlPlaneCommandLineToolRegistrationRequest(name: normalizedName, targetPath: normalizedTargetPath, environmentSecrets: normalizedSecrets))
             selectedCLI = summary.name
             showingRegisterCLI = false
+            agentRestartPrompt = AgentRestartPrompt(cliName: summary.name)
             if installShim {
                 do {
                     _ = try CLIShimInstaller.install(name: summary.name)

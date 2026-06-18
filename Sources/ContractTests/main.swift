@@ -109,6 +109,9 @@ func runContracts() throws {
     let restartNotice = AgentRestartNotice.afterCLIRegistration(cliName: "hcloud", shimInstalled: true)
     try expect(restartNotice.contains("Restart Codex"), "CLI registration success notice must tell agent users to restart")
     try expect(AgentRestartNotice.requiresManualDismiss(restartNotice), "agent restart notices must remain visible until dismissed")
+    let restartPromptMessage = AgentRestartNotice.modalMessageAfterCLIRegistration(cliName: "hcloud")
+    try expect(restartPromptMessage.contains("Codex, Claude Code"), "CLI registration modal guidance must name common agent apps")
+    try expect(restartPromptMessage.contains("Cmd+Q"), "CLI registration modal guidance must tell users to fully quit agent apps")
 
     let classifier = CommandClassifier()
     let hcloudRead = classifier.classify(executableName: "hcloud", arguments: ["server", "list"], observedVersion: "1.52.0")
