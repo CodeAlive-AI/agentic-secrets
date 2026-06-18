@@ -599,7 +599,7 @@ enum UISmokeRunner {
             state: .unavailable,
             socketPath: plan.socketPath,
             launchAgentPath: plan.launchAgentPath,
-            message: "Local daemon was installed. Open the installed app copy so the authenticated IPC manifest matches the running UI.",
+            message: "Local daemon was installed. Open the installed copy so the authenticated IPC manifest matches the running UI.",
             detail: nil,
             recoveryCommand: nil,
             checkedAt: Date()
@@ -618,8 +618,8 @@ enum UISmokeRunner {
         await store.installOrRepairDaemon()
         try FileManager.default.createDirectory(atPath: plan.appDestinationPath, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(atPath: plan.prefixPath) }
-        try expect(store.daemonStatus.message.contains("Open the installed app"), "install result explains installed app handoff")
-        try expect(store.bestDaemonAction == .openInstalledApp, "installed-app handoff highlights open installed app as the next action")
+        try expect(store.daemonStatus.message.contains("Open the installed copy"), "install result explains installed-copy handoff")
+        try expect(store.bestDaemonAction == .openInstalledApp, "installed-copy handoff highlights open installed copy as the next action")
         try expect(store.canOpenInstalledApp, "installed app command becomes available when the app copy exists")
         try expect(InstalledAppOpener.installedAppURL(store: store)?.path == plan.appDestinationPath, "installed app opener resolves the same app copy path used by diagnostics and commands")
 

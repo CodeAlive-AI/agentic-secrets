@@ -176,6 +176,14 @@ struct SidebarView: View {
                     Label(section.rawValue, systemImage: section.systemImage)
                         .tag(section)
                 }
+                Button {
+                    AboutWindowController.shared.show()
+                } label: {
+                    Label("About", systemImage: "info.circle")
+                }
+                .buttonStyle(.plain)
+                .help("About Agentic Fortress")
+                .accessibilityLabel("About Agentic Fortress")
             }
             Section {
                 SidebarDivider()
@@ -189,7 +197,10 @@ struct SidebarView: View {
             }
         }
         .listStyle(.sidebar)
-        .frame(minWidth: 190)
+        .safeAreaInset(edge: .bottom, spacing: 0) {
+            SidebarReleaseFooter(store: store)
+        }
+        .navigationSplitViewColumnWidth(min: 220, ideal: 240, max: 300)
     }
 }
 
@@ -201,6 +212,71 @@ private struct SidebarDivider: View {
             .padding(.leading, 27)
             .padding(.vertical, 8)
             .accessibilityHidden(true)
+    }
+}
+
+private struct SidebarReleaseFooter: View {
+    var store: ManagementStore
+    private let releasesURL = URL(string: "https://github.com/CodeAlive-AI/agentic-secrets/releases")!
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Divider()
+                .padding(.bottom, 8)
+            Text("Version \(AppVersionInfo.displayVersion)")
+                .font(.caption2)
+                .foregroundStyle(.secondary)
+                .lineLimit(1)
+            SidebarTextLink(
+                store: store,
+                title: "releases",
+                destination: releasesURL,
+                accessibilityLabel: "Open Agentic Fortress releases"
+            )
+        }
+        .padding(.horizontal, 28)
+        .padding(.top, 10)
+        .padding(.bottom, 12)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(.bar)
+    }
+}
+
+private struct SidebarTextLink: View {
+    var store: ManagementStore
+    var title: String
+    var destination: URL
+    var accessibilityLabel: String
+    @State private var isHovering = false
+
+    var body: some View {
+        Button {
+            ExternalURLOpener.open(destination, label: title, store: store)
+        } label: {
+            HStack(spacing: 4) {
+                Text(title)
+                    .foregroundStyle(.link)
+                Image(systemName: "arrow.up.right.square")
+                    .font(.caption2)
+                    .foregroundStyle(.link)
+            }
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .font(.caption)
+        .help(destination.absoluteString)
+        .accessibilityLabel(accessibilityLabel)
+        .onHover { hovering in
+            guard hovering != isHovering else { return }
+            isHovering = hovering
+            hovering ? NSCursor.pointingHand.push() : NSCursor.pop()
+        }
+        .onDisappear {
+            if isHovering {
+                NSCursor.pop()
+                isHovering = false
+            }
+        }
     }
 }
 

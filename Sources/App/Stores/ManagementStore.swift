@@ -43,7 +43,7 @@ enum DaemonNextAction: Equatable {
         case .restart:
             "Restart Daemon"
         case .openInstalledApp:
-            "Open Installed App"
+            "Open Installed Copy"
         }
     }
 
@@ -159,6 +159,7 @@ final class ManagementStore {
 
     var canOpenInstalledApp: Bool {
         guard let daemonInstallPlan else { return false }
+        guard !daemonInstallPlan.currentAppIsInstalledCopy else { return false }
         return FileManager.default.fileExists(atPath: daemonInstallPlan.appDestinationPath)
     }
 

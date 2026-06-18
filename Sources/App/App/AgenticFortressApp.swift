@@ -1,6 +1,22 @@
 import AppKit
 import SwiftUI
 
+private enum AppWindowSizing {
+    static let defaultWidth: CGFloat = 1180
+    static let defaultHeight: CGFloat = 760
+    static let minimumWidth: CGFloat = 1180
+    static let minimumHeight: CGFloat = 620
+}
+
+enum AppVersionInfo {
+    static let fallbackVersion = "0.1.0"
+
+    static var displayVersion: String {
+        let version = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String
+        return version?.isEmpty == false ? version! : fallbackVersion
+    }
+}
+
 @main
 struct AgenticFortressApp: App {
     @NSApplicationDelegateAdaptor(AgenticFortressAppDelegate.self) private var appDelegate
@@ -17,7 +33,14 @@ struct AgenticFortressApp: App {
         WindowGroup("Agentic Fortress", id: "main-window") {
             MainWindowContent(store: store)
         }
+        .defaultSize(width: AppWindowSizing.defaultWidth, height: AppWindowSizing.defaultHeight)
+        .windowResizability(.contentMinSize)
         .commands {
+            CommandGroup(replacing: .appInfo) {
+                Button("About Agentic Fortress") {
+                    AboutWindowController.shared.show()
+                }
+            }
             CommandGroup(after: .newItem) {
                 Button("Register CLI") {
                     store.presentRegisterCLI()
@@ -66,7 +89,7 @@ struct AgenticFortressApp: App {
                 .keyboardShortcut("d", modifiers: [.command, .option])
                 .disabled(store.bestDaemonAction == nil || store.isLoading)
 
-                Button("Open Installed App") {
+                Button("Open Installed Copy") {
                     openInstalledAppCopy(store: store)
                 }
                 .disabled(!store.canOpenInstalledApp)
@@ -142,7 +165,12 @@ private final class MainWindowController {
         let content = MainWindowContent(store: store)
         let hostingController = NSHostingController(rootView: content)
         let window = NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 1180, height: 760),
+            contentRect: NSRect(
+                x: 0,
+                y: 0,
+                width: AppWindowSizing.defaultWidth,
+                height: AppWindowSizing.defaultHeight
+            ),
             styleMask: [.titled, .closable, .miniaturizable, .resizable],
             backing: .buffered,
             defer: false
@@ -150,7 +178,7 @@ private final class MainWindowController {
         window.contentViewController = hostingController
         window.title = "Agentic Fortress"
         window.isReleasedWhenClosed = false
-        window.minSize = NSSize(width: 980, height: 620)
+        window.minSize = NSSize(width: AppWindowSizing.minimumWidth, height: AppWindowSizing.minimumHeight)
         window.center()
         window.makeKeyAndOrderFront(nil)
         NSApp.activate(ignoringOtherApps: true)
@@ -176,12 +204,127 @@ private final class MainWindowController {
     }
 }
 
+@MainActor
+final class AboutWindowController {
+    static let shared = AboutWindowController()
+
+    private var window: NSWindow?
+
+    private init() {}
+
+    func show() {
+        if let window, window.isVisible {
+            window.makeKeyAndOrderFront(nil)
+            NSApp.activate(ignoringOtherApps: true)
+            return
+        }
+
+        let hostingController = NSHostingController(rootView: AboutView())
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 420, height: 300),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        window.contentViewController = hostingController
+        window.title = "About Agentic Fortress"
+        window.isReleasedWhenClosed = false
+        window.center()
+        window.makeKeyAndOrderFront(nil)
+        NSApp.activate(ignoringOtherApps: true)
+        self.window = window
+    }
+}
+
+private struct AboutView: View {
+    private let repositoryURL = URL(string: "https://github.com/CodeAlive-AI/agentic-secrets")!
+    private let codeAliveURL = URL(string: "https://codealive.ai/")!
+
+    var body: some View {
+        VStack(spacing: 18) {
+            Image(nsImage: NSApp.applicationIconImage)
+                .resizable()
+                .frame(width: 64, height: 64)
+                .accessibilityHidden(true)
+
+            VStack(spacing: 4) {
+                Text("Agentic Fortress")
+                    .font(.title2.bold())
+                Text("Version \(AppVersionInfo.displayVersion)")
+                    .foregroundStyle(.secondary)
+            }
+
+            VStack(spacing: 8) {
+                AboutLinkButton(
+                    title: "CodeAlive-AI/agentic-secrets",
+                    destination: repositoryURL,
+                    accessibilityLabel: "Open GitHub repository"
+                )
+                Text("Lower-leakage secret delivery for developer machines.")
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
+                    .multilineTextAlignment(.center)
+            }
+
+            Divider()
+
+            VStack(spacing: 2) {
+                HStack(spacing: 4) {
+                    Text("Sponsored by")
+                        .foregroundStyle(.secondary)
+                    AboutLinkButton(
+                        title: "CodeAlive.ai",
+                        destination: codeAliveURL,
+                        accessibilityLabel: "Open CodeAlive dot AI"
+                    )
+                }
+                Text("(context engine for large codebases)")
+                    .foregroundStyle(.secondary)
+            }
+            .font(.caption)
+        }
+        .padding(28)
+        .frame(width: 420, height: 300)
+    }
+}
+
+private struct AboutLinkButton: View {
+    var title: String
+    var destination: URL
+    var accessibilityLabel: String
+    @State private var isHovering = false
+
+    var body: some View {
+        Button {
+            NSWorkspace.shared.open(destination)
+        } label: {
+            Text(title)
+                .foregroundStyle(.link)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .help(destination.absoluteString)
+        .accessibilityLabel(accessibilityLabel)
+        .onHover { hovering in
+            guard hovering != isHovering else { return }
+            isHovering = hovering
+            hovering ? NSCursor.pointingHand.push() : NSCursor.pop()
+        }
+        .onDisappear {
+            if isHovering {
+                NSCursor.pop()
+                isHovering = false
+            }
+        }
+    }
+}
+
 private struct MainWindowContent: View {
     @Bindable var store: ManagementStore
 
     var body: some View {
         ContentView(store: store)
-            .frame(minWidth: 980, minHeight: 620)
+            .frame(minWidth: AppWindowSizing.minimumWidth, minHeight: AppWindowSizing.minimumHeight)
             .task {
                 await store.refresh()
             }
@@ -212,7 +355,7 @@ private struct MenuBarActions: View {
         Button("Open Diagnostics") {
             openDiagnostics(store: store)
         }
-        Button("Open Installed App") {
+        Button("Open Installed Copy") {
             openInstalledAppCopy(store: store)
         }
         .disabled(!store.canOpenInstalledApp)

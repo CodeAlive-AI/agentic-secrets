@@ -1132,23 +1132,30 @@ struct DiagnosticsView: View {
     var body: some View {
         Form {
             Section("Daemon") {
+                DaemonRecommendedFixPanel(store: store, confirmingInstall: $confirmingInstall)
                 LabeledContent("Status", value: store.daemonStatus.state.rawValue.capitalized)
                 LabeledContent("Socket", value: store.daemonStatus.socketPath)
                 LabeledContent("LaunchAgent", value: store.daemonStatus.launchAgentPath ?? "Not installed")
                 Text(store.daemonStatus.message)
                     .foregroundStyle(store.daemonStatus.state == .healthy ? .secondary : .primary)
-                if let detail = store.daemonStatus.detail {
-                    DisclosureGroup("Technical details") {
+                DisclosureGroup("Advanced diagnostics") {
+                    HStack {
+                        DaemonActionButtons(
+                            store: store,
+                            confirmingInstall: $confirmingInstall,
+                            includeAdvancedActions: true,
+                            includeBestAction: false
+                        )
+                    }
+                    if let detail = store.daemonStatus.detail {
                         Text(detail)
                             .font(.system(.caption, design: .monospaced))
                             .textSelection(.enabled)
                     }
-                }
-                HStack {
-                    DaemonActionButtons(store: store, confirmingInstall: $confirmingInstall, includeAdvancedActions: true)
-                }
-                if let plan = store.daemonInstallPlan {
-                    DaemonInstallPlanView(store: store, plan: plan)
+                    if let plan = store.daemonInstallPlan {
+                        Divider()
+                        DaemonInstallPlanView(store: store, plan: plan)
+                    }
                 }
             }
             Section("State") {
@@ -1174,6 +1181,128 @@ struct DiagnosticsView: View {
             Button("Cancel", role: .cancel) {}
         } message: {
             Text("Agentic Fortress will update the local app copy, helper links, install manifest, and per-user LaunchAgent. Secret material is not read or moved.")
+        }
+    }
+}
+
+struct DaemonRecommendedFixPanel: View {
+    @Bindable var store: ManagementStore
+    @Binding var confirmingInstall: Bool
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack {
+                Label(title, systemImage: symbol)
+                    .font(.headline)
+                Spacer()
+                if store.daemonStatus.state == .repairing || store.daemonStatus.state == .installing {
+                    ProgressView()
+                        .controlSize(.small)
+                }
+            }
+            Text(message)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+            if let action = store.bestDaemonAction {
+                Button {
+                    perform(action)
+                } label: {
+                    Label(action.title(plan: store.daemonInstallPlan), systemImage: action.systemImage)
+                }
+                .buttonStyle(.borderedProminent)
+                .disabled(isDisabled(action))
+                .accessibilityLabel(action.title(plan: store.daemonInstallPlan))
+                .help(help(for: action))
+            }
+        }
+        .padding()
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 8))
+    }
+
+    private var title: String {
+        switch store.daemonStatus.state {
+        case .healthy:
+            "Setup Ready"
+        case .installing:
+            "Installing Local Daemon"
+        case .repairing:
+            "Repairing Local Daemon"
+        case .unknown, .unavailable:
+            "Recommended Fix"
+        }
+    }
+
+    private var symbol: String {
+        switch store.daemonStatus.state {
+        case .healthy:
+            "checkmark.circle"
+        case .installing:
+            "tray.and.arrow.down"
+        case .repairing:
+            "arrow.clockwise"
+        case .unknown:
+            "questionmark.circle"
+        case .unavailable:
+            "wrench.and.screwdriver"
+        }
+    }
+
+    private var message: String {
+        guard let action = store.bestDaemonAction else {
+            return "The local daemon is reachable. Management actions can use the authenticated local control plane."
+        }
+        switch action {
+        case .check:
+            return store.daemonInstallPlan?.summary ?? "Check the local daemon and install state before continuing."
+        case .installOrRepair:
+            return "Install or repair the local daemon, helper links, authenticated install manifest, and per-user LaunchAgent. Secret material is not read or moved."
+        case .restart:
+            return "The LaunchAgent exists but the daemon is not reachable. Restart the local daemon and then refresh state."
+        case .openInstalledApp:
+            return "This window is running from a different app copy than the one trusted by the local install. Open the installed copy so the daemon can authenticate the UI."
+        }
+    }
+
+    private func isDisabled(_ action: DaemonNextAction) -> Bool {
+        if store.daemonStatus.state == .installing || store.daemonStatus.state == .repairing {
+            return true
+        }
+        switch action {
+        case .check:
+            return store.isLoading
+        case .installOrRepair:
+            return !(store.daemonInstallPlan?.canInstall ?? false)
+        case .restart:
+            return !store.daemonStatus.canRepair
+        case .openInstalledApp:
+            return !store.canOpenInstalledApp
+        }
+    }
+
+    private func help(for action: DaemonNextAction) -> String {
+        switch action {
+        case .check:
+            "Recheck daemon status and local install files"
+        case .installOrRepair:
+            "Install or repair the local daemon without reading secret material"
+        case .restart:
+            "Restart the per-user local daemon"
+        case .openInstalledApp:
+            "Open the installed copy used by the authenticated local install"
+        }
+    }
+
+    private func perform(_ action: DaemonNextAction) {
+        switch action {
+        case .check:
+            Task { await store.checkDaemon() }
+        case .installOrRepair:
+            confirmingInstall = true
+        case .restart:
+            Task { await store.repairDaemon() }
+        case .openInstalledApp:
+            InstalledAppOpener.open(store: store)
         }
     }
 }
@@ -1305,6 +1434,7 @@ struct DaemonActionButtons: View {
     @Bindable var store: ManagementStore
     @Binding var confirmingInstall: Bool
     var includeAdvancedActions: Bool
+    var includeBestAction = true
 
     var body: some View {
         HStack(spacing: 8) {
@@ -1316,7 +1446,7 @@ struct DaemonActionButtons: View {
 
     private var visibleActions: [DaemonNextAction] {
         var actions: [DaemonNextAction] = []
-        if let best = store.bestDaemonAction {
+        if includeBestAction, let best = store.bestDaemonAction {
             actions.append(best)
         }
 
@@ -1343,7 +1473,7 @@ struct DaemonActionButtons: View {
         case .check:
             return true
         case .installOrRepair:
-            return store.daemonStatus.state != .healthy && store.daemonInstallPlan != nil
+            return store.daemonStatus.state != .healthy && (store.daemonInstallPlan?.canInstall ?? false)
         case .restart:
             return store.daemonStatus.state != .healthy && store.daemonStatus.canRepair
         case .openInstalledApp:
@@ -1426,10 +1556,10 @@ struct DaemonInstallPlanView: View {
                     LocalFileOpener.openDirectory(path: plan.prefixPath, label: "install folder", store: store)
                 }
                 .disabled(!LocalFileOpener.fileExists(atPath: plan.prefixPath))
-                Button("Open Installed App") {
+                Button("Open Installed Copy") {
                     InstalledAppOpener.open(store: store)
                 }
-                .disabled(InstalledAppOpener.installedAppURL(store: store) == nil)
+                .disabled(!store.canOpenInstalledApp)
             }
         }
     }

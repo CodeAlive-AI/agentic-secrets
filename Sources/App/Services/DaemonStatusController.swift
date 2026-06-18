@@ -135,7 +135,7 @@ struct LocalDaemonStatusController: DaemonStatusControlling {
                 state: .unavailable,
                 socketPath: plan.socketPath,
                 launchAgentPath: plan.launchAgentPath,
-                message: "Local daemon was installed. Open the installed app copy so the authenticated IPC manifest matches the running UI.",
+                message: "Local daemon was installed. Open the installed copy so the authenticated IPC manifest matches the running UI.",
                 detail: nil,
                 recoveryCommand: nil,
                 checkedAt: Date()
@@ -427,7 +427,7 @@ private enum DaemonUnavailableReason {
         case .notRunning:
             "Local daemon is installed but not running."
         case .wrongAppCopy:
-            "Open the installed app copy so the authenticated IPC manifest matches the running UI."
+            "Open the installed copy so the authenticated IPC manifest matches the running UI."
         case .manifestMismatch:
             "Local daemon trust manifest does not match this app copy."
         case .unreachable:
