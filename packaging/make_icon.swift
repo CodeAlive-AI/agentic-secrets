@@ -64,7 +64,7 @@ func drawResizedIcon(from image: NSImage, pixelSize: Int) throws -> NSBitmapImag
     NSGraphicsContext.saveGraphicsState()
     NSGraphicsContext.current = context
     context.imageInterpolation = .high
-    NSColor.white.setFill()
+    NSColor.clear.setFill()
     NSBezierPath(rect: CGRect(x: 0, y: 0, width: pixelSize, height: pixelSize)).fill()
     source.draw(
         in: CGRect(x: 0, y: 0, width: pixelSize, height: pixelSize),
