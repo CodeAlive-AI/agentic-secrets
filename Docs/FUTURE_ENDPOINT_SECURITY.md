@@ -2,7 +2,7 @@
 
 Agentic Secrets does not require EndpointSecurity for the default local self-build release track. EndpointSecurity is a possible future provenance enhancement for maintainers who want stronger process-origin evidence than terminal environment hints or best-effort process-tree inspection can provide.
 
-The default product boundary remains unchanged: Agentic Secrets is a lower-leakage secret delivery system, not a general endpoint monitoring agent.
+The default product boundary remains unchanged: Agentic Secrets is a runtime secret protection system, not a general endpoint monitoring agent.
 
 ## What EndpointSecurity Adds
 

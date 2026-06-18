@@ -1,14 +1,57 @@
+# Swift Package Manager
 .build/
-.swiftpm/
-.DS_Store
-DerivedData/
+.swiftpm/configuration/
+.swiftpm/xcode/
+
+# Build and release artifacts
 build/
 dist/
+DerivedData/
+*.xcarchive
+*.dSYM/
+*.app/
+*.ipa
+*.pkg
+*.zip
+
+# Xcode user state
+*.xcuserstate
+*.xcscmblueprint
+*.mode1v3
+*.mode2v3
+*.pbxuser
+*.perspectivev3
+xcuserdata/
+
+# macOS filesystem noise
+.DS_Store
+.AppleDouble
+.LSOverride
+Icon?
+._*
+
+# Local editor and agent state
+.vscode/
+.idea/
+
+# Logs and temporary files
+*.log
+*.tmp
+*.swp
+*.swo
+
+# Local secrets, credentials, and signing material
 .env
 .env.*
 *.p12
 *.mobileprovision
-*.xcarchive
-*.log
+*.provisionprofile
+*.key
+*.pem
+*.crt
+*.cer
+*.der
+
+# Keep GitHub Actions workflow files tracked.
 !.github/**/*.yml
 !.github/**/*.yaml

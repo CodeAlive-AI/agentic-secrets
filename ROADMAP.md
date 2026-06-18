@@ -4,7 +4,7 @@ This roadmap describes post-alpha product directions. It is not a release
 commitment, but it should guide architecture decisions so short-term macOS work
 does not block Linux, Windows, or richer audit workflows later.
 
-Agentic Secrets remains a lower-leakage secret delivery system. It does not make
+Agentic Secrets remains a runtime secret protection system. It does not make
 arbitrary command execution safe. Future work should keep secret access explicit,
 narrow, approved, bounded, auditable, and fail-closed.
 

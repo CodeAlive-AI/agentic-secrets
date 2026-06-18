@@ -8,9 +8,9 @@ Current release metadata: `0.1.0 alpha`. This is a pre-stable product; breaking 
 
 ## Product Boundary
 
-Agentic Secrets is a macOS lower-leakage secret delivery system for developer machines.
+Agentic Secrets is a macOS runtime secret protection system for developer machines.
 
-It does not make execution safe. It makes delivery of secrets explicit, narrow, approved, bounded, auditable, and lower-leakage than `.env`, shell environment, MCP configs, or plaintext provider tokens.
+It does not make execution safe. It protects the secret delivery boundary by making runtime delivery explicit, narrow, approved, bounded, auditable, and fail-closed instead of leaving secrets in `.env`, shell environments, MCP configs, or plaintext provider token files.
 
 The default distribution model is open-source self-build with local ad-hoc signing. Downloadable Developer ID-signed and notarized binaries are optional future maintainer work, not a requirement for contributors or local use.
 

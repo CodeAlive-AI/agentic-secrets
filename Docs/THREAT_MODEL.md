@@ -1,6 +1,6 @@
 # Agentic Secrets Threat Model
 
-Agentic Secrets is a macOS lower-leakage secret delivery system for developer machines.
+Agentic Secrets is a macOS runtime secret protection system for developer machines.
 
 It does not make arbitrary execution safe. It narrows how secrets are delivered, records why delivery was allowed, and prevents common plaintext leakage paths such as `.env`, shell profiles, shell history, inherited shell environment, MCP client configs, and provider tokens in process argv.
 
