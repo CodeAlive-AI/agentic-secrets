@@ -69,6 +69,12 @@ swift run agentic-secrets-contract-tests
 
 Use `git diff --check` before finalizing edits.
 
+## Git Workflow
+
+Agents may create local commits when the user asks to commit or when a completed change should be saved for review.
+
+Agents must not push to any remote unless the user explicitly asks for a push or gives explicit approval for that push in the current conversation. Do not infer push permission from permission to commit, publish-ready cleanup, CI setup, or repository preparation work.
+
 ## Package And Install
 
 Package manually:
