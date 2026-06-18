@@ -1,4 +1,4 @@
-import AgenticFortressCore
+import AgenticSecretsBroker
 import Foundation
 
 struct ProviderDashboardLink: Equatable {
@@ -7,7 +7,7 @@ struct ProviderDashboardLink: Equatable {
 }
 
 enum ProviderDashboardResolver {
-    static func link(for profile: ProxyProfileSummary) -> ProviderDashboardLink? {
+    static func link(for profile: APISessionProfileSummary) -> ProviderDashboardLink? {
         let name = profile.name.lowercased()
         let host = profile.upstreamOrigin.host?.lowercased() ?? ""
 

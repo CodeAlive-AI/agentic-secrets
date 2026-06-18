@@ -4,3 +4,11 @@
 DerivedData/
 build/
 dist/
+.env
+.env.*
+*.p12
+*.mobileprovision
+*.xcarchive
+*.log
+!.github/**/*.yml
+!.github/**/*.yaml

@@ -1,12 +1,12 @@
 # Future Developer ID Distribution
 
-AgenticFortress defaults to an open-source self-build distribution model:
+AgenticSecrets defaults to an open-source self-build distribution model:
 
 - users clone the repository;
 - users build locally with SwiftPM;
 - local packaging uses ad-hoc signing;
 - no Apple Developer Program membership is required;
-- local secret material is owned only by `agentic-fortressd-core`;
+- local secret material is owned only by `agentic-secrets-brokerd`;
 - helpers communicate with core through local IPC and do not need shared Keychain access groups.
 
 Developer ID signing and notarization are optional future distribution improvements for maintainers who want frictionless downloadable binaries.
@@ -23,17 +23,17 @@ Developer ID signing and notarization are optional future distribution improveme
 
 ### Release Packaging
 
-- Produce a notarizable archive from `build/AgenticFortress.app`; `scripts/sign_notarize_release.sh` builds a submission zip with `ditto --norsrc`, submits it, staples the app, rebuilds the final zip, then validates the expanded zip with `spctl` and `stapler validate`.
+- Produce a notarizable archive from `build/AgenticSecrets.app`; `scripts/sign_notarize_release.sh` builds a submission zip with `ditto --norsrc`, submits it, staples the app, rebuilds the final zip, then validates the expanded zip with `spctl` and `stapler validate`.
 - Sign every executable, XPC service, login item, and bundle with `Developer ID Application`.
 - Preserve hardened runtime across the full bundle.
 - Staple notarization tickets to released artifacts.
-- Build universal binaries with `ARCHS="arm64 x86_64" ./scripts/package_release.sh` and validate them with `REQUIRED_ARCHS="arm64 x86_64" ./scripts/validate_release_artifact.sh build/AgenticFortress.app`.
+- Build universal binaries with `ARCHS="arm64 x86_64" ./scripts/package_release.sh` and validate them with `REQUIRED_ARCHS="arm64 x86_64" ./scripts/validate_release_artifact.sh "build/AgenticSecrets.app"`.
 - Use `scripts/setup_dev_signing.sh` for stable local development signing when maintainers want repeatable cdhash behavior before Developer ID is available.
 - Add a release CI job that fails if notarization, stapling, final zip validation, or Gatekeeper assessment fails.
 
 ### Bundle Layout
 
-- Keep `CFBundleIconFile` populated and ship `Contents/Resources/AgenticFortress.icns`.
+- Keep `CFBundleIconFile` populated and ship `Contents/Resources/AgenticSecrets.icns`.
 - Move XPC services to `Contents/XPCServices`.
 - Move login items or launch agents to their standard bundle locations.
 - Keep CLI shims and user-facing command tools in stable install paths.
@@ -47,8 +47,8 @@ Developer ID signing and notarization are optional future distribution improveme
 
 ### Secret Storage Model
 
-- Keep the default invariant: only `agentic-fortressd-core` reads local secret material.
-- If a future Developer ID build enables a Keychain-backed backend, keep that backend core-owned.
+- Keep the default invariant: only `agentic-secrets-brokerd` reads local secret material.
+- If a future Developer ID build enables a Keychain-backed backend, keep that backend broker-owned.
 - Do not introduce shared Keychain access groups unless a future multi-app design truly requires it.
 - If access groups are introduced, make them optional and Developer ID-only.
 - Add interactive end-to-end tests for LocalAuthentication prompts against the signed bundle identity.

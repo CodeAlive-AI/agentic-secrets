@@ -1,4 +1,4 @@
-# AgenticFortress Agent Notes
+# Agentic Secrets Agent Notes
 
 This file is for coding agents and maintainers working in this repository. Keep user-facing onboarding short in `README.md`; put implementation, verification, and release workflow details here or in `Docs/`.
 
@@ -8,7 +8,7 @@ Current release metadata: `0.1.0 alpha`. This is a pre-stable product; breaking 
 
 ## Product Boundary
 
-AgenticFortress is a macOS lower-leakage secret delivery system for developer machines.
+Agentic Secrets is a macOS lower-leakage secret delivery system for developer machines.
 
 It does not make execution safe. It makes delivery of secrets explicit, narrow, approved, bounded, auditable, and lower-leakage than `.env`, shell environment, MCP configs, or plaintext provider tokens.
 
@@ -40,10 +40,10 @@ UI changes must preserve native macOS expectations:
 
 ## Implemented Delivery Contracts
 
-- Signed shim model through one `agentic-fortress-shim` binary and symlink-style invocation.
-- CLI env delivery with signed/versioned dynamic command adapter packs and deterministic decision manifests.
-- Local API proxy profiles with per-session localhost capability tokens.
-- BWS provider split where runtime fetch is one approved secret per invocation.
+- Signed shim model through one `agentic-secrets-shim` binary and symlink-style invocation.
+- CLI env delivery with signed/versioned dynamic command command policy packs and deterministic decision manifests.
+- Local API API session profiles with per-session localhost capability tokens.
+- Bitwarden provider split where runtime fetch is one approved secret per invocation.
 - Remote MCP bridge contracts with pinned upstream profile and session propagation.
 - Rollback detection that locks policy use and clears remembered leases.
 - Structured audit with redaction gates.
@@ -51,7 +51,7 @@ UI changes must preserve native macOS expectations:
 
 Adapter packs are dynamic but not trust-by-configuration. External packs must verify under a trusted P-256 signing key, publisher allowlist, CLI allowlist, schema version, expiry, rule validation, and rollback checks before registration. Lease scope includes adapter identity, version, and hash.
 
-Runtime policy is configurable through `AgenticFortressConfig`; the default JSON lives at `config/default.agentic-fortress.json`. Configuration covers adapter trust, delivery defaults, proxy profiles, MCP profiles, and macOS compatibility gates.
+Runtime policy is configurable through `AgenticSecretsConfiguration`; the default JSON lives at `config/default.agentic-secrets.json`. Configuration covers adapter trust, delivery defaults, API session profiles, MCP profiles, and macOS compatibility gates.
 
 ## Build And Verify
 
@@ -59,7 +59,7 @@ Run the standard gates before presenting a production-ready change:
 
 ```sh
 swift build
-swift run agentic-fortress-contract-tests
+swift run agentic-secrets-contract-tests
 ./script/ui_smoke.sh
 ./script/build_and_run.sh --verify
 ./scripts/ci.sh
@@ -75,9 +75,9 @@ Package manually:
 
 ```sh
 ./scripts/package_release.sh
-./scripts/validate_release_artifact.sh build/AgenticFortress.app
-./scripts/check_entitlements_diff.sh build/AgenticFortress.app
-codesign --verify --strict --deep --verbose=4 build/AgenticFortress.app
+./scripts/validate_release_artifact.sh "build/AgenticSecrets.app"
+./scripts/check_entitlements_diff.sh "build/AgenticSecrets.app"
+codesign --verify --strict --deep --verbose=4 "build/AgenticSecrets.app"
 ```
 
 Recommended local install:
@@ -90,7 +90,7 @@ Native guided install:
 
 ```sh
 ./scripts/package_release.sh
-open build/AgenticFortress.app
+open "build/AgenticSecrets.app"
 ```
 
 Then use **Diagnostics → Install Local Daemon** or **Diagnostics → Repair Local Daemon**. The app shows the app copy, helper symlinks, state directory, run directory, install manifest, LaunchAgent, and socket path before writing files. It does not read or move local secret material. If the app was launched from `build/`, open the installed copy after installation so authenticated IPC matches the installed bundle path in the manifest.
@@ -98,24 +98,24 @@ Then use **Diagnostics → Install Local Daemon** or **Diagnostics → Repair Lo
 Uninstall while keeping local secret state:
 
 ```sh
-./scripts/uninstall_local.sh --prefix "$HOME/Library/Application Support/AgenticFortress/LocalInstall" --keep-secrets
+./scripts/uninstall_local.sh --prefix "$HOME/Library/Application Support/AgenticSecrets/LocalInstall" --keep-secrets
 ```
 
 The local installer writes an install manifest with helper paths, owners, permissions, versions, SHA-256 hashes, and cdhash values. Runtime IPC authorization uses that manifest instead of requiring a Developer ID Team ID.
 
-The core daemon serves the local control plane over a Unix domain socket. Helpers authenticate to core with the install manifest and do not read local secret material directly.
+The broker daemon serves the local control plane over a Unix domain socket. Helpers authenticate to core with the install manifest and do not read local secret material directly.
 
-On macOS Tahoe, the self-build track avoids restricted entitlements so ad-hoc signed binaries can execute normally. The core daemon stores local secret material in an owner-only encrypted file store gated by LocalAuthentication; no shared Keychain access group is required for the self-build track. Registered CLI trust metadata is protected by a device-local macOS Keychain integrity key so hand-edited registry files fail closed before any secret is resolved.
+On macOS Tahoe, the self-build track avoids restricted entitlements so ad-hoc signed binaries can execute normally. The broker daemon stores local secret material in an owner-only encrypted file store gated by LocalAuthentication; no shared Keychain access group is required for the self-build track. Registered CLI trust metadata is protected by a device-local macOS Keychain integrity key so hand-edited registry files fail closed before any secret is resolved.
 
 CLI runs may reuse scoped authorization grants after successful LocalAuthentication. The default mode is `always`; `remember-24h`, `short`, and `once` are available per run. Persistent grants are signed with a device-local macOS Keychain key and scoped to CLI name, target identity, workspace hash, config context, untrusted origin hint, provenance confidence, delivery mode, and secret alias. Short grants additionally include action class, command digest, and risk. Command policy is re-evaluated before every secret delivery, and destructive commands require fresh approval. Grants must never contain secret values.
 
 ## Release Evidence
 
 ```sh
-swift run agentic-fortress release-gates
-swift run agentic-fortress ipc-conformance
+swift run agentic-secrets release-gates
+swift run agentic-secrets ipc-conformance
 ./scripts/check_secret_authority.sh
-./scripts/check_entitlements_diff.sh build/AgenticFortress.app
+./scripts/check_entitlements_diff.sh "build/AgenticSecrets.app"
 ./scripts/create_release_evidence.sh
 ```
 
@@ -125,7 +125,7 @@ Optional future maintainer distribution signing and notarization:
 
 ```sh
 CODESIGN_IDENTITY="Developer ID Application: ..." \
-NOTARYTOOL_PROFILE="agentic-fortress-notary" \
+NOTARYTOOL_PROFILE="agentic-secrets-notary" \
 ./scripts/sign_notarize_release.sh
 ```
 

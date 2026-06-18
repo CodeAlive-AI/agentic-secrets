@@ -1,8 +1,8 @@
-# AgenticFortress
+# Agentic Secrets
 
 Version: `0.1.0 alpha`
 
-AgenticFortress is a macOS self-build tool for lower-leakage secret delivery on developer machines. Its core job is controlled delivery at runtime: deciding when, how, and to which local tool a stored secret may be released, with local approval through Touch ID or the local account password.
+Agentic Secrets is a macOS self-build tool for lower-leakage secret delivery on developer machines. Its core job is controlled delivery at runtime: deciding when, how, and to which local tool a stored secret may be released, with local approval through Touch ID or the local account password.
 
 It keeps provider tokens out of `.env` files, shell startup files, MCP configs, and native CLI config files such as `hcloud`'s `cli.toml`. It does not make arbitrary command execution safe; it makes secret delivery explicit, narrow, locally approved, auditable, and fail-closed.
 
@@ -11,7 +11,7 @@ This is an alpha release: expect breaking changes while the CLI, storage format,
 ## How It Works
 
 - You register a CLI app once, for example `hcloud`, and pass the token through stdin.
-- AgenticFortress stores the secret in a local encrypted store and keeps non-secret CLI metadata in its registry.
+- Agentic Secrets stores the secret in a local encrypted store and keeps non-secret CLI metadata in its registry.
 - Each run validates the registered target binary identity before resolving the secret.
 - macOS LocalAuthentication is required before secret delivery. Depending on system state, macOS may ask for Touch ID, Apple Watch, or the local account password.
 - Successful CLI authentication creates a scoped authorization grant for matching runs. The default mode is `always`; `remember-24h`, `short`, and `once` are available per run. Persistent grants are signed with a device-local macOS Keychain key and are bound to the CLI, target identity, workspace, config context, untrusted origin hint, provenance confidence, delivery mode, and secret alias. Each command is still policy-checked before secret delivery, and destructive commands require fresh approval.
@@ -23,8 +23,8 @@ This is an alpha release: expect breaking changes while the CLI, storage format,
 Requirements: macOS Tahoe 26.x, SwiftPM, Xcode Command Line Tools or Xcode with the macOS 26 SDK.
 
 ```sh
-git clone https://github.com/<owner>/agentic-fortress.git
-cd agentic-fortress
+git clone https://github.com/CodeAlive-AI/agentic-secrets.git
+cd agentic-secrets
 ./scripts/install_local.sh --load --configure-shell
 ```
 
@@ -32,13 +32,13 @@ Open a new terminal, or load the PATH change in the current one:
 
 ```sh
 source "$HOME/.zshrc"
-command -v agentic-fortress
+command -v agentic-secrets
 ```
 
 Verify the local build:
 
 ```sh
-agentic-fortress release-gates
+agentic-secrets release-gates
 ```
 
 ## hcloud Example
@@ -46,29 +46,29 @@ agentic-fortress release-gates
 Register `hcloud` without writing the token to `cli.toml`:
 
 ```sh
-agentic-fortress cli register hcloud \
+agentic-secrets cli register hcloud \
   --env HCLOUD_TOKEN \
   --secret-prompt
 ```
 
-Run `hcloud` through AgenticFortress:
+Run `hcloud` through Agentic Secrets:
 
 ```sh
-agentic-fortress cli run hcloud -- server list
+agentic-secrets cli run hcloud -- server list
 ```
 
 Choose authorization mode for one run:
 
 ```sh
-agentic-fortress cli run hcloud --authorization-mode remember-24h -- server list
-agentic-fortress cli run hcloud --authorization-mode short --unlock-ttl-seconds 300 -- server list
-agentic-fortress cli run hcloud --unlock-ttl-seconds 0 -- server list
+agentic-secrets cli run hcloud --authorization-mode remember-24h -- server list
+agentic-secrets cli run hcloud --authorization-mode short --delivery-grant-ttl-seconds 300 -- server list
+agentic-secrets cli run hcloud --delivery-grant-ttl-seconds 0 -- server list
 ```
 
-Optional: install a shim so `hcloud ...` itself routes through AgenticFortress. This does not replace the Homebrew binary; it creates an AgenticFortress shim directory that is placed before the native CLI on `PATH`.
+Optional: install a shim so `hcloud ...` itself routes through Agentic Secrets. This does not replace the Homebrew binary; it creates an Agentic Secrets shim directory that is placed before the native CLI on `PATH`.
 
 ```sh
-agentic-fortress cli shim install hcloud --configure-shell
+agentic-secrets cli shim install hcloud --configure-shell
 ```
 
 Open a new terminal, then use:
@@ -78,30 +78,30 @@ hcloud server list
 hcloud version
 ```
 
-Normal commands go through AgenticFortress secret delivery. Global help/version commands pass through without secret delivery.
+Normal commands go through Agentic Secrets secret delivery. Global help/version commands pass through without secret delivery.
 
 After a Homebrew upgrade of `hcloud`, verify the new binary and refresh trust:
 
 ```sh
-agentic-fortress cli trust-refresh hcloud
+agentic-secrets cli trust-refresh hcloud
 ```
 
 ### Codex App
 
 Codex App may not inherit the same shell startup environment as Terminal. Do not
-put `HCLOUD_TOKEN` into `~/.codex/.env`; that bypasses AgenticFortress secret
-delivery. Instead, install the AgenticFortress shim and make sure Codex resolves
+put `HCLOUD_TOKEN` into `~/.codex/.env`; that bypasses Agentic Secrets secret
+delivery. Instead, install the Agentic Secrets shim and make sure Codex resolves
 `hcloud` to the local shim path:
 
 ```sh
-agentic-fortress cli shim install hcloud --force
+agentic-secrets cli shim install hcloud --force
 command -v hcloud
 ```
 
 Expected path:
 
 ```text
-~/Library/Application Support/AgenticFortress/LocalInstall/shims/hcloud
+~/Library/Application Support/AgenticSecrets/LocalInstall/shims/hcloud
 ```
 
 ## More

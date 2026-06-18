@@ -3,64 +3,64 @@
 import PackageDescription
 
 let package = Package(
-    name: "AgenticFortress",
+    name: "AgenticSecrets",
     platforms: [
         .macOS(.v14)
     ],
     products: [
-        .library(name: "AgenticFortressCore", targets: ["AgenticFortressCore"]),
-        .executable(name: "AgenticFortress", targets: ["AgenticFortressApp"]),
-        .executable(name: "agentic-fortress", targets: ["AgenticFortressCLI"]),
-        .executable(name: "agentic-fortress-shim", targets: ["AgenticFortressShim"]),
-        .executable(name: "agentic-fortressd-core", targets: ["AgenticFortressCoreDaemon"]),
-        .executable(name: "agentic-fortress-proxyd", targets: ["AgenticFortressProxyd"]),
-        .executable(name: "agentic-fortress-bwsd", targets: ["AgenticFortressBwsd"]),
-        .executable(name: "agentic-fortress-mcpd", targets: ["AgenticFortressMcpd"]),
-        .executable(name: "agentic-fortress-contract-tests", targets: ["AgenticFortressContractTests"])
+        .library(name: "AgenticSecretsBroker", targets: ["AgenticSecretsBroker"]),
+        .executable(name: "AgenticSecrets", targets: ["AgenticSecretsApp"]),
+        .executable(name: "agentic-secrets", targets: ["AgenticSecretsCLI"]),
+        .executable(name: "agentic-secrets-shim", targets: ["AgenticSecretsCommandShim"]),
+        .executable(name: "agentic-secrets-brokerd", targets: ["AgenticSecretsBrokerDaemon"]),
+        .executable(name: "agentic-secrets-api-sessiond", targets: ["AgenticSecretsAPISessionDaemon"]),
+        .executable(name: "agentic-secrets-bitwarden-providerd", targets: ["AgenticSecretsBitwardenProviderDaemon"]),
+        .executable(name: "agentic-secrets-mcpd", targets: ["AgenticSecretsMCPDaemon"]),
+        .executable(name: "agentic-secrets-contract-tests", targets: ["AgenticSecretsContractTests"])
     ],
     targets: [
         .target(
-            name: "AgenticFortressCore",
-            path: "Sources/Core"
+            name: "AgenticSecretsBroker",
+            path: "Sources/Broker"
         ),
         .executableTarget(
-            name: "AgenticFortressApp",
-            dependencies: ["AgenticFortressCore"],
+            name: "AgenticSecretsApp",
+            dependencies: ["AgenticSecretsBroker"],
             path: "Sources/App"
         ),
         .executableTarget(
-            name: "AgenticFortressCLI",
-            dependencies: ["AgenticFortressCore"],
+            name: "AgenticSecretsCLI",
+            dependencies: ["AgenticSecretsBroker"],
             path: "Sources/CLI"
         ),
         .executableTarget(
-            name: "AgenticFortressShim",
-            dependencies: ["AgenticFortressCore"],
-            path: "Sources/Shim"
+            name: "AgenticSecretsCommandShim",
+            dependencies: ["AgenticSecretsBroker"],
+            path: "Sources/CommandShim"
         ),
         .executableTarget(
-            name: "AgenticFortressCoreDaemon",
-            dependencies: ["AgenticFortressCore"],
-            path: "Sources/CoreDaemon"
+            name: "AgenticSecretsBrokerDaemon",
+            dependencies: ["AgenticSecretsBroker"],
+            path: "Sources/BrokerDaemon"
         ),
         .executableTarget(
-            name: "AgenticFortressProxyd",
-            dependencies: ["AgenticFortressCore"],
-            path: "Sources/Proxyd"
+            name: "AgenticSecretsAPISessionDaemon",
+            dependencies: ["AgenticSecretsBroker"],
+            path: "Sources/APISessionDaemon"
         ),
         .executableTarget(
-            name: "AgenticFortressBwsd",
-            dependencies: ["AgenticFortressCore"],
-            path: "Sources/Bwsd"
+            name: "AgenticSecretsBitwardenProviderDaemon",
+            dependencies: ["AgenticSecretsBroker"],
+            path: "Sources/BitwardenProviderDaemon"
         ),
         .executableTarget(
-            name: "AgenticFortressMcpd",
-            dependencies: ["AgenticFortressCore"],
-            path: "Sources/Mcpd"
+            name: "AgenticSecretsMCPDaemon",
+            dependencies: ["AgenticSecretsBroker"],
+            path: "Sources/MCPDaemon"
         ),
         .executableTarget(
-            name: "AgenticFortressContractTests",
-            dependencies: ["AgenticFortressCore"],
+            name: "AgenticSecretsContractTests",
+            dependencies: ["AgenticSecretsBroker"],
             path: "Sources/ContractTests"
         )
     ]

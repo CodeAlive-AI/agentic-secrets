@@ -1,8 +1,8 @@
-import AgenticFortressCore
+import AgenticSecretsBroker
 import SwiftUI
 
 struct SettingsView: View {
-    var store: ManagementStore
+    var store: ControlPlaneStore
     @AppStorage("launchMenuBarStatus") private var launchMenuBarStatus = true
     @State private var commandPolicyDraft = CommandPolicySettingsDraftState()
     @State private var previewCommand = "hcloud server delete prod-db-01"
@@ -11,13 +11,13 @@ struct SettingsView: View {
         TabView {
             Form {
                 Toggle("Show menu bar status", isOn: $launchMenuBarStatus)
-                    .help("Show AgenticFortress health and grant status in the macOS menu bar")
+                    .help("Show Agentic Secrets health and grant status in the macOS menu bar")
                 Section("CLI Authorization Grants") {
-                    LabeledContent("Default mode", value: CLIPersistentAllowPolicy.defaultMode.rawValue)
-                    LabeledContent("24h mode", value: "\(Int(CLIPersistentAllowPolicy.remember24HTTL / 3600))h")
-                    LabeledContent("Default TTL", value: "\(Int(CLIUnlockGrantPolicy.defaultTTL))s")
-                    LabeledContent("Maximum TTL", value: "\(Int(CLIUnlockGrantPolicy.maxTTL))s")
-                    Text("CLI runs may choose --authorization-mode once, short, remember-24h, or always. Short mode may override TTL per invocation with --unlock-ttl-seconds.")
+                    LabeledContent("Default mode", value: RememberedApprovalPolicy.defaultMode.rawValue)
+                    LabeledContent("24h mode", value: "\(Int(RememberedApprovalPolicy.remember24HTTL / 3600))h")
+                    LabeledContent("Default TTL", value: "\(Int(DeliveryGrantPolicy.defaultTTL))s")
+                    LabeledContent("Maximum TTL", value: "\(Int(DeliveryGrantPolicy.maxTTL))s")
+                    Text("CLI runs may choose --authorization-mode once, short, remember-24h, or always. Short mode may override TTL per invocation with --delivery-grant-ttl-seconds.")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                         .fixedSize(horizontal: false, vertical: true)
@@ -30,7 +30,7 @@ struct SettingsView: View {
                 terms: $commandPolicyDraft.terms,
                 previewCommand: $previewCommand,
                 hasChanges: commandPolicyDraft.hasChanges,
-                canSave: store.canManageCoreState,
+                canSave: store.canManageBrokerState,
                 isLoading: store.isLoading,
                 saveHelp: saveHelp,
                 revert: { syncCommandPolicyFromSnapshot(force: true) },
@@ -67,13 +67,13 @@ struct SettingsView: View {
     }
 
     private var saveHelp: String {
-        if !store.canManageCoreState {
+        if !store.canManageBrokerState {
             return "Start or repair the local daemon before saving policy"
         }
         if !commandPolicyDraft.hasChanges {
             return "Command policy is already saved"
         }
-        return "Save command policy to the local core config"
+        return "Save command policy to the local broker config"
     }
 
     private func syncCommandPolicyFromSnapshot(force: Bool) {

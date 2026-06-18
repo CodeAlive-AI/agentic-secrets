@@ -6,14 +6,14 @@ This plan improves the current parent-app and unlock-grant model without requiri
 
 Implemented:
 
-- `DeliveryIntent.parentApp` has been replaced with `originHint`.
+- `DeliveryRequest.parentApp` has been replaced with `originHint`.
 - Decision manifests now carry `origin.hint`, `origin.provenanceConfidence`, `commandDigest`, `configContext`, and adapter identity.
-- Short CLI unlock grants are action-bound and include action class, command digest, risk, config context, origin hint, provenance confidence, target identity, workspace, delivery mode, and secret alias.
+- Short CLI delivery grants are action-bound and include action class, command digest, risk, config context, origin hint, provenance confidence, target identity, workspace, delivery mode, and secret alias.
 - Persistent CLI authorization grants support `always` and `remember-24h` modes for matching non-destructive invocation contexts, use a device-local macOS Keychain signing key, and re-evaluate command policy every run.
-- Active unlock grant summaries retain non-secret scope metadata for audit/UI explanation.
+- Active delivery grant summaries retain non-secret scope metadata for audit/UI explanation.
 - LocalAuthentication prompt text shows `Parent app` and labels environment-derived/process-derived origin with explicit provenance.
 - The shim no longer routes normal execution through the public CLI process; it invokes core directly for `run-cli`.
-- Core IPC has a typed `create-shim-exec-plan` operation that returns core-side manifests without secret material.
+- Secret Broker IPC has a typed `create-shim-exec-plan` operation that returns core-side manifests without secret material.
 - Unix socket IPC now derives observed peer evidence from the accepted socket and validates the observed process path/hash/cdhash against the install manifest instead of trusting the JSON `peer` value.
 
 Remaining future work:
@@ -29,17 +29,17 @@ The previous CLI runtime used `TERM_PROGRAM` as `parentApp`. That is only an env
 The previous shim path also lost useful process context:
 
 ```text
-registered CLI shim -> agentic-fortress CLI -> agentic-fortressd-core run-cli -> target CLI
+registered CLI shim -> agentic-secrets CLI -> agentic-secrets-brokerd run-cli -> target CLI
 ```
 
-In that path, the core run command saw the AgenticFortress CLI process and inherited environment, not a verified origin for the app, terminal, editor, or agent that caused the invocation.
+In that path, the core run command saw the AgenticSecrets CLI process and inherited environment, not a verified origin for the app, terminal, editor, or agent that caused the invocation.
 
-The old unlock grant scope was too broad for the documented short-grant model because `CLIUnlockScope` did not include `actionClass`, command digest, risk, or config context. Short grants are now action-bound. Persistent authorization grants intentionally use a broader non-action scope, but command policy is re-evaluated before each secret delivery and destructive commands never reuse persistent grants.
+The old delivery grant scope was too broad for the documented short-grant model because `DeliveryGrantScope` did not include `actionClass`, command digest, risk, or config context. Short grants are now action-bound. Persistent authorization grants intentionally use a broader non-action scope, but command policy is re-evaluated before each secret delivery and destructive commands never reuse persistent grants.
 
 ## Design Goals
 
 - Never treat environment variables as trusted identity.
-- Make short unlock grants action-bound enough that one command cannot unlock a later destructive command.
+- Make short delivery grants action-bound enough that one command cannot unlock a later destructive command.
 - Keep non-destructive workflows fast after one local approval.
 - Preserve fresh LocalAuthentication for destructive operations and for target, workspace, origin, config, delivery, or secret scope changes.
 - Prefer macOS-provided peer identity over self-reported JSON fields.
@@ -47,10 +47,10 @@ The old unlock grant scope was too broad for the documented short-grant model be
 
 ## Identity Layers
 
-AgenticFortress should model separate identities:
+Agentic Secrets should model separate identities:
 
 - `targetIdentity`: the registered CLI that will receive secret material.
-- `injectorIdentity`: the AgenticFortress component that asks core to prepare or perform delivery.
+- `injectorIdentity`: the AgenticSecrets component that asks core to prepare or perform delivery.
 - `peerIdentity`: the process that connected to core IPC.
 - `originHint`: untrusted context such as `TERM_PROGRAM`, shell, TTY, and environment-derived labels.
 - `originIdentity`: verified or best-effort process-tree identity when available.
@@ -69,7 +69,7 @@ Suggested confidence levels:
 
 Scope:
 
-- Add `actionClass` to `CLIUnlockScope`.
+- Add `actionClass` to `DeliveryGrantScope`.
 - Add a digest of `canonicalCommand` or a stable command-shape digest when available.
 - Add `risk` or make risk derivable from the action-bound manifest.
 - Add `configContext` or adapter lease invalidator digest so custom config, repo, host, and account changes do not reuse a grant.
@@ -88,7 +88,7 @@ Verification:
 
 Scope:
 
-- Rename `DeliveryIntent.parentApp` to either `originHint` or add a new field and deprecate the old meaning. Implemented as `DeliveryIntent.originHint`.
+- Rename `DeliveryRequest.parentApp` to either `originHint` or add a new field and deprecate the old meaning. Implemented as `DeliveryRequest.originHint`.
 - Keep `TERM_PROGRAM` only as display context.
 - Include origin hint in prompt text only when labelled as a hint.
 - Do not use environment-only origin as a basis to skip LocalAuthentication for risky commands.
@@ -99,7 +99,7 @@ Verification:
 - LocalAuthentication reason can show useful context without implying trust.
 - Tests cover missing, spoofed, and changed `TERM_PROGRAM`.
 
-## Step 3: Route Shim Requests Directly To Core
+## Step 3: Route Shim Requests Directly To Secret Broker
 
 Scope:
 
@@ -110,7 +110,7 @@ Scope:
 
 Verification:
 
-- Core receives the shim as the actual IPC peer.
+- Secret Broker receives the shim as the actual IPC peer.
 - Help/version pass-through still avoids secret-store reads.
 - Env scrubbing and collision denial behavior remains unchanged.
 - Existing install manifest validation still works for self-build helpers.
@@ -197,7 +197,7 @@ Verification:
 
 ## Suggested Implementation Order
 
-1. Add action-bound fields to `CLIUnlockScope` and tests.
+1. Add action-bound fields to `DeliveryGrantScope` and tests.
 2. Rename or reclassify `parentApp` as an untrusted origin hint.
 3. Add manifest and prompt fields for provenance confidence.
 4. Route shim execution planning through core IPC directly.

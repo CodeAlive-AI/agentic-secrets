@@ -31,18 +31,18 @@ enum CLIShimInstaller {
     }
 
     private static func cliPath() throws -> String {
-        if let override = ProcessInfo.processInfo.environment["AGENTIC_FORTRESS_CLI_BINARY"], !override.isEmpty {
+        if let override = ProcessInfo.processInfo.environment["AGENTIC_SECRETS_CLI_BINARY"], !override.isEmpty {
             return override
         }
-        if let prefix = IPCAgenticFortressClient.installPrefixFromBundle() {
-            let installed = prefix.appendingPathComponent("bin/agentic-fortress")
+        if let prefix = IPCControlPlaneClient.installPrefixFromBundle() {
+            let installed = prefix.appendingPathComponent("bin/agentic-secrets")
             if FileManager.default.isExecutableFile(atPath: installed.path) {
                 return installed.path
             }
         }
         let sibling = Bundle.main.executableURL?
             .deletingLastPathComponent()
-            .appendingPathComponent("agentic-fortress")
+            .appendingPathComponent("agentic-secrets")
         if let sibling, FileManager.default.isExecutableFile(atPath: sibling.path) {
             return sibling.path
         }
@@ -57,7 +57,7 @@ enum CLIShimInstallerError: Error, CustomStringConvertible {
     var description: String {
         switch self {
         case .missingCLI:
-            "Could not find the local agentic-fortress CLI helper needed to install the shim."
+            "Could not find the local agentic-secrets CLI helper needed to install the shim."
         case .failed(let message):
             message.trimmingCharacters(in: .whitespacesAndNewlines)
         }

@@ -1,0 +1,58 @@
+name: Bug report
+description: Report a reproducible defect using synthetic data only.
+title: "[Bug]: "
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Do not include real secrets, provider tokens, private keys, Keychain contents, Bitwarden item data, shell environment dumps, or secret-derived logs.
+  - type: textarea
+    id: summary
+    attributes:
+      label: Summary
+      description: What happened?
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Reproduction Steps
+      description: Use synthetic placeholder values only.
+      placeholder: |
+        1. ...
+        2. ...
+        3. ...
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected Behavior
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual Behavior
+    validations:
+      required: true
+  - type: input
+    id: macos
+    attributes:
+      label: macOS Version
+      placeholder: "26.x"
+    validations:
+      required: true
+  - type: input
+    id: swift
+    attributes:
+      label: Swift / Xcode Version
+      placeholder: "swift --version; xcodebuild -version"
+  - type: checkboxes
+    id: secret-check
+    attributes:
+      label: Secret Handling Check
+      options:
+        - label: I have not included real secrets, tokens, private keys, or secret-derived logs.
+          required: true

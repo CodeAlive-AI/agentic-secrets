@@ -1,7 +1,7 @@
 import AppKit
 import Foundation
 
-let outputURL = URL(fileURLWithPath: CommandLine.arguments.dropFirst().first ?? "packaging/AgenticFortress.icns")
+let outputURL = URL(fileURLWithPath: CommandLine.arguments.dropFirst().first ?? "packaging/AgenticSecrets.icns")
 let iconsetURL = outputURL.deletingPathExtension().appendingPathExtension("iconset")
 try? FileManager.default.removeItem(at: iconsetURL)
 try FileManager.default.createDirectory(at: iconsetURL, withIntermediateDirectories: true)

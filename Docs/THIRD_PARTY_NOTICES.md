@@ -2,7 +2,7 @@
 
 ## Secretive
 
-AgenticFortress reviewed and adapted macOS Keychain and access-control design patterns from Secretive:
+Agentic Secrets reviewed and adapted macOS Keychain and access-control design patterns from Secretive:
 
 - Repository: <https://github.com/maxgoedjen/secretive>
 - Copyright: Copyright (c) 2020 Max Goedjen

@@ -3,7 +3,7 @@ import Foundation
 
 @MainActor
 enum LocalFileOpener {
-    static func reveal(path: String, label: String, store: ManagementStore) {
+    static func reveal(path: String, label: String, store: ControlPlaneStore) {
         let normalizedPath = path.trimmingCharacters(in: .whitespacesAndNewlines)
         guard fileExists(atPath: normalizedPath) else {
             store.recordLocalOpenFailure(label: label, path: normalizedPath)
@@ -12,7 +12,7 @@ enum LocalFileOpener {
         NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: normalizedPath)])
     }
 
-    static func openDirectory(path: String, label: String, store: ManagementStore) {
+    static func openDirectory(path: String, label: String, store: ControlPlaneStore) {
         let normalizedPath = path.trimmingCharacters(in: .whitespacesAndNewlines)
         guard fileExists(atPath: normalizedPath) else {
             store.recordLocalOpenFailure(label: label, path: normalizedPath)

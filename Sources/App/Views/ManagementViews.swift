@@ -1,20 +1,20 @@
-import AgenticFortressCore
+import AgenticSecretsBroker
 import AppKit
 import SwiftUI
 
 struct OverviewView: View {
-    var store: ManagementStore
+    var store: ControlPlaneStore
 
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 18) {
                 header("Overview", subtitle: store.snapshot?.stateDirectory ?? "Loading local state")
-                DaemonStatusPanel(store: store)
+                BrokerStatusPanel(store: store)
                 if let snapshot = store.snapshot {
                     LazyVGrid(columns: [GridItem(.adaptive(minimum: 160, maximum: 240), spacing: 12)], alignment: .leading, spacing: 12) {
                         MetricTile(title: "CLIs", value: "\(snapshot.cliRegistrations.count)", systemImage: "terminal")
                         MetricTile(title: "Secrets", value: "\(snapshot.secrets.count)", systemImage: "key")
-                        MetricTile(title: "Grants", value: "\(snapshot.unlockGrants.count)", systemImage: "timer")
+                        MetricTile(title: "Grants", value: "\(snapshot.deliveryGrants.count)", systemImage: "timer")
                         MetricTile(title: "Audit", value: "\(snapshot.auditEvents.count)", systemImage: "list.bullet.clipboard")
                     }
                     StatusPanel(health: snapshot.securityHealth)
@@ -32,7 +32,7 @@ struct OverviewView: View {
 }
 
 struct CLISecretsView: View {
-    @Bindable var store: ManagementStore
+    @Bindable var store: ControlPlaneStore
     @State private var pendingUnregister: CLIRegistrationSummary?
     @State private var deleteSecrets = false
 
@@ -73,7 +73,7 @@ struct CLISecretsView: View {
                 deleteSecrets = false
                 Task { await store.unregisterCLI(name: cli.name, deleteSecretMaterial: shouldDeleteSecrets) }
             }
-            .disabled(!store.canManageCoreState)
+            .disabled(!store.canManageBrokerState)
             Button("Cancel", role: .cancel) {
                 pendingUnregister = nil
                 deleteSecrets = false
@@ -85,7 +85,7 @@ struct CLISecretsView: View {
 }
 
 private struct CLIRegistrationList: View {
-    @Bindable var store: ManagementStore
+    @Bindable var store: ControlPlaneStore
 
     var body: some View {
         List(selection: $store.selectedCLI) {
@@ -106,7 +106,7 @@ private struct CLIRegistrationList: View {
 }
 
 private struct CLIRegistrationDetail: View {
-    @Bindable var store: ManagementStore
+    @Bindable var store: ControlPlaneStore
     @Binding var pendingUnregister: CLIRegistrationSummary?
     @State private var pendingShimRemoval: CLIRegistrationSummary?
 
@@ -137,7 +137,7 @@ private struct CLIRegistrationDetail: View {
                                 } label: {
                                     Label("Refresh Trust", systemImage: "arrow.clockwise")
                                 }
-                                .disabled(!store.canManageCoreState)
+                                .disabled(!store.canManageBrokerState)
                                 .help("Refresh trust metadata for this executable")
                                 CopyButton(title: "Copy Identity", value: cli.targetIdentity ?? "", help: "Copy target identity")
                                 .disabled(cli.targetIdentity == nil)
@@ -154,22 +154,22 @@ private struct CLIRegistrationDetail: View {
                                     Label(cli.shimStatus == "installed" ? "Repair Shim" : "Install Shim", systemImage: "link")
                                 }
                                 .buttonStyle(.borderedProminent)
-                                .disabled(!store.canManageCoreState)
+                                .disabled(!store.canManageBrokerState)
                                 .help("Install or repair the local command shim for this CLI")
                                 Button("Remove Shim", role: .destructive) {
                                     pendingShimRemoval = cli
                                 }
-                                .disabled(!store.canManageCoreState)
+                                .disabled(!store.canManageBrokerState)
                                 .help("Remove the local command shim for this CLI")
                             }
-                            Text("A shim routes normal \(cli.name) invocations through Agentic Fortress when the local shims folder is before the native CLI on PATH.")
+                            Text("A shim routes normal \(cli.name) invocations through Agentic Secrets when the local shims folder is before the native CLI on PATH.")
                                 .font(.caption)
                                 .foregroundStyle(.secondary)
                         }
                         Section("Grants") {
-                            LabeledContent("Active grants", value: "\(store.snapshot?.unlockGrants.count ?? 0)")
+                            LabeledContent("Active grants", value: "\(store.snapshot?.deliveryGrants.count ?? 0)")
                             Button {
-                                Task { await store.clearUnlockGrants() }
+                                Task { await store.clearDeliveryGrants() }
                             } label: {
                                 Label("Lock All Grants on This Mac", systemImage: "lock")
                             }
@@ -180,7 +180,7 @@ private struct CLIRegistrationDetail: View {
                             Button("Unregister CLI", role: .destructive) {
                                 pendingUnregister = cli
                             }
-                            .disabled(!store.canManageCoreState)
+                            .disabled(!store.canManageBrokerState)
                             .help("Remove this CLI registration")
                         }
                     }
@@ -214,18 +214,18 @@ private struct CLIRegistrationDetail: View {
                 pendingShimRemoval = nil
                 Task { await store.uninstallShim(for: cli.name) }
             }
-            .disabled(!store.canManageCoreState)
+            .disabled(!store.canManageBrokerState)
             Button("Cancel", role: .cancel) {
                 pendingShimRemoval = nil
             }
         } message: {
-            Text("Normal \(pendingShimRemoval?.name ?? "CLI") invocations will stop routing through Agentic Fortress until the shim is installed again.")
+            Text("Normal \(pendingShimRemoval?.name ?? "CLI") invocations will stop routing through Agentic Secrets until the shim is installed again.")
         }
     }
 }
 
 private struct NoCLIRegistrationsView: View {
-    @Bindable var store: ManagementStore
+    @Bindable var store: ControlPlaneStore
 
     var body: some View {
         PageCenteredState {
@@ -248,7 +248,7 @@ private struct NoCLIRegistrationsView: View {
 }
 
 private struct NoMatchingCLIView: View {
-    @Bindable var store: ManagementStore
+    @Bindable var store: ControlPlaneStore
 
     var body: some View {
         PageCenteredState {
@@ -270,8 +270,8 @@ private struct NoMatchingCLIView: View {
 }
 
 struct SecretBindingRow: View {
-    @Bindable var store: ManagementStore
-    var binding: CLIEnvironmentBinding
+    @Bindable var store: ControlPlaneStore
+    var binding: EnvironmentSecretBinding
     var cliName: String
     @State private var showingReplace = false
     @State private var showingDelete = false
@@ -286,11 +286,11 @@ struct SecretBindingRow: View {
             }
             Spacer()
             Button("Replace") { showingReplace = true }
-                .disabled(!store.canManageCoreState)
-                .help(store.canManageCoreState ? "Replace write-only secret material" : "Repair the daemon before replacing secret material")
+                .disabled(!store.canManageBrokerState)
+                .help(store.canManageBrokerState ? "Replace write-only secret material" : "Repair the daemon before replacing secret material")
             Button("Delete", role: .destructive) { showingDelete = true }
-                .disabled(!store.canManageCoreState)
-                .help(store.canManageCoreState ? "Delete write-only secret material" : "Repair the daemon before deleting secret material")
+                .disabled(!store.canManageBrokerState)
+                .help(store.canManageBrokerState ? "Delete write-only secret material" : "Repair the daemon before deleting secret material")
         }
         .sheet(isPresented: $showingReplace) {
             ReplaceSecretView(store: store, alias: binding.secretAlias, label: "\(cliName) \(binding.environmentName)", environment: "cli:\(cliName)")
@@ -299,7 +299,7 @@ struct SecretBindingRow: View {
             Button("Delete Secret Material", role: .destructive) {
                 Task { await store.deleteSecret(alias: binding.secretAlias) }
             }
-            .disabled(!store.canManageCoreState)
+            .disabled(!store.canManageBrokerState)
             Button("Cancel", role: .cancel) {}
         } message: {
             Text("This removes encrypted local material for \(binding.secretAlias). The value cannot be revealed first.")
@@ -307,43 +307,43 @@ struct SecretBindingRow: View {
     }
 }
 
-struct ProxyProfilesView: View {
-    @Bindable var store: ManagementStore
+struct APISessionProfilesView: View {
+    @Bindable var store: ControlPlaneStore
 
     var body: some View {
-        ManagementPageFrame(
-            title: "Proxy",
+        ControlPlanePageFrame(
+            title: "API Sessions (Proxy)",
             subtitle: "Bounded localhost sessions that keep upstream API keys out of client apps."
         ) {
             if store.snapshot == nil {
                 LocalStateUnavailableView(store: store)
-            } else if store.proxyProfiles.isEmpty {
+            } else if store.apiSessionProfiles.isEmpty {
                 PageCenteredState {
                     ContentUnavailableView {
-                        Label("No Proxy Profiles", systemImage: "point.3.connected.trianglepath.dotted")
+                        Label("No API Session Profiles", systemImage: "point.3.connected.trianglepath.dotted")
                     } description: {
-                        Text("Create a bounded localhost proxy profile before starting proxy sessions.")
+                        Text("Create a bounded localhost API session profile before starting API sessions.")
                     } actions: {
                         Button {
-                            store.presentProxyProfileEditor()
+                            store.presentAPISessionProfileEditor()
                         } label: {
-                            Label("Add Proxy Profile", systemImage: "plus")
+                            Label("Add API Session Profile", systemImage: "plus")
                         }
                         .buttonStyle(.borderedProminent)
-                        .disabled(!store.canManageCoreState)
+                        .disabled(!store.canManageBrokerState)
                     }
                 }
             } else {
                 HSplitView {
-                    List(selection: $store.selectedProxyProfile) {
-                        ForEach(store.proxyProfiles) { profile in
-                            ProxyProfileRow(profile: profile)
+                    List(selection: $store.selectedAPISessionProfile) {
+                        ForEach(store.apiSessionProfiles) { profile in
+                            APISessionProfileRow(profile: profile)
                                 .tag(Optional(profile.name))
                         }
                     }
                     .frame(minWidth: 260, idealWidth: 320, maxWidth: 420)
 
-                    ProxyProfileDetail(store: store)
+                    APISessionProfileDetail(store: store)
                         .frame(minWidth: 480)
                 }
                 .frame(minHeight: 440)
@@ -352,8 +352,8 @@ struct ProxyProfilesView: View {
     }
 }
 
-private struct ProxyProfileRow: View {
-    var profile: ProxyProfileSummary
+private struct APISessionProfileRow: View {
+    var profile: APISessionProfileSummary
 
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
@@ -373,12 +373,12 @@ private struct ProxyProfileRow: View {
         }
         .padding(.vertical, 4)
         .accessibilityElement(children: .combine)
-        .accessibilityLabel("Proxy profile \(profile.name)")
+        .accessibilityLabel("API session profile \(profile.name)")
     }
 }
 
-private struct ProxyProfileDetail: View {
-    @Bindable var store: ManagementStore
+private struct APISessionProfileDetail: View {
+    @Bindable var store: ControlPlaneStore
     @State private var bindPort = 48177
     @State private var showingEdit = false
     @State private var showingReplaceSecret = false
@@ -388,7 +388,7 @@ private struct ProxyProfileDetail: View {
 
     var body: some View {
         ScrollView {
-            if let profile = store.selectedProxyProfileSummary {
+            if let profile = store.selectedAPISessionProfileSummary {
                 VStack(alignment: .leading, spacing: 18) {
                     header(profile.name, subtitle: profile.upstreamOrigin.absoluteString)
                     Form {
@@ -401,7 +401,7 @@ private struct ProxyProfileDetail: View {
                             } label: {
                                 Label("Edit Profile", systemImage: "slider.horizontal.3")
                             }
-                            .disabled(!store.canManageCoreState)
+                            .disabled(!store.canManageBrokerState)
                             .help("Update origin, allowed paths, methods, secret alias, and session TTL")
                         }
                         Section("Credential") {
@@ -417,13 +417,13 @@ private struct ProxyProfileDetail: View {
                                     Label("Replace API Key", systemImage: "key.fill")
                                 }
                                 .buttonStyle(.borderedProminent)
-                                .disabled(!store.canManageCoreState)
+                                .disabled(!store.canManageBrokerState)
                                 .help("Write a replacement upstream API key. The saved value is never shown.")
                                 Button("Delete API Key", role: .destructive) {
                                     confirmingDeleteSecret = true
                                 }
-                                .disabled(!store.canManageCoreState)
-                                .help("Delete stored credential material for this proxy alias")
+                                .disabled(!store.canManageBrokerState)
+                                .help("Delete stored credential material for this API session alias")
                                 if let dashboard = ProviderDashboardResolver.link(for: profile) {
                                     Button {
                                         ExternalURLOpener.open(dashboard.url, label: dashboard.title, store: store)
@@ -438,22 +438,22 @@ private struct ProxyProfileDetail: View {
                             Stepper(value: $bindPort, in: 1024...65535) {
                                 Text("Bind port: \(bindPort.formatted(.number.grouping(.never)))")
                             }
-                            .help("Local port for the next proxy session")
+                            .help("Local port for the next API session")
                             Button {
-                                Task { await store.createProxySession(profileName: profile.name, bindPort: bindPort) }
+                                Task { await store.createAPISession(profileName: profile.name, bindPort: bindPort) }
                             } label: {
                                 Label("Create Session", systemImage: "bolt.horizontal")
                             }
                             .buttonStyle(.borderedProminent)
-                            .disabled(!store.canManageCoreState)
-                            .help("Create a one-time localhost proxy session for this profile")
-                            if let endpoint = store.selectedProxySession?.endpoint {
-                                CopyableValueView(title: "Proxy URL", value: endpoint.absoluteString)
+                            .disabled(!store.canManageBrokerState)
+                            .help("Create a one-time localhost API session for this profile")
+                            if let endpoint = store.selectedAPISession?.endpoint {
+                                CopyableValueView(title: "API Session URL", value: endpoint.absoluteString)
                             }
-                            if let token = store.selectedProxySession?.token {
-                                CopyableSecretOnceView(title: "One-time proxy token", value: token)
+                            if let token = store.selectedAPISession?.token {
+                                CopyableSecretOnceView(title: "One-time API session token", value: token)
                                 Button {
-                                    store.clearProxySession(profileName: profile.name)
+                                    store.clearAPISession(profileName: profile.name)
                                 } label: {
                                     Label("Hide Token", systemImage: "eye.slash")
                                 }
@@ -465,8 +465,8 @@ private struct ProxyProfileDetail: View {
                             Button("Delete Profile", role: .destructive) {
                                 confirmingDeleteProfile = true
                             }
-                            .disabled(!store.canManageCoreState)
-                            .help("Remove this proxy profile. Credential material is kept unless the checkbox is selected.")
+                            .disabled(!store.canManageBrokerState)
+                            .help("Remove this API session profile. Credential material is kept unless the checkbox is selected.")
                         }
                     }
                     .formStyle(.grouped)
@@ -474,32 +474,32 @@ private struct ProxyProfileDetail: View {
                 .padding(24)
                 .frame(maxWidth: 900, alignment: .leading)
                 .sheet(isPresented: $showingEdit) {
-                    ProxyProfileEditor(store: store, profile: profile)
+                    APISessionProfileEditor(store: store, profile: profile)
                 }
                 .sheet(isPresented: $showingReplaceSecret) {
-                    ReplaceSecretView(store: store, alias: profile.secretAlias, label: "\(profile.name) proxy API key", environment: "proxy:\(profile.name)")
+                    ReplaceSecretView(store: store, alias: profile.secretAlias, label: "\(profile.name) API session API key", environment: "api-session:\(profile.name)")
                 }
                 .confirmationDialog("Delete API key?", isPresented: $confirmingDeleteSecret) {
                     Button("Delete API Key", role: .destructive) {
                         Task { await store.deleteSecret(alias: profile.secretAlias) }
                     }
-                    .disabled(!store.canManageCoreState)
+                    .disabled(!store.canManageBrokerState)
                     Button("Cancel", role: .cancel) {}
                 } message: {
                     Text("This deletes local encrypted material for \(profile.secretAlias). The saved value cannot be displayed first.")
                 }
-                .confirmationDialog("Delete proxy profile?", isPresented: $confirmingDeleteProfile) {
+                .confirmationDialog("Delete API session profile?", isPresented: $confirmingDeleteProfile) {
                     Button("Delete Profile", role: .destructive) {
                         let shouldDeleteCredential = deleteCredentialWithProfile
                         deleteCredentialWithProfile = false
                         Task {
-                            await store.deleteProxyProfile(
+                            await store.deleteAPISessionProfile(
                                 name: profile.name,
                                 deleteSecretAlias: shouldDeleteCredential ? profile.secretAlias : nil
                             )
                         }
                     }
-                    .disabled(!store.canManageCoreState)
+                    .disabled(!store.canManageBrokerState)
                     Button("Cancel", role: .cancel) {
                         deleteCredentialWithProfile = false
                     }
@@ -515,7 +515,7 @@ private struct ProxyProfileDetail: View {
                     deleteCredentialWithProfile = false
                 }
             } else {
-                ContentUnavailableView("Select a Proxy Profile", systemImage: "point.3.connected.trianglepath.dotted")
+                ContentUnavailableView("Select an API Session Profile", systemImage: "point.3.connected.trianglepath.dotted")
                     .padding(24)
             }
         }
@@ -523,10 +523,10 @@ private struct ProxyProfileDetail: View {
 }
 
 struct MCPProfilesView: View {
-    @Bindable var store: ManagementStore
+    @Bindable var store: ControlPlaneStore
 
     var body: some View {
-        ManagementPageFrame(title: "MCP", subtitle: "Pinned upstream profiles for authorization injection.") {
+        ControlPlanePageFrame(title: "MCP Access", subtitle: "Pinned upstream profiles for authorization injection.") {
             if store.snapshot == nil {
                 LocalStateUnavailableView(store: store)
             } else if store.mcpProfiles.isEmpty {
@@ -542,7 +542,7 @@ struct MCPProfilesView: View {
                             Label("Add MCP Profile", systemImage: "plus")
                         }
                         .buttonStyle(.borderedProminent)
-                        .disabled(!store.canManageCoreState)
+                        .disabled(!store.canManageBrokerState)
                     }
                 }
             } else {
@@ -572,7 +572,7 @@ struct MCPProfilesView: View {
 }
 
 private struct MCPProfileDetail: View {
-    @Bindable var store: ManagementStore
+    @Bindable var store: ControlPlaneStore
     @State private var showingEdit = false
     @State private var confirmingDelete = false
     @State private var validationMessage: String?
@@ -592,7 +592,7 @@ private struct MCPProfileDetail: View {
                             } label: {
                                 Label("Edit MCP Profile", systemImage: "slider.horizontal.3")
                             }
-                            .disabled(!store.canManageCoreState)
+                            .disabled(!store.canManageBrokerState)
                         }
                         Section("Client Setup") {
                             CopyableValueView(title: "Profile origin", value: profile.origin.absoluteString)
@@ -626,7 +626,7 @@ private struct MCPProfileDetail: View {
                             Button("Delete Profile", role: .destructive) {
                                 confirmingDelete = true
                             }
-                            .disabled(!store.canManageCoreState)
+                            .disabled(!store.canManageBrokerState)
                         }
                     }
                     .formStyle(.grouped)
@@ -640,7 +640,7 @@ private struct MCPProfileDetail: View {
                     Button("Delete Profile", role: .destructive) {
                         Task { await store.deleteMCPProfile(name: profile.name) }
                     }
-                    .disabled(!store.canManageCoreState)
+                    .disabled(!store.canManageBrokerState)
                     Button("Cancel", role: .cancel) {}
                 } message: {
                     Text("The pinned MCP upstream profile is removed from local configuration.")
@@ -670,33 +670,33 @@ private struct MCPProfileDetail: View {
           "authorizationHeader": "\(profile.authorizationHeaderName)",
           "allowedPathPrefixes": \(jsonStringArray(profile.allowedPathPrefixes)),
           "allowCrossOriginRedirects": \(profile.allowCrossOriginRedirects),
-          "credential": "managed-by-agentic-fortress"
+          "credential": "managed-by-agentic-secrets"
         }
         """
     }
 }
 
-struct BWSView: View {
-    @Bindable var store: ManagementStore
+struct BitwardenProviderBindingsView: View {
+    @Bindable var store: ControlPlaneStore
 
     var body: some View {
-        ManagementPageFrame(title: "BWS", subtitle: "External secret provider bindings, without exposing fetched values.") {
+        ControlPlanePageFrame(title: "Provider Bindings (BWS)", subtitle: "External secret provider bindings, without exposing fetched values.") {
             if store.snapshot == nil {
                 LocalStateUnavailableView(store: store)
-            } else if store.bwsBindings.isEmpty {
+            } else if store.bitwardenBindings.isEmpty {
                 PageCenteredState {
                     ContentUnavailableView {
-                        Label("No BWS Bindings", systemImage: "key.horizontal")
+                        Label("No Bitwarden Provider Bindings", systemImage: "key.horizontal")
                     } description: {
-                        Text("Create a binding to authorize one exact BWS secret per invocation.")
+                        Text("Create a binding to authorize one exact Bitwarden secret per invocation.")
                     } actions: {
                         Button {
-                            store.presentBWSBindingEditor()
+                            store.presentBitwardenBindingEditor()
                         } label: {
-                            Label("Create BWS Binding", systemImage: "plus")
+                            Label("Create Bitwarden Provider Binding", systemImage: "plus")
                         }
                         .buttonStyle(.borderedProminent)
-                        .disabled(!store.canManageCoreState)
+                        .disabled(!store.canManageBrokerState)
                         .help("Create a Bitwarden Secrets Manager binding")
                         Button {
                             store.presentDiagnostics()
@@ -704,13 +704,13 @@ struct BWSView: View {
                             Label("Review Diagnostics", systemImage: "stethoscope")
                         }
                         .buttonStyle(.bordered)
-                        .help("Review local core and provider setup")
+                        .help("Review local broker and provider setup")
                     }
                 }
             } else {
                 HSplitView {
-                    List(selection: $store.selectedBWSBinding) {
-                        ForEach(store.bwsBindings) { binding in
+                    List(selection: $store.selectedBitwardenBinding) {
+                        ForEach(store.bitwardenBindings) { binding in
                             VStack(alignment: .leading, spacing: 5) {
                                 Text(binding.alias).font(.headline)
                                 Text("\(binding.environment) · \(binding.requiresPerFetchApproval ? "approval required" : "\(Int(binding.maxLeaseSeconds))s lease")")
@@ -726,7 +726,7 @@ struct BWSView: View {
                         }
                     }
                     .frame(minWidth: 280, idealWidth: 340, maxWidth: 440)
-                    BWSBindingDetail(store: store)
+                    BitwardenBindingDetail(store: store)
                         .frame(minWidth: 460)
                 }
                 .frame(minHeight: 420)
@@ -735,14 +735,14 @@ struct BWSView: View {
     }
 }
 
-private struct BWSBindingDetail: View {
-    @Bindable var store: ManagementStore
+private struct BitwardenBindingDetail: View {
+    @Bindable var store: ControlPlaneStore
     @State private var showingEdit = false
     @State private var confirmingDelete = false
 
     var body: some View {
         ScrollView {
-            if let binding = store.selectedBWSBindingSummary {
+            if let binding = store.selectedBitwardenBindingSummary {
                 VStack(alignment: .leading, spacing: 18) {
                     header(binding.alias, subtitle: "Bitwarden Secrets Manager binding")
                     Form {
@@ -756,8 +756,8 @@ private struct BWSBindingDetail: View {
                                 } label: {
                                     Label("Replace Binding", systemImage: "slider.horizontal.3")
                                 }
-                                .disabled(!store.canManageCoreState)
-                                .help("Update binding metadata and provide the write-only BWS secret ID again")
+                                .disabled(!store.canManageBrokerState)
+                                .help("Update binding metadata and provide the write-only Bitwarden secret ID again")
                                 Button {
                                     ExternalURLOpener.open(
                                         URL(string: "https://vault.bitwarden.com/#/sm/secrets")!,
@@ -769,7 +769,7 @@ private struct BWSBindingDetail: View {
                                 }
                                 CopyButton(
                                     title: "Copy Reference",
-                                    value: bwsBindingReference(binding),
+                                    value: bitwardenBindingReference(binding),
                                     help: "Copy a redacted binding reference"
                                 )
                             }
@@ -782,7 +782,7 @@ private struct BWSBindingDetail: View {
                             Button("Delete Binding", role: .destructive) {
                                 confirmingDelete = true
                             }
-                            .disabled(!store.canManageCoreState)
+                            .disabled(!store.canManageBrokerState)
                         }
                     }
                     .formStyle(.grouped)
@@ -790,25 +790,25 @@ private struct BWSBindingDetail: View {
                 .padding(24)
                 .frame(maxWidth: 820, alignment: .leading)
                 .sheet(isPresented: $showingEdit) {
-                    BWSBindingEditor(store: store, binding: binding)
+                    BitwardenBindingEditor(store: store, binding: binding)
                 }
-                .confirmationDialog("Delete BWS binding?", isPresented: $confirmingDelete) {
+                .confirmationDialog("Delete Bitwarden provider binding?", isPresented: $confirmingDelete) {
                     Button("Delete Binding", role: .destructive) {
-                        Task { await store.deleteBWSBinding(alias: binding.alias) }
+                        Task { await store.deleteBitwardenBinding(alias: binding.alias) }
                     }
-                    .disabled(!store.canManageCoreState)
+                    .disabled(!store.canManageBrokerState)
                     Button("Cancel", role: .cancel) {}
                 } message: {
                     Text("This removes the local binding metadata. It does not delete any upstream Bitwarden secret.")
                 }
             } else {
-                ContentUnavailableView("Select a BWS Binding", systemImage: "key.horizontal")
+                ContentUnavailableView("Select a Bitwarden Provider Binding", systemImage: "key.horizontal")
                     .padding(24)
             }
         }
     }
 
-    private func bwsBindingReference(_ binding: BWSBindingSummary) -> String {
+    private func bitwardenBindingReference(_ binding: BitwardenBindingSummary) -> String {
         """
         alias: \(binding.alias)
         provider: bitwarden-secrets-manager
@@ -819,39 +819,39 @@ private struct BWSBindingDetail: View {
     }
 }
 
-struct AdaptersView: View {
-    @Bindable var store: ManagementStore
+struct CommandPolicyPacksView: View {
+    @Bindable var store: ControlPlaneStore
     @State private var confirmingRevoke = false
 
     var body: some View {
-        ManagementPageFrame(
-            title: "Adapters",
-            subtitle: "Signed command-classification packs. CLIs use adapters; adapters are not secrets."
+        ControlPlanePageFrame(
+            title: "Command Policy Packs",
+            subtitle: "Signed command-classification packs. CLIs use policyPacks; policyPacks are not secrets."
         ) {
             if store.snapshot == nil {
                 LocalStateUnavailableView(store: store)
-            } else if store.adapters.isEmpty {
+            } else if store.policyPacks.isEmpty {
                 PageCenteredState {
                     ContentUnavailableView {
-                        Label("No Adapters", systemImage: "puzzlepiece.extension")
+                        Label("No Command Policy Packs", systemImage: "puzzlepiece.extension")
                     } description: {
-                        Text("Install a signed adapter pack JSON payload to classify a supported CLI.")
+                        Text("Install a signed command policy pack JSON payload to classify a supported CLI.")
                     } actions: {
                         Button {
-                            AdapterPackInstaller.presentOpenPanel(store: store)
+                            CommandPolicyPackInstaller.presentOpenPanel(store: store)
                         } label: {
-                            Label("Install Adapter Pack", systemImage: "square.and.arrow.down")
+                            Label("Install Command Policy Pack", systemImage: "square.and.arrow.down")
                         }
                         .buttonStyle(.borderedProminent)
-                        .disabled(!store.canManageCoreState)
+                        .disabled(!store.canManageBrokerState)
                     }
                 }
             } else {
                 HSplitView {
-                    Table(store.adapters, selection: $store.selectedAdapter) {
+                    Table(store.policyPacks, selection: $store.selectedAdapter) {
                         TableColumn("CLI", value: \.cliName)
                         TableColumn("Publisher", value: \.publisher)
-                        TableColumn("Version") { Text("\($0.adapterVersion)") }
+                        TableColumn("Version") { Text("\($0.policyPackVersion)") }
                         TableColumn("Rules") { Text("\($0.ruleCount)") }
                     }
                     .frame(minWidth: 440)
@@ -862,35 +862,35 @@ struct AdaptersView: View {
             }
         }
         .confirmationDialog("Revoke adapter?", isPresented: $confirmingRevoke) {
-            if let adapter = store.selectedAdapterSummary {
+            if let adapter = store.selectedPolicyPackSummary {
                 Button("Revoke Adapter", role: .destructive) {
-                    Task { await store.revokeAdapter(adapterID: adapter.adapterID) }
+                    Task { await store.revokeAdapter(policyPackID: adapter.policyPackID) }
                 }
-                .disabled(!store.canManageCoreState || adapter.revokedAt != nil)
+                .disabled(!store.canManageBrokerState || adapter.revokedAt != nil)
             }
             Button("Cancel", role: .cancel) {}
         } message: {
-            Text("Revoked adapters no longer classify commands. Built-in adapters may reappear from the bundled registry.")
+            Text("Revoked policyPacks no longer classify commands. Built-in policyPacks may reappear from the bundled registry.")
         }
     }
 }
 
 private struct AdapterDetail: View {
-    @Bindable var store: ManagementStore
+    @Bindable var store: ControlPlaneStore
     @Binding var confirmingRevoke: Bool
     @State private var showingManifest = false
 
     var body: some View {
         ScrollView {
-            if let adapter = store.selectedAdapterSummary {
+            if let adapter = store.selectedPolicyPackSummary {
                 VStack(alignment: .leading, spacing: 18) {
-                    header(adapter.cliName, subtitle: adapter.adapterID)
+                    header(adapter.cliName, subtitle: adapter.policyPackID)
                     Form {
                         Section("Manifest") {
                             LabeledContent("Publisher", value: adapter.publisher)
-                            LabeledContent("Version", value: "\(adapter.adapterVersion)")
+                            LabeledContent("Version", value: "\(adapter.policyPackVersion)")
                             LabeledContent("Rules", value: "\(adapter.ruleCount)")
-                            LabeledContent("Hash", value: adapter.adapterHash)
+                            LabeledContent("Hash", value: adapter.policyPackHash)
                             if let installedAt = adapter.installedAt {
                                 LabeledContent("Installed", value: installedAt.formatted())
                             }
@@ -903,10 +903,10 @@ private struct AdapterDetail: View {
                                 } label: {
                                     Label("View Manifest", systemImage: "doc.text.magnifyingglass")
                                 }
-                                .help("View installed adapter manifest metadata")
+                                .help("View installed command policy pack manifest metadata")
                                 CopyButton(
                                     title: "Copy Report",
-                                    value: adapterReport(adapter),
+                                    value: policyPackReport(adapter),
                                     help: "Copy a redacted adapter report"
                                 )
                             }
@@ -923,7 +923,7 @@ private struct AdapterDetail: View {
                             Button("Revoke Adapter", role: .destructive) {
                                 confirmingRevoke = true
                             }
-                            .disabled(!store.canManageCoreState || adapter.revokedAt != nil)
+                            .disabled(!store.canManageBrokerState || adapter.revokedAt != nil)
                         }
                     }
                     .formStyle(.grouped)
@@ -940,14 +940,14 @@ private struct AdapterDetail: View {
         }
     }
 
-    private func adapterReport(_ adapter: AdapterSummary) -> String {
+    private func policyPackReport(_ adapter: PolicyPackSummary) -> String {
         """
-        adapterID: \(adapter.adapterID)
+        policyPackID: \(adapter.policyPackID)
         cli: \(adapter.cliName)
         publisher: \(adapter.publisher)
-        version: \(adapter.adapterVersion)
+        version: \(adapter.policyPackVersion)
         rules: \(adapter.ruleCount)
-        hash: \(adapter.adapterHash)
+        hash: \(adapter.policyPackHash)
         status: \(adapter.revokedAt == nil ? "active" : "revoked")
         """
     }
@@ -955,20 +955,20 @@ private struct AdapterDetail: View {
 
 private struct AdapterManifestView: View {
     @Environment(\.dismiss) private var dismiss
-    var adapter: AdapterSummary
+    var adapter: PolicyPackSummary
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
-            header("Adapter Manifest", subtitle: adapter.adapterID)
+            header("Command Policy Pack Manifest", subtitle: adapter.policyPackID)
             Form {
                 Section("Identity") {
                     LabeledContent("CLI", value: adapter.cliName)
                     LabeledContent("Publisher", value: adapter.publisher)
-                    LabeledContent("Version", value: "\(adapter.adapterVersion)")
+                    LabeledContent("Version", value: "\(adapter.policyPackVersion)")
                     LabeledContent("Rules", value: "\(adapter.ruleCount)")
                 }
                 Section("Integrity") {
-                    LabeledContent("Hash", value: adapter.adapterHash)
+                    LabeledContent("Hash", value: adapter.policyPackHash)
                     LabeledContent("Status", value: adapter.revokedAt == nil ? "Active" : "Revoked")
                     Text("The management summary exposes hash, publisher, and version. Signed payload verification happens before install in core.")
                         .font(.caption)
@@ -988,7 +988,7 @@ private struct AdapterManifestView: View {
 }
 
 struct AuditView: View {
-    @Bindable var store: ManagementStore
+    @Bindable var store: ControlPlaneStore
     @State private var selectedEventID: AuditEventSummary.ID?
     @State private var filterText = ""
 
@@ -1112,12 +1112,12 @@ struct AuditView: View {
         case .cli(let name):
             store.selectedSection = .cliSecrets
             store.selectedCLI = name
-        case .proxy(let name):
-            store.selectedSection = .proxy
-            store.selectedProxyProfile = name
-        case .bws(let alias):
-            store.selectedSection = .bws
-            store.selectedBWSBinding = alias
+        case .apiSession(let name):
+            store.selectedSection = .apiSessions
+            store.selectedAPISessionProfile = name
+        case .bitwardenBinding(let alias):
+            store.selectedSection = .bitwardenProviderBindings
+            store.selectedBitwardenBinding = alias
         case .mcp(let name):
             store.selectedSection = .mcp
             store.selectedMCPProfile = name
@@ -1126,35 +1126,35 @@ struct AuditView: View {
 }
 
 struct DiagnosticsView: View {
-    @Bindable var store: ManagementStore
+    @Bindable var store: ControlPlaneStore
     @State private var confirmingInstall = false
 
     var body: some View {
         Form {
             Section("Daemon") {
-                DaemonRecommendedFixPanel(store: store, confirmingInstall: $confirmingInstall)
-                LabeledContent("Status", value: store.daemonStatus.state.rawValue.capitalized)
-                LabeledContent("Socket", value: store.daemonStatus.socketPath)
-                LabeledContent("LaunchAgent", value: store.daemonStatus.launchAgentPath ?? "Not installed")
-                Text(store.daemonStatus.message)
-                    .foregroundStyle(store.daemonStatus.state == .healthy ? .secondary : .primary)
+                BrokerRecommendedFixPanel(store: store, confirmingInstall: $confirmingInstall)
+                LabeledContent("Status", value: store.brokerStatus.state.rawValue.capitalized)
+                LabeledContent("Socket", value: store.brokerStatus.socketPath)
+                LabeledContent("LaunchAgent", value: store.brokerStatus.launchAgentPath ?? "Not installed")
+                Text(store.brokerStatus.message)
+                    .foregroundStyle(store.brokerStatus.state == .healthy ? .secondary : .primary)
                 DisclosureGroup("Advanced diagnostics") {
                     HStack {
-                        DaemonActionButtons(
+                        BrokerActionButtons(
                             store: store,
                             confirmingInstall: $confirmingInstall,
                             includeAdvancedActions: true,
                             includeBestAction: false
                         )
                     }
-                    if let detail = store.daemonStatus.detail {
+                    if let detail = store.brokerStatus.detail {
                         Text(detail)
                             .font(.system(.caption, design: .monospaced))
                             .textSelection(.enabled)
                     }
-                    if let plan = store.daemonInstallPlan {
+                    if let plan = store.brokerInstallPlan {
                         Divider()
-                        DaemonInstallPlanView(store: store, plan: plan)
+                        BrokerInstallPlanView(store: store, plan: plan)
                     }
                 }
             }
@@ -1171,22 +1171,22 @@ struct DiagnosticsView: View {
         .formStyle(.grouped)
         .padding(24)
         .confirmationDialog(
-            store.daemonInstallPlan?.primaryActionTitle ?? "Install Local Daemon",
+            store.brokerInstallPlan?.primaryActionTitle ?? "Install Local Daemon",
             isPresented: $confirmingInstall,
             titleVisibility: .visible
         ) {
-            Button(store.daemonInstallPlan?.primaryActionTitle ?? "Install Local Daemon") {
+            Button(store.brokerInstallPlan?.primaryActionTitle ?? "Install Local Daemon") {
                 Task { await store.installOrRepairDaemon() }
             }
             Button("Cancel", role: .cancel) {}
         } message: {
-            Text("Agentic Fortress will update the local app copy, helper links, install manifest, and per-user LaunchAgent. Secret material is not read or moved.")
+            Text("Agentic Secrets will update the local app copy, helper links, install manifest, and per-user LaunchAgent. Secret material is not read or moved.")
         }
     }
 }
 
-struct DaemonRecommendedFixPanel: View {
-    @Bindable var store: ManagementStore
+struct BrokerRecommendedFixPanel: View {
+    @Bindable var store: ControlPlaneStore
     @Binding var confirmingInstall: Bool
 
     var body: some View {
@@ -1195,7 +1195,7 @@ struct DaemonRecommendedFixPanel: View {
                 Label(title, systemImage: symbol)
                     .font(.headline)
                 Spacer()
-                if store.daemonStatus.state == .repairing || store.daemonStatus.state == .installing {
+                if store.brokerStatus.state == .repairing || store.brokerStatus.state == .installing {
                     ProgressView()
                         .controlSize(.small)
                 }
@@ -1207,11 +1207,11 @@ struct DaemonRecommendedFixPanel: View {
                 Button {
                     perform(action)
                 } label: {
-                    Label(action.title(plan: store.daemonInstallPlan), systemImage: action.systemImage)
+                    Label(action.title(plan: store.brokerInstallPlan), systemImage: action.systemImage)
                 }
                 .buttonStyle(.borderedProminent)
                 .disabled(isDisabled(action))
-                .accessibilityLabel(action.title(plan: store.daemonInstallPlan))
+                .accessibilityLabel(action.title(plan: store.brokerInstallPlan))
                 .help(help(for: action))
             }
         }
@@ -1221,7 +1221,7 @@ struct DaemonRecommendedFixPanel: View {
     }
 
     private var title: String {
-        switch store.daemonStatus.state {
+        switch store.brokerStatus.state {
         case .healthy:
             "Setup Ready"
         case .installing:
@@ -1234,7 +1234,7 @@ struct DaemonRecommendedFixPanel: View {
     }
 
     private var symbol: String {
-        switch store.daemonStatus.state {
+        switch store.brokerStatus.state {
         case .healthy:
             "checkmark.circle"
         case .installing:
@@ -1254,7 +1254,7 @@ struct DaemonRecommendedFixPanel: View {
         }
         switch action {
         case .check:
-            return store.daemonInstallPlan?.summary ?? "Check the local daemon and install state before continuing."
+            return store.brokerInstallPlan?.summary ?? "Check the local daemon and install state before continuing."
         case .installOrRepair:
             return "Install or repair the local daemon, helper links, authenticated install manifest, and per-user LaunchAgent. Secret material is not read or moved."
         case .restart:
@@ -1264,23 +1264,23 @@ struct DaemonRecommendedFixPanel: View {
         }
     }
 
-    private func isDisabled(_ action: DaemonNextAction) -> Bool {
-        if store.daemonStatus.state == .installing || store.daemonStatus.state == .repairing {
+    private func isDisabled(_ action: BrokerNextAction) -> Bool {
+        if store.brokerStatus.state == .installing || store.brokerStatus.state == .repairing {
             return true
         }
         switch action {
         case .check:
             return store.isLoading
         case .installOrRepair:
-            return !(store.daemonInstallPlan?.canInstall ?? false)
+            return !(store.brokerInstallPlan?.canInstall ?? false)
         case .restart:
-            return !store.daemonStatus.canRepair
+            return !store.brokerStatus.canRepair
         case .openInstalledApp:
             return !store.canOpenInstalledApp
         }
     }
 
-    private func help(for action: DaemonNextAction) -> String {
+    private func help(for action: BrokerNextAction) -> String {
         switch action {
         case .check:
             "Recheck daemon status and local install files"
@@ -1293,7 +1293,7 @@ struct DaemonRecommendedFixPanel: View {
         }
     }
 
-    private func perform(_ action: DaemonNextAction) {
+    private func perform(_ action: BrokerNextAction) {
         switch action {
         case .check:
             Task { await store.checkDaemon() }
@@ -1308,7 +1308,7 @@ struct DaemonRecommendedFixPanel: View {
 }
 
 struct SnapshotUnavailablePanel: View {
-    @Bindable var store: ManagementStore
+    @Bindable var store: ControlPlaneStore
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
@@ -1316,7 +1316,7 @@ struct SnapshotUnavailablePanel: View {
                 .font(.headline)
             Text(message)
                 .foregroundStyle(.secondary)
-            if store.daemonStatus.state == .healthy {
+            if store.brokerStatus.state == .healthy {
                 Button {
                     Task { await store.refresh() }
                 } label: {
@@ -1332,22 +1332,22 @@ struct SnapshotUnavailablePanel: View {
     }
 
     private var title: String {
-        store.daemonStatus.state == .healthy ? "Local State Not Loaded" : "Local State Paused"
+        store.brokerStatus.state == .healthy ? "Local State Not Loaded" : "Local State Paused"
     }
 
     private var message: String {
-        store.daemonStatus.state == .healthy
-            ? "Refresh to load local Agentic Fortress state."
+        store.brokerStatus.state == .healthy
+            ? "Refresh to load local Agentic Secrets state."
             : "Local state will load after the daemon is reachable."
     }
 
     private var symbol: String {
-        store.daemonStatus.state == .healthy ? "shield" : "pause.circle"
+        store.brokerStatus.state == .healthy ? "shield" : "pause.circle"
     }
 }
 
 struct LocalStateUnavailableView: View {
-    @Bindable var store: ManagementStore
+    @Bindable var store: ControlPlaneStore
 
     var body: some View {
         PageCenteredState {
@@ -1368,8 +1368,8 @@ struct LocalStateUnavailableView: View {
     }
 }
 
-struct DaemonStatusPanel: View {
-    @Bindable var store: ManagementStore
+struct BrokerStatusPanel: View {
+    @Bindable var store: ControlPlaneStore
     @State private var confirmingInstall = false
 
     var body: some View {
@@ -1378,15 +1378,15 @@ struct DaemonStatusPanel: View {
                 Label(title, systemImage: symbol)
                     .font(.headline)
                 Spacer()
-                if store.daemonStatus.state == .repairing || store.daemonStatus.state == .installing {
+                if store.brokerStatus.state == .repairing || store.brokerStatus.state == .installing {
                     ProgressView()
                         .controlSize(.small)
                 }
             }
-            Text(store.daemonStatus.message)
+            Text(store.brokerStatus.message)
                 .foregroundStyle(.secondary)
-            DaemonActionButtons(store: store, confirmingInstall: $confirmingInstall, includeAdvancedActions: false)
-            if let plan = store.daemonInstallPlan, !plan.canInstall {
+            BrokerActionButtons(store: store, confirmingInstall: $confirmingInstall, includeAdvancedActions: false)
+            if let plan = store.brokerInstallPlan, !plan.canInstall {
                 Text(plan.summary)
                     .font(.caption)
                     .foregroundStyle(.secondary)
@@ -1396,11 +1396,11 @@ struct DaemonStatusPanel: View {
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 8))
         .confirmationDialog(
-            store.daemonInstallPlan?.primaryActionTitle ?? "Install Local Daemon",
+            store.brokerInstallPlan?.primaryActionTitle ?? "Install Local Daemon",
             isPresented: $confirmingInstall,
             titleVisibility: .visible
         ) {
-            Button(store.daemonInstallPlan?.primaryActionTitle ?? "Install Local Daemon") {
+            Button(store.brokerInstallPlan?.primaryActionTitle ?? "Install Local Daemon") {
                 Task { await store.installOrRepairDaemon() }
             }
             Button("Cancel", role: .cancel) {}
@@ -1410,7 +1410,7 @@ struct DaemonStatusPanel: View {
     }
 
     private var title: String {
-        switch store.daemonStatus.state {
+        switch store.brokerStatus.state {
         case .healthy: "Daemon Healthy"
         case .unavailable: "Daemon Unavailable"
         case .repairing: "Restarting Daemon"
@@ -1420,7 +1420,7 @@ struct DaemonStatusPanel: View {
     }
 
     private var symbol: String {
-        switch store.daemonStatus.state {
+        switch store.brokerStatus.state {
         case .healthy: "checkmark.circle"
         case .unavailable: "exclamationmark.triangle"
         case .repairing: "arrow.clockwise"
@@ -1430,8 +1430,8 @@ struct DaemonStatusPanel: View {
     }
 }
 
-struct DaemonActionButtons: View {
-    @Bindable var store: ManagementStore
+struct BrokerActionButtons: View {
+    @Bindable var store: ControlPlaneStore
     @Binding var confirmingInstall: Bool
     var includeAdvancedActions: Bool
     var includeBestAction = true
@@ -1444,8 +1444,8 @@ struct DaemonActionButtons: View {
         }
     }
 
-    private var visibleActions: [DaemonNextAction] {
-        var actions: [DaemonNextAction] = []
+    private var visibleActions: [BrokerNextAction] {
+        var actions: [BrokerNextAction] = []
         if includeBestAction, let best = store.bestDaemonAction {
             actions.append(best)
         }
@@ -1455,7 +1455,7 @@ struct DaemonActionButtons: View {
             appendIfAvailable(.installOrRepair, to: &actions)
             appendIfAvailable(.restart, to: &actions)
             appendIfAvailable(.openInstalledApp, to: &actions)
-        } else if store.daemonStatus.state != .healthy {
+        } else if store.brokerStatus.state != .healthy {
             appendIfAvailable(.check, to: &actions)
         } else {
             appendIfAvailable(.check, to: &actions)
@@ -1463,49 +1463,49 @@ struct DaemonActionButtons: View {
         return actions
     }
 
-    private func appendIfAvailable(_ action: DaemonNextAction, to actions: inout [DaemonNextAction]) {
+    private func appendIfAvailable(_ action: BrokerNextAction, to actions: inout [BrokerNextAction]) {
         guard !actions.contains(action), isAvailable(action) else { return }
         actions.append(action)
     }
 
-    private func isAvailable(_ action: DaemonNextAction) -> Bool {
+    private func isAvailable(_ action: BrokerNextAction) -> Bool {
         switch action {
         case .check:
             return true
         case .installOrRepair:
-            return store.daemonStatus.state != .healthy && (store.daemonInstallPlan?.canInstall ?? false)
+            return store.brokerStatus.state != .healthy && (store.brokerInstallPlan?.canInstall ?? false)
         case .restart:
-            return store.daemonStatus.state != .healthy && store.daemonStatus.canRepair
+            return store.brokerStatus.state != .healthy && store.brokerStatus.canRepair
         case .openInstalledApp:
-            guard store.daemonInstallPlan?.currentAppIsInstalledCopy == false else { return false }
+            guard store.brokerInstallPlan?.currentAppIsInstalledCopy == false else { return false }
             return store.canOpenInstalledApp
         }
     }
 
-    private func isDisabled(_ action: DaemonNextAction) -> Bool {
-        if store.daemonStatus.state == .installing || store.daemonStatus.state == .repairing {
+    private func isDisabled(_ action: BrokerNextAction) -> Bool {
+        if store.brokerStatus.state == .installing || store.brokerStatus.state == .repairing {
             return true
         }
         switch action {
         case .check:
             return store.isLoading
         case .installOrRepair:
-            return !(store.daemonInstallPlan?.canInstall ?? false)
+            return !(store.brokerInstallPlan?.canInstall ?? false)
         case .restart:
-            return !store.daemonStatus.canRepair
+            return !store.brokerStatus.canRepair
         case .openInstalledApp:
             return !store.canOpenInstalledApp
         }
     }
 
     @ViewBuilder
-    private func actionButton(_ action: DaemonNextAction, prominent: Bool) -> some View {
+    private func actionButton(_ action: BrokerNextAction, prominent: Bool) -> some View {
         let button = Button {
             perform(action)
         } label: {
-            Label(action.title(plan: store.daemonInstallPlan), systemImage: action.systemImage)
+            Label(action.title(plan: store.brokerInstallPlan), systemImage: action.systemImage)
         }
-        .accessibilityLabel(action.title(plan: store.daemonInstallPlan))
+        .accessibilityLabel(action.title(plan: store.brokerInstallPlan))
         .disabled(isDisabled(action))
 
         if prominent {
@@ -1515,7 +1515,7 @@ struct DaemonActionButtons: View {
         }
     }
 
-    private func perform(_ action: DaemonNextAction) {
+    private func perform(_ action: BrokerNextAction) {
         switch action {
         case .check:
             Task { await store.checkDaemon() }
@@ -1529,9 +1529,9 @@ struct DaemonActionButtons: View {
     }
 }
 
-struct DaemonInstallPlanView: View {
-    var store: ManagementStore
-    var plan: DaemonInstallPlan
+struct BrokerInstallPlanView: View {
+    var store: ControlPlaneStore
+    var plan: BrokerInstallPlan
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
@@ -1648,7 +1648,7 @@ struct StatusBadge: View {
     }
 }
 
-struct ManagementPageFrame<Content: View>: View {
+struct ControlPlanePageFrame<Content: View>: View {
     var title: String
     var subtitle: String
     @ViewBuilder var content: Content

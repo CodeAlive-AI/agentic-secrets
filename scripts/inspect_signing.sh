@@ -1,7 +1,7 @@
 #!/usr/bin/env sh
 set -eu
 
-ARTIFACT="${1:-build/AgenticFortress.app}"
+ARTIFACT="${1:-build/AgenticSecrets.app}"
 
 ulimit -n 10240 2>/dev/null || true
 /usr/bin/perl -e 'alarm 15; exec @ARGV' codesign --verify --strict --deep --verbose=4 "$ARTIFACT"

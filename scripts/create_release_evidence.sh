@@ -7,7 +7,7 @@ cd "$ROOT"
 mkdir -p "$ROOT/build/release-evidence"
 COMMIT="$(git rev-parse HEAD)"
 SHORT_COMMIT="$(git rev-parse --short HEAD)"
-OUT="$ROOT/build/release-evidence/agentic-fortress-$SHORT_COMMIT.md"
+OUT="$ROOT/build/release-evidence/agentic-secrets-$SHORT_COMMIT.md"
 
 append_cmd() {
   title="$1"
@@ -18,9 +18,9 @@ append_cmd() {
 }
 
 cat >"$OUT" <<EOF
-# AgenticFortress Release Evidence
+# Agentic Secrets Release Evidence
 
-- Product: AgenticFortress
+- Product: Agentic Secrets
 - Release track: source self-build with local ad-hoc signing
 - Commit: $COMMIT
 - Generated at UTC: $(date -u +"%Y-%m-%dT%H:%M:%SZ")
@@ -36,10 +36,10 @@ append_cmd "macOS SDK Version" xcrun --sdk macosx --show-sdk-version
 append_cmd "Swift Version" swift --version
 append_cmd "CI" ./scripts/ci.sh
 append_cmd "Secret Authority Gate" ./scripts/check_secret_authority.sh
-append_cmd "Release Gates" swift run agentic-fortress release-gates
+append_cmd "Release Gates" swift run agentic-secrets release-gates
 append_cmd "Package" ./scripts/package_release.sh
-append_cmd "Package Validation" ./scripts/validate_release_artifact.sh build/AgenticFortress.app
-append_cmd "IPC Conformance" swift run agentic-fortress ipc-conformance
-append_cmd "MCP Conformance" swift run agentic-fortress mcp-conformance
+append_cmd "Package Validation" ./scripts/validate_release_artifact.sh "build/AgenticSecrets.app"
+append_cmd "IPC Conformance" swift run agentic-secrets ipc-conformance
+append_cmd "MCP Conformance" swift run agentic-secrets mcp-conformance
 
 printf '%s\n' "$OUT"

@@ -7,17 +7,19 @@ ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 CONFIGURATION="${CONFIGURATION:-release}"
 ARCHS="${ARCHS:-$(uname -m)}"
 BUILD_DIR="$ROOT/build"
+APP_DISPLAY_NAME="${APP_DISPLAY_NAME:-Agentic Secrets}"
+APP_EXECUTABLE_NAME="${APP_EXECUTABLE_NAME:-$APP_NAME}"
 APP_DIR="$BUILD_DIR/$APP_NAME.app"
 CONTENTS="$APP_DIR/Contents"
 MACOS="$CONTENTS/MacOS"
 RESOURCES="$CONTENTS/Resources"
 IDENTITY="${CODESIGN_IDENTITY:--}"
-ENTITLEMENTS="$ROOT/packaging/AgenticFortress.entitlements"
-ICON_PATH="${AGENTIC_FORTRESS_ICON_PATH:-$BUILD_DIR/AgenticFortress.icns}"
+ENTITLEMENTS="$ROOT/packaging/AgenticSecrets.entitlements"
+ICON_PATH="${AGENTIC_SECRETS_ICON_PATH:-$BUILD_DIR/AgenticSecrets.icns}"
 GIT_COMMIT="$(git -C "$ROOT" rev-parse --short HEAD 2>/dev/null || printf 'unknown')"
 BUILD_TIMESTAMP="$(date -u +"%Y-%m-%dT%H:%M:%SZ")"
-PRODUCTS="AgenticFortress agentic-fortress agentic-fortress-shim agentic-fortressd-core agentic-fortress-proxyd agentic-fortress-bwsd agentic-fortress-mcpd"
-SIGNING_PRODUCTS="agentic-fortress agentic-fortress-shim agentic-fortressd-core agentic-fortress-proxyd agentic-fortress-bwsd agentic-fortress-mcpd AgenticFortress"
+PRODUCTS="$APP_EXECUTABLE_NAME agentic-secrets agentic-secrets-shim agentic-secrets-brokerd agentic-secrets-api-sessiond agentic-secrets-bitwarden-providerd agentic-secrets-mcpd"
+SIGNING_PRODUCTS="agentic-secrets agentic-secrets-shim agentic-secrets-brokerd agentic-secrets-api-sessiond agentic-secrets-bitwarden-providerd agentic-secrets-mcpd $APP_EXECUTABLE_NAME"
 
 build_for_arch() {
   arch="$1"
@@ -56,7 +58,7 @@ if [ ! -f "$ICON_PATH" ]; then
   swift "$ROOT/packaging/make_icon.swift" "$ICON_PATH"
   iconutil -c icns "${ICON_PATH%.icns}.iconset" -o "$ICON_PATH"
 fi
-cp "$ICON_PATH" "$RESOURCES/AgenticFortress.icns"
+cp "$ICON_PATH" "$RESOURCES/AgenticSecrets.icns"
 
 cat > "$CONTENTS/Info.plist" <<PLIST
 <?xml version="1.0" encoding="UTF-8"?>
@@ -64,13 +66,15 @@ cat > "$CONTENTS/Info.plist" <<PLIST
 <plist version="1.0">
 <dict>
   <key>CFBundleExecutable</key>
-  <string>AgenticFortress</string>
+  <string>$APP_EXECUTABLE_NAME</string>
   <key>CFBundleIdentifier</key>
   <string>$BUNDLE_ID</string>
   <key>CFBundleName</key>
-  <string>$APP_NAME</string>
+  <string>$APP_DISPLAY_NAME</string>
+  <key>CFBundleDisplayName</key>
+  <string>$APP_DISPLAY_NAME</string>
   <key>CFBundleIconFile</key>
-  <string>AgenticFortress</string>
+  <string>AgenticSecrets</string>
   <key>CFBundlePackageType</key>
   <string>APPL</string>
   <key>CFBundleShortVersionString</key>
@@ -78,7 +82,7 @@ cat > "$CONTENTS/Info.plist" <<PLIST
   <key>CFBundleVersion</key>
   <string>$BUILD_NUMBER</string>
   <key>CFBundleGetInfoString</key>
-  <string>$APP_NAME $MARKETING_VERSION $RELEASE_CHANNEL</string>
+  <string>$APP_DISPLAY_NAME $MARKETING_VERSION $RELEASE_CHANNEL</string>
   <key>LSMinimumSystemVersion</key>
   <string>14.0</string>
   <key>NSPrincipalClass</key>

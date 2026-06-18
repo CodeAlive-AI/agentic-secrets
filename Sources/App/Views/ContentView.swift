@@ -1,23 +1,23 @@
-import AgenticFortressCore
+import AgenticSecretsBroker
 import AppKit
 import SwiftUI
 
 struct ContentView: View {
-    @Bindable var store: ManagementStore
+    @Bindable var store: ControlPlaneStore
 
     var body: some View {
         rootContent
             .sheet(isPresented: $store.showingRegisterCLI) {
                 RegisterCLIView(store: store)
             }
-            .sheet(isPresented: $store.showingProxyProfileEditor) {
-                ProxyProfileEditor(store: store)
+            .sheet(isPresented: $store.showingAPISessionProfileEditor) {
+                APISessionProfileEditor(store: store)
             }
             .sheet(isPresented: $store.showingMCPProfileEditor) {
                 MCPProfileEditor(store: store)
             }
-            .sheet(isPresented: $store.showingBWSBindingEditor) {
-                BWSBindingEditor(store: store)
+            .sheet(isPresented: $store.showingBitwardenBindingEditor) {
+                BitwardenBindingEditor(store: store)
             }
     }
 
@@ -43,7 +43,7 @@ struct ContentView: View {
                 ToolbarIconButton(
                     title: "Refresh",
                     systemImage: "arrow.clockwise",
-                    help: "Refresh local Agentic Fortress state",
+                    help: "Refresh local Agentic Secrets state",
                     isEnabled: !store.isLoading
                 ) {
                     Task { await store.refresh() }
@@ -75,7 +75,7 @@ private struct ToolbarIconButton: View {
 }
 
 private struct ContextToolbarActionSlot: View {
-    @Bindable var store: ManagementStore
+    @Bindable var store: ControlPlaneStore
 
     var body: some View {
         if let action = action {
@@ -107,30 +107,30 @@ private struct ContextToolbarActionSlot: View {
             ) {
                 store.presentRegisterCLI()
             }
-        case .bws:
+        case .bitwardenProviderBindings:
             ContextToolbarAction(
-                title: "Create BWS Binding",
+                title: "Create Bitwarden Provider Binding",
                 systemImage: "plus",
                 help: "Create a Bitwarden Secrets Manager binding",
-                isEnabled: store.canManageCoreState
+                isEnabled: store.canManageBrokerState
             ) {
-                store.presentBWSBindingEditor()
+                store.presentBitwardenBindingEditor()
             }
-        case .proxy:
+        case .apiSessions:
             ContextToolbarAction(
-                title: "Add Proxy Profile",
+                title: "Add API Session Profile",
                 systemImage: "plus",
-                help: "Add a bounded proxy profile",
-                isEnabled: store.canManageCoreState
+                help: "Add a bounded API session profile",
+                isEnabled: store.canManageBrokerState
             ) {
-                store.presentProxyProfileEditor()
+                store.presentAPISessionProfileEditor()
             }
         case .mcp:
             ContextToolbarAction(
                 title: "Add MCP Profile",
                 systemImage: "plus",
                 help: "Add a pinned MCP upstream profile",
-                isEnabled: store.canManageCoreState
+                isEnabled: store.canManageBrokerState
             ) {
                 store.presentMCPProfileEditor()
             }
@@ -143,14 +143,14 @@ private struct ContextToolbarActionSlot: View {
             ) {
                 AuditExportWriter.export(store: store)
             }
-        case .adapters:
+        case .policyPacks:
             ContextToolbarAction(
-                title: "Install Adapter Pack",
+                title: "Install Command Policy Pack",
                 systemImage: "square.and.arrow.down",
-                help: "Install a signed adapter pack JSON payload",
-                isEnabled: store.canManageCoreState
+                help: "Install a signed command policy pack JSON payload",
+                isEnabled: store.canManageBrokerState
             ) {
-                AdapterPackInstaller.presentOpenPanel(store: store)
+                CommandPolicyPackInstaller.presentOpenPanel(store: store)
             }
         case .diagnostics:
             nil
@@ -167,12 +167,12 @@ private struct ContextToolbarAction {
 }
 
 struct SidebarView: View {
-    @Bindable var store: ManagementStore
+    @Bindable var store: ControlPlaneStore
 
     var body: some View {
         List(selection: $store.selectedSection) {
             Section("Manage") {
-                ForEach(ManagementSection.allCases) { section in
+                ForEach(ControlPlaneSection.allCases) { section in
                     Label(section.rawValue, systemImage: section.systemImage)
                         .tag(section)
                 }
@@ -182,8 +182,8 @@ struct SidebarView: View {
                     Label("About", systemImage: "info.circle")
                 }
                 .buttonStyle(.plain)
-                .help("About Agentic Fortress")
-                .accessibilityLabel("About Agentic Fortress")
+                .help("About Agentic Secrets")
+                .accessibilityLabel("About Agentic Secrets")
             }
             Section {
                 SidebarDivider()
@@ -216,7 +216,7 @@ private struct SidebarDivider: View {
 }
 
 private struct SidebarReleaseFooter: View {
-    var store: ManagementStore
+    var store: ControlPlaneStore
     private let releasesURL = URL(string: "https://github.com/CodeAlive-AI/agentic-secrets/releases")!
 
     var body: some View {
@@ -231,7 +231,7 @@ private struct SidebarReleaseFooter: View {
                 store: store,
                 title: "releases",
                 destination: releasesURL,
-                accessibilityLabel: "Open Agentic Fortress releases"
+                accessibilityLabel: "Open Agentic Secrets releases"
             )
         }
         .padding(.horizontal, 28)
@@ -243,7 +243,7 @@ private struct SidebarReleaseFooter: View {
 }
 
 private struct SidebarTextLink: View {
-    var store: ManagementStore
+    var store: ControlPlaneStore
     var title: String
     var destination: URL
     var accessibilityLabel: String
@@ -281,7 +281,7 @@ private struct SidebarTextLink: View {
 }
 
 private struct ExternalSidebarLink: View {
-    var store: ManagementStore
+    var store: ControlPlaneStore
     var title: String
     var subtitle: String
     var systemImage: String
@@ -331,7 +331,7 @@ private struct ExternalSidebarLink: View {
 }
 
 struct DetailView: View {
-    @Bindable var store: ManagementStore
+    @Bindable var store: ControlPlaneStore
 
     var body: some View {
         Group {
@@ -340,14 +340,14 @@ struct DetailView: View {
                 OverviewView(store: store)
             case .cliSecrets:
                 CLISecretsView(store: store)
-            case .proxy:
-                ProxyProfilesView(store: store)
+            case .apiSessions:
+                APISessionProfilesView(store: store)
             case .mcp:
                 MCPProfilesView(store: store)
-            case .bws:
-                BWSView(store: store)
-            case .adapters:
-                AdaptersView(store: store)
+            case .bitwardenProviderBindings:
+                BitwardenProviderBindingsView(store: store)
+            case .policyPacks:
+                CommandPolicyPacksView(store: store)
             case .audit:
                 AuditView(store: store)
             case .diagnostics:
@@ -371,7 +371,7 @@ struct DetailView: View {
 }
 
 private struct FeedbackBanner: View {
-    @Bindable var store: ManagementStore
+    @Bindable var store: ControlPlaneStore
 
     var body: some View {
         HStack(spacing: 10) {

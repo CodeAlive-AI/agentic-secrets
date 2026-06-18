@@ -4,7 +4,7 @@ import UniformTypeIdentifiers
 
 @MainActor
 enum AuditExportWriter {
-    static func export(store: ManagementStore) {
+    static func export(store: ControlPlaneStore) {
         guard store.canExportAudit else {
             store.showDaemonRepairGuidance()
             return
@@ -35,6 +35,6 @@ enum AuditExportWriter {
     private static func defaultFilename(now: Date = Date()) -> String {
         let formatter = ISO8601DateFormatter()
         formatter.formatOptions = [.withFullDate, .withDashSeparatorInDate]
-        return "agentic-fortress-audit-\(formatter.string(from: now)).json"
+        return "agentic-secrets-audit-\(formatter.string(from: now)).json"
     }
 }

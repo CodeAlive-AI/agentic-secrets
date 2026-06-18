@@ -20,13 +20,13 @@ if [ "$SDK_MAJOR" -lt 26 ]; then
 fi
 
 swift build
-swift run agentic-fortress-contract-tests
-swift run agentic-fortress check-macos "$SDK_MAJOR"
-./scripts/package_release.sh >/tmp/agentic-fortress-package-path.txt
-APP_PATH="$(cat /tmp/agentic-fortress-package-path.txt | tail -n 1)"
+swift run agentic-secrets-contract-tests
+swift run agentic-secrets check-macos "$SDK_MAJOR"
+./scripts/package_release.sh >/tmp/agentic-secrets-package-path.txt
+APP_PATH="$(cat /tmp/agentic-secrets-package-path.txt | tail -n 1)"
 codesign --verify --strict --deep --verbose=4 "$APP_PATH"
 ./scripts/validate_release_artifact.sh "$APP_PATH"
-codesign -dvvv --entitlements :- "$APP_PATH" >/tmp/agentic-fortress-entitlements.plist 2>/tmp/agentic-fortress-codesign.txt
-grep -q "flags=.*runtime" /tmp/agentic-fortress-codesign.txt
+codesign -dvvv --entitlements :- "$APP_PATH" >/tmp/agentic-secrets-entitlements.plist 2>/tmp/agentic-secrets-codesign.txt
+grep -q "flags=.*runtime" /tmp/agentic-secrets-codesign.txt
 
 echo "Tahoe compatibility gate passed for OS $OS_VERSION with SDK $SDK_VERSION"

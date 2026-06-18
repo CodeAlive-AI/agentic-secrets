@@ -2,8 +2,10 @@
 set -euo pipefail
 
 MODE="${1:-run}"
-APP_NAME="AgenticFortress"
-BUNDLE_ID="com.agenticfortress.AgenticFortress"
+APP_NAME="AgenticSecrets"
+APP_DISPLAY_NAME="Agentic Secrets"
+APP_EXECUTABLE_NAME="AgenticSecrets"
+BUNDLE_ID="com.agenticsecrets.AgenticSecrets"
 MIN_SYSTEM_VERSION="14.0"
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -11,21 +13,23 @@ if [[ -f "$ROOT_DIR/version.env" ]]; then
   # shellcheck disable=SC1091
   source "$ROOT_DIR/version.env"
 fi
+APP_DISPLAY_NAME="${APP_DISPLAY_NAME:-Agentic Secrets}"
+APP_EXECUTABLE_NAME="${APP_EXECUTABLE_NAME:-$APP_NAME}"
 DIST_DIR="$ROOT_DIR/dist"
 APP_BUNDLE="$DIST_DIR/$APP_NAME.app"
 APP_CONTENTS="$APP_BUNDLE/Contents"
 APP_MACOS="$APP_CONTENTS/MacOS"
 APP_RESOURCES="$APP_CONTENTS/Resources"
-APP_BINARY="$APP_MACOS/$APP_NAME"
+APP_BINARY="$APP_MACOS/$APP_EXECUTABLE_NAME"
 INFO_PLIST="$APP_CONTENTS/Info.plist"
-ICON_PATH="${AGENTIC_FORTRESS_ICON_PATH:-$DIST_DIR/AgenticFortress.icns}"
+ICON_PATH="${AGENTIC_SECRETS_ICON_PATH:-$DIST_DIR/AgenticSecrets.icns}"
 GIT_COMMIT="$(git -C "$ROOT_DIR" rev-parse --short HEAD 2>/dev/null || printf 'unknown')"
 BUILD_TIMESTAMP="$(date -u +"%Y-%m-%dT%H:%M:%SZ")"
 
-pkill -x "$APP_NAME" >/dev/null 2>&1 || true
+pkill -x "$APP_EXECUTABLE_NAME" >/dev/null 2>&1 || true
 
-swift build --product "$APP_NAME"
-BUILD_BINARY="$(swift build --show-bin-path)/$APP_NAME"
+swift build --product "$APP_EXECUTABLE_NAME"
+BUILD_BINARY="$(swift build --show-bin-path)/$APP_EXECUTABLE_NAME"
 
 rm -rf "$APP_BUNDLE"
 mkdir -p "$APP_MACOS" "$APP_RESOURCES"
@@ -36,7 +40,7 @@ if [[ ! -f "$ICON_PATH" ]]; then
   swift "$ROOT_DIR/packaging/make_icon.swift" "$ICON_PATH"
   iconutil -c icns "${ICON_PATH%.icns}.iconset" -o "$ICON_PATH"
 fi
-cp "$ICON_PATH" "$APP_RESOURCES/AgenticFortress.icns"
+cp "$ICON_PATH" "$APP_RESOURCES/AgenticSecrets.icns"
 
 cat >"$INFO_PLIST" <<PLIST
 <?xml version="1.0" encoding="UTF-8"?>
@@ -44,13 +48,15 @@ cat >"$INFO_PLIST" <<PLIST
 <plist version="1.0">
 <dict>
   <key>CFBundleExecutable</key>
-  <string>$APP_NAME</string>
+  <string>$APP_EXECUTABLE_NAME</string>
   <key>CFBundleIdentifier</key>
   <string>$BUNDLE_ID</string>
   <key>CFBundleName</key>
-  <string>$APP_NAME</string>
+  <string>$APP_DISPLAY_NAME</string>
+  <key>CFBundleDisplayName</key>
+  <string>$APP_DISPLAY_NAME</string>
   <key>CFBundleIconFile</key>
-  <string>AgenticFortress</string>
+  <string>AgenticSecrets</string>
   <key>CFBundlePackageType</key>
   <string>APPL</string>
   <key>CFBundleShortVersionString</key>
@@ -58,7 +64,7 @@ cat >"$INFO_PLIST" <<PLIST
   <key>CFBundleVersion</key>
   <string>${BUILD_NUMBER:-1}</string>
   <key>CFBundleGetInfoString</key>
-  <string>$APP_NAME ${MARKETING_VERSION:-0.1.0} ${RELEASE_CHANNEL:-dev}</string>
+  <string>$APP_DISPLAY_NAME ${MARKETING_VERSION:-0.1.0} ${RELEASE_CHANNEL:-dev}</string>
   <key>LSMinimumSystemVersion</key>
   <string>$MIN_SYSTEM_VERSION</string>
   <key>NSPrincipalClass</key>
@@ -105,7 +111,7 @@ while Date() < deadline {
     Thread.sleep(forTimeInterval: 0.25)
 }
 
-fputs("AgenticFortress launched but no visible main window was found.\n", stderr)
+fputs("Agentic Secrets launched but no visible main window was found.\n", stderr)
 exit(1)
 SWIFT
 }
@@ -120,10 +126,10 @@ wait_for_app_pid() {
         printf '%s\n' "$pid"
         return 0
       fi
-    done < <(/usr/bin/pgrep -x "$APP_NAME" 2>/dev/null || true)
+    done < <(/usr/bin/pgrep -x "$APP_EXECUTABLE_NAME" 2>/dev/null || true)
     sleep 0.25
   done
-  echo "AgenticFortress did not stay running after launch." >&2
+  echo "Agentic Secrets did not stay running after launch." >&2
   return 1
 }
 
@@ -136,7 +142,7 @@ case "$MODE" in
     ;;
   --logs|logs)
     open_app
-    /usr/bin/log stream --info --style compact --predicate "process == \"$APP_NAME\""
+    /usr/bin/log stream --info --style compact --predicate "process == \"$APP_EXECUTABLE_NAME\""
     ;;
   --telemetry|telemetry)
     open_app

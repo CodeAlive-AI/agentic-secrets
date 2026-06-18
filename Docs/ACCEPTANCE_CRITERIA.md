@@ -1,6 +1,6 @@
 # Production Acceptance Criteria Without Developer ID
 
-This document defines the acceptance criteria for a production-ready AgenticFortress release whose default distribution model is open-source self-build plus local ad-hoc signing.
+This document defines the acceptance criteria for a production-ready AgenticSecrets release whose default distribution model is open-source self-build plus local ad-hoc signing.
 
 Developer ID signing, notarization, stapling, and Gatekeeper-friendly downloadable binaries are explicitly out of scope for this acceptance set. They remain optional maintainer work described in `Docs/FUTURE_DEVELOPER_ID.md`.
 
@@ -8,9 +8,9 @@ Developer ID signing, notarization, stapling, and Gatekeeper-friendly downloadab
 
 A release is accepted as production-ready for the no-Developer-ID track when:
 
-- a user can clone, build, package, install, run, update, and uninstall AgenticFortress without an Apple Developer Program account;
+- a user can clone, build, package, install, run, update, and uninstall AgenticSecrets without an Apple Developer Program account;
 - all shipped executables are locally ad-hoc signed and pass local code-signing validation;
-- `agentic-fortressd-core` is the only component allowed to read local secret material;
+- `agentic-secrets-brokerd` is the only component allowed to read local secret material;
 - helpers communicate with core through authenticated local IPC/XPC and never read secrets directly;
 - every secret delivery is tied to a decision manifest, policy epoch, target identity, approval session, and audit record;
 - every acceptance criterion below has concrete evidence from automated tests, local Tahoe gates, or an explicit interactive verification transcript.
@@ -41,7 +41,7 @@ Pass condition:
 Verification:
 
 ```sh
-swift run agentic-fortress release-gates
+swift run agentic-secrets release-gates
 ```
 
 Required evidence:
@@ -71,7 +71,7 @@ Verification:
 Required evidence:
 
 - Command exits `0`.
-- Build log includes Debug build, Release build, and `AgenticFortress contract tests passed`.
+- Build log includes Debug build, Release build, and `AgenticSecrets contract tests passed`.
 
 Failure examples:
 
@@ -117,11 +117,11 @@ Pass condition:
 Verification:
 
 ```sh
-git clone "$REPO_URL" "$TMPDIR/agentic-fortress-clean"
-cd "$TMPDIR/agentic-fortress-clean"
+git clone "$REPO_URL" "$TMPDIR/agentic-secrets-clean"
+cd "$TMPDIR/agentic-secrets-clean"
 ./scripts/ci.sh
 ./scripts/package_release.sh
-./scripts/validate_release_artifact.sh build/AgenticFortress.app
+./scripts/validate_release_artifact.sh "build/AgenticSecrets.app"
 ```
 
 Required evidence:
@@ -147,9 +147,9 @@ Verification:
 
 ```sh
 ./scripts/package_release.sh
-./scripts/validate_release_artifact.sh build/AgenticFortress.app
-codesign --verify --strict --deep --verbose=4 build/AgenticFortress.app
-./scripts/check_entitlements_diff.sh build/AgenticFortress.app
+./scripts/validate_release_artifact.sh "build/AgenticSecrets.app"
+codesign --verify --strict --deep --verbose=4 "build/AgenticSecrets.app"
+./scripts/check_entitlements_diff.sh "build/AgenticSecrets.app"
 ```
 
 Required evidence:
@@ -174,9 +174,9 @@ Pass condition:
 Verification:
 
 ```sh
-./scripts/install_local.sh --prefix "$TMPDIR/agentic-fortress-ac"
-./scripts/uninstall_local.sh --prefix "$TMPDIR/agentic-fortress-ac" --keep-secrets
-./scripts/uninstall_local.sh --prefix "$TMPDIR/agentic-fortress-ac" --purge-local-state
+./scripts/install_local.sh --prefix "$TMPDIR/agentic-secrets-ac"
+./scripts/uninstall_local.sh --prefix "$TMPDIR/agentic-secrets-ac" --keep-secrets
+./scripts/uninstall_local.sh --prefix "$TMPDIR/agentic-secrets-ac" --purge-local-state
 ```
 
 Required evidence:
@@ -193,7 +193,7 @@ Failure examples:
 
 Pass condition:
 
-- The SwiftUI app checks core daemon reachability on launch, refresh, and app activation.
+- The SwiftUI app checks broker daemon reachability on launch, refresh, and app activation.
 - If IPC is unavailable, the UI shows daemon status, socket path, LaunchAgent path when known, and install/repair actions when the local app bundle supports them.
 - Diagnostics shows a concrete install plan before writing files: app copy, helper links, state directory, run directory, install manifest, LaunchAgent, and socket path.
 - Install and repair actions require explicit confirmation and use the existing per-user LaunchAgent and install manifest model; the UI does not become the secret authority.
@@ -221,12 +221,12 @@ Failure examples:
 
 ## Process Architecture and IPC
 
-### AC-IPC-001: Core Owns Secret Authority
+### AC-IPC-001: Secret Broker Owns Secret Authority
 
 Pass condition:
 
-- Only `agentic-fortressd-core` imports and uses the production local secret resolution path.
-- `agentic-fortress-shim`, `agentic-fortress-proxyd`, `agentic-fortress-bwsd`, and `agentic-fortress-mcpd` do not call `SecItemCopyMatching` or instantiate production local secret stores for secret material.
+- Only `agentic-secrets-brokerd` imports and uses the production local secret resolution path.
+- `agentic-secrets-shim`, `agentic-secrets-api-sessiond`, `agentic-secrets-bitwarden-providerd`, and `agentic-secrets-mcpd` do not call `SecItemCopyMatching` or instantiate production local secret stores for secret material.
 - Helpers receive narrow capabilities or execution plans, not raw secret read authority.
 
 Verification:
@@ -239,7 +239,7 @@ rg "SecItemCopyMatching|KeychainSecretStore|LocalEncryptedSecretStore|resolve\\(
 
 Required evidence:
 
-- Static scan shows production secret resolution only in core-owned modules.
+- Static scan shows production secret resolution only in broker-owned modules.
 - Contract tests cover helper behavior without direct local secret store access.
 
 Failure examples:
@@ -258,7 +258,7 @@ Pass condition:
 Verification:
 
 ```sh
-swift run agentic-fortress-contract-tests
+swift run agentic-secrets-contract-tests
 ```
 
 Required evidence:
@@ -282,8 +282,8 @@ Pass condition:
 Verification:
 
 ```sh
-swift run agentic-fortress ipc-conformance
-swift run agentic-fortress-contract-tests
+swift run agentic-secrets ipc-conformance
+swift run agentic-secrets-contract-tests
 ```
 
 Required evidence:
@@ -302,13 +302,13 @@ Pass condition:
 
 - Management IPC remains typed, versioned, length-prefixed Codable messages.
 - Any future parser for untrusted complex raw protocols, including adapter fixture formats, MCP body streams, SSH-like binary payloads, or provider-specific envelopes, runs outside the core secret authority path in a helper/XPC-style process boundary.
-- Core receives only narrow typed parser results and never hands local secret store authority to the parser process.
+- Secret Broker receives only narrow typed parser results and never hands local secret store authority to parser processes.
 - Malformed parser fixtures fail closed and do not produce audit records containing raw body or secret-shaped values.
 
 Verification:
 
 ```sh
-swift run agentic-fortress-contract-tests
+swift run agentic-secrets-contract-tests
 ./scripts/check_secret_authority.sh
 ```
 
@@ -338,8 +338,8 @@ Pass condition:
 Verification:
 
 ```sh
-codesign -d --entitlements :- build/AgenticFortress.app
-codesign -d --entitlements :- build/AgenticFortress.app/Contents/MacOS/agentic-fortressd-core
+codesign -d --entitlements :- "build/AgenticSecrets.app"
+codesign -d --entitlements :- "build/AgenticSecrets.app/Contents/MacOS/agentic-secrets-brokerd"
 rg "kSecAttrAccessGroup|keychain-access-groups|com.apple.security.application-groups" Sources packaging Docs README.md --glob '!ACCEPTANCE_CRITERIA.md'
 ./scripts/check_secret_authority.sh
 ```
@@ -367,7 +367,7 @@ Pass condition:
 Verification:
 
 ```sh
-swift run agentic-fortress-contract-tests
+swift run agentic-secrets-contract-tests
 ```
 
 Required evidence:
@@ -394,22 +394,22 @@ Pass condition:
 Verification:
 
 ```sh
-swift run agentic-fortress-contract-tests
+swift run agentic-secrets-contract-tests
 ./scripts/interactive_keychain_prompt_check.sh
-AGENTIC_FORTRESS_INTERACTIVE=1 AGENTIC_FORTRESS_EXPECT_CANCEL=1 ./scripts/interactive_keychain_prompt_check.sh
+AGENTIC_SECRETS_INTERACTIVE=1 AGENTIC_SECRETS_EXPECT_CANCEL=1 ./scripts/interactive_keychain_prompt_check.sh
 ```
 
 Required evidence:
 
 - Automated tests cover prompt reason construction and proof expiry.
-- Automated tests cover short unlock grant TTL, expiry, tamper rejection, scope mismatch, and rejection across different action classes, destructive actions, workspaces, origin hints, and custom config contexts.
+- Automated tests cover short delivery grant TTL, expiry, tamper rejection, scope mismatch, and rejection across different action classes, destructive actions, workspaces, origin hints, and custom config contexts.
 - Automated tests cover persistent authorization default `always`, `remember-24h` expiry, protected signing keys, tamper rejection, scope mismatch, reuse across non-destructive action classes, and destructive policy gating.
 - The interactive script uses the packaged, ad-hoc signed core binary so the Tahoe no-Developer-ID runtime path is exercised.
 - Interactive transcript confirms the macOS prompt appears before secret resolution and cancellation denies access with `userCanceled`.
 
 Failure examples:
 
-- Prompt says only "AgenticFortress wants to access a local secret".
+- Prompt says only "Agentic Secrets wants to access a local secret".
 - A prompt approval can be replayed for a different target or workspace.
 - A local authorization grant can be edited to extend expiry.
 
@@ -428,7 +428,7 @@ Pass condition:
 Verification:
 
 ```sh
-swift run agentic-fortress-contract-tests
+swift run agentic-secrets-contract-tests
 ```
 
 Required evidence:
@@ -453,7 +453,7 @@ Pass condition:
 Verification:
 
 ```sh
-swift run agentic-fortress-contract-tests
+swift run agentic-secrets-contract-tests
 ```
 
 Required evidence:
@@ -469,10 +469,10 @@ Failure examples:
 
 Pass condition:
 
-- Per-CLI shim installation is opt-in through `agentic-fortress cli shim install <name>`.
-- Shim installation creates a symlink to the installed `agentic-fortress-shim` binary, not a generated shell wrapper.
+- Per-CLI shim installation is opt-in through `agentic-secrets cli shim install <name>`.
+- Shim installation creates a symlink to the installed `agentic-secrets-shim` binary, not a generated shell wrapper.
 - Shim installation does not replace or modify the native CLI binary.
-- Normal shimmed commands route through `agentic-fortress cli run <name> -- ...`.
+- Normal shimmed commands route through `agentic-secrets cli run <name> -- ...`.
 - Global help/version commands pass through to the registered target without resolving or injecting secrets.
 - Global help/version pass-through avoids LocalAuthentication and Keychain integrity-key prompts.
 - Pass-through execution still scrubs inherited secret-like environment variables.
@@ -480,7 +480,7 @@ Pass condition:
 Verification:
 
 ```sh
-swift run agentic-fortress-contract-tests
+swift run agentic-secrets-contract-tests
 swift build
 ```
 
@@ -499,14 +499,14 @@ Failure examples:
 
 Pass condition:
 
-- Core returns a single-use invocation handle.
+- Secret Broker returns a single-use invocation handle.
 - The handle binds peer identity, injector identity, target identity, action class, workspace, untrusted origin hint, policy epoch, and delivery mode.
 - Replaying the handle fails.
 
 Verification:
 
 ```sh
-swift run agentic-fortress-contract-tests
+swift run agentic-secrets-contract-tests
 ```
 
 Required evidence:
@@ -518,9 +518,9 @@ Failure examples:
 - A handle generated for one target can be reused for another.
 - Handles survive policy epoch changes.
 
-## Dynamic Adapters and Policy
+## Dynamic Command Policy Packs and Policy
 
-### AC-ADAPT-001: External Adapter Packs Are Signed Data, Not Code Execution
+### AC-ADAPT-001: External Command Policy Packs Are Signed Data, Not Code Execution
 
 Pass condition:
 
@@ -531,8 +531,8 @@ Pass condition:
 Verification:
 
 ```sh
-swift run agentic-fortress-contract-tests
-swift run agentic-fortress adapter list
+swift run agentic-secrets-contract-tests
+swift run agentic-secrets adapter list
 ```
 
 Required evidence:
@@ -555,7 +555,7 @@ Pass condition:
 Verification:
 
 ```sh
-swift run agentic-fortress-contract-tests
+swift run agentic-secrets-contract-tests
 ```
 
 Required evidence:
@@ -567,20 +567,20 @@ Failure examples:
 - Editing policy JSON by hand is accepted.
 - Recovery bundle includes provider tokens.
 
-## Provider, Proxy, and MCP Paths
+## Provider bindings, API sessions, and MCP Paths
 
-### AC-BWS-001: BWS Provider Fetches Exactly One Approved Secret
+### AC-BWS-001: Bitwarden Provider Fetches Exactly One Approved Secret
 
 Pass condition:
 
-- Runtime BWS operation is scoped to one approved alias and one approved sink.
+- Runtime Bitwarden operation is scoped to one approved alias and one approved sink.
 - List/project-wide operations are unavailable from the runtime path.
 - Provider leases expire and are invalidated by rotation.
 
 Verification:
 
 ```sh
-swift run agentic-fortress-contract-tests
+swift run agentic-secrets-contract-tests
 ```
 
 Required evidence:
@@ -589,21 +589,21 @@ Required evidence:
 
 Failure examples:
 
-- BWS helper can enumerate all project secrets.
+- Bitwarden provider helper can enumerate all project secrets.
 - Rotation leaves old provider lease active.
 
 ### AC-PROXY-001: Local Proxy Uses Pinned Upstream Profiles
 
 Pass condition:
 
-- Proxy session is bound to a configured upstream origin, path prefixes, methods, session token, and TTL.
+- API session is bound to a configured upstream origin, path prefixes, methods, session token, and TTL.
 - Cross-origin redirects are denied.
 - Request and response bodies are not logged by default.
 
 Verification:
 
 ```sh
-swift run agentic-fortress-contract-tests
+swift run agentic-secrets-contract-tests
 ```
 
 Required evidence:
@@ -613,7 +613,7 @@ Required evidence:
 Failure examples:
 
 - A local app can redirect the proxy to an attacker origin.
-- Proxy logs request bodies containing secrets.
+- API session logs request bodies containing secrets.
 
 ### AC-MCP-001: MCP Bridge Injects Authorization Only for Pinned Profiles
 
@@ -626,8 +626,8 @@ Pass condition:
 Verification:
 
 ```sh
-swift run agentic-fortress-contract-tests
-swift run agentic-fortress mcp-conformance
+swift run agentic-secrets-contract-tests
+swift run agentic-secrets mcp-conformance
 ```
 
 Required evidence:
@@ -652,8 +652,8 @@ Pass condition:
 Verification:
 
 ```sh
-swift run agentic-fortress-contract-tests
-swift run agentic-fortress redact "OPENAI_API_KEY=sk-example"
+swift run agentic-secrets-contract-tests
+swift run agentic-secrets redact "OPENAI_API_KEY=sk-example"
 ```
 
 Required evidence:
@@ -669,7 +669,7 @@ Failure examples:
 
 Pass condition:
 
-- Documentation covers install, update, uninstall, adapter management, BWS rotation, proxy profiles, MCP profiles, rollback recovery, and diagnostics.
+- Documentation covers install, update, uninstall, command policy pack management, Bitwarden provider rotation, API session profiles, MCP profiles, rollback recovery, and diagnostics.
 - Each workflow has a command-level smoke test or explicit manual verification step.
 - Documentation does not instruct users to weaken macOS security settings.
 
@@ -725,7 +725,7 @@ Pass condition:
 Verification:
 
 ```sh
-swift run agentic-fortress-contract-tests
+swift run agentic-secrets-contract-tests
 rg "public .*getSecret|public .*readSecret|public .*dumpSecret" Sources
 ```
 

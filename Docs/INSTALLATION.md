@@ -1,8 +1,8 @@
-# AgenticFortress Installation
+# Agentic Secrets Installation
 
 This is the supported production path for the no-Developer-ID release track: clone the source, build locally, package with ad-hoc signing, and install into a user-owned prefix.
 
-AgenticFortress does not require an Apple Developer Program account for this path. It also does not require weakening macOS security settings or removing quarantine attributes as a normal step.
+Agentic Secrets does not require an Apple Developer Program account for this path. It also does not require weakening macOS security settings or removing quarantine attributes as a normal step.
 
 ## Requirements
 
@@ -38,29 +38,29 @@ swift build
 ./scripts/package_release.sh
 ```
 
-The package is written to `build/AgenticFortress.app`. By default it is ad-hoc signed with hardened runtime and the approved self-build entitlement baseline.
+The package is written to `build/AgenticSecrets.app`. By default it is ad-hoc signed with hardened runtime and the approved self-build entitlement baseline.
 
 Validate the packaged app explicitly:
 
 ```sh
-./scripts/validate_release_artifact.sh build/AgenticFortress.app
-./scripts/check_entitlements_diff.sh build/AgenticFortress.app
-codesign --verify --strict --deep --verbose=4 build/AgenticFortress.app
+./scripts/validate_release_artifact.sh "build/AgenticSecrets.app"
+./scripts/check_entitlements_diff.sh "build/AgenticSecrets.app"
+codesign --verify --strict --deep --verbose=4 "build/AgenticSecrets.app"
 ```
 
 ## Install
 
-For a native guided install, open `build/AgenticFortress.app`, go to **Diagnostics**, review the daemon install plan, and choose **Install Local Daemon**. The app shows the app copy, helper links, state directory, run directory, install manifest, LaunchAgent, and socket path before writing files. It does not read or move local secret material.
+For a native guided install, open `build/AgenticSecrets.app`, go to **Diagnostics**, review the daemon install plan, and choose **Install Local Daemon**. The app shows the app copy, helper links, state directory, run directory, install manifest, LaunchAgent, and socket path before writing files. It does not read or move local secret material.
 
 If you launched the app from `build/`, open the installed copy after installation so authenticated IPC uses the installed bundle path recorded in the manifest.
 
-The default prefix is `~/Library/Application Support/AgenticFortress/LocalInstall`, so the common install command is short:
+The default prefix is `~/Library/Application Support/AgenticSecrets/LocalInstall`, so the common install command is short:
 
 ```sh
 ./scripts/install_local.sh --load --configure-shell
 ```
 
-This recommended command installs the app, loads the LaunchAgent, and appends a guarded PATH block to your user shell config so future shell sessions can run `agentic-fortress` directly. Open a new terminal after installation, or run `source "$HOME/.zshrc"` in the current one.
+This recommended command installs the app, loads the LaunchAgent, and appends a guarded PATH block to your user shell config so future shell sessions can run `agentic-secrets` directly. Open a new terminal after installation, or run `source "$HOME/.zshrc"` in the current one.
 
 For automation or CI where shell startup files must not be touched, omit `--configure-shell`:
 
@@ -71,7 +71,7 @@ For automation or CI where shell startup files must not be touched, omit `--conf
 The installer rebuilds, packages, validates, copies the app bundle, creates command symlinks, writes a LaunchAgent plist, and writes an install manifest at:
 
 ```text
-$PREFIX/var/agentic-fortress/install-manifest.json
+$PREFIX/var/agentic-secrets/install-manifest.json
 ```
 
 The manifest records helper paths, owner user IDs, permissions, versions, SHA-256 hashes, and cdhash values. Runtime IPC authorization uses that manifest instead of a Developer ID Team ID.
@@ -79,7 +79,7 @@ The manifest records helper paths, owner user IDs, permissions, versions, SHA-25
 To add the installed commands to your current shell:
 
 ```sh
-export PATH="$HOME/Library/Application Support/AgenticFortress/LocalInstall/bin:$PATH"
+export PATH="$HOME/Library/Application Support/AgenticSecrets/LocalInstall/bin:$PATH"
 ```
 
 To make the command available in future zsh sessions, add the same directory to your user shell config:
@@ -87,10 +87,10 @@ To make the command available in future zsh sessions, add the same directory to 
 ```sh
 cat >> "$HOME/.zshrc" <<'EOF'
 
-# AgenticFortress PATH
+# Agentic Secrets PATH
 case ":$PATH:" in
-  *":$HOME/Library/Application Support/AgenticFortress/LocalInstall/bin:"*) ;;
-  *) export PATH="$HOME/Library/Application Support/AgenticFortress/LocalInstall/bin:$PATH" ;;
+  *":$HOME/Library/Application Support/AgenticSecrets/LocalInstall/bin:"*) ;;
+  *) export PATH="$HOME/Library/Application Support/AgenticSecrets/LocalInstall/bin:$PATH" ;;
 esac
 EOF
 ```
@@ -99,38 +99,38 @@ The installer prints these next steps after every install. It only edits shell s
 
 Do not put raw provider secrets into shell rc files. Configure secret aliases through reviewed product tooling, not through environment variables.
 
-## Start The Core Daemon
+## Start The Secret Broker Daemon
 
 Install without `--load` only writes the LaunchAgent plist. To load it immediately:
 
 ```sh
-./scripts/install_local.sh --prefix "$HOME/Library/Application Support/AgenticFortress/LocalInstall" --load
+./scripts/install_local.sh --prefix "$HOME/Library/Application Support/AgenticSecrets/LocalInstall" --load
 ```
 
 Inspect launchd state:
 
 ```sh
-launchctl print "gui/$(id -u)/com.agenticfortress.core"
+launchctl print "gui/$(id -u)/com.agenticsecrets.broker"
 ```
 
 Runtime logs are under:
 
 ```text
-$PREFIX/run/agentic-fortress/core.stdout.log
-$PREFIX/run/agentic-fortress/core.stderr.log
+$PREFIX/run/agentic-secrets/core.stdout.log
+$PREFIX/run/agentic-secrets/core.stderr.log
 ```
 
 ## Smoke Test Installed IPC
 
 ```sh
-PREFIX="$HOME/Library/Application Support/AgenticFortress/LocalInstall"
-SOCKET="/tmp/agentic-fortress-core-smoke.sock"
-"$PREFIX/Applications/AgenticFortress.app/Contents/MacOS/agentic-fortressd-core" serve-once \
+PREFIX="$HOME/Library/Application Support/AgenticSecrets/LocalInstall"
+SOCKET="/tmp/agentic-secrets-core-smoke.sock"
+"$PREFIX/Applications/AgenticSecrets.app/Contents/MacOS/agentic-secrets-brokerd" serve-once \
   --socket "$SOCKET" \
-  --manifest "$PREFIX/var/agentic-fortress/install-manifest.json" &
-"$PREFIX/bin/agentic-fortress-shim" --ipc-health \
+  --manifest "$PREFIX/var/agentic-secrets/install-manifest.json" &
+"$PREFIX/bin/agentic-secrets-shim" --ipc-health \
   --socket "$SOCKET" \
-  --manifest "$PREFIX/var/agentic-fortress/install-manifest.json"
+  --manifest "$PREFIX/var/agentic-secrets/install-manifest.json"
 ```
 
 ## Verify LocalAuthentication Secret Prompt
@@ -144,80 +144,80 @@ Non-interactive contract check:
 Interactive success path:
 
 ```sh
-AGENTIC_FORTRESS_INTERACTIVE=1 ./scripts/interactive_keychain_prompt_check.sh
+AGENTIC_SECRETS_INTERACTIVE=1 ./scripts/interactive_keychain_prompt_check.sh
 ```
 
 Interactive cancellation path:
 
 ```sh
-AGENTIC_FORTRESS_INTERACTIVE=1 AGENTIC_FORTRESS_EXPECT_CANCEL=1 ./scripts/interactive_keychain_prompt_check.sh
+AGENTIC_SECRETS_INTERACTIVE=1 AGENTIC_SECRETS_EXPECT_CANCEL=1 ./scripts/interactive_keychain_prompt_check.sh
 ```
 
 For cancellation, press Deny or Cancel in the macOS prompt. The command passes only when core reports `userCanceled` and no secret is resolved.
 
-LocalAuthentication is the macOS security mechanism. The visible prompt may offer Touch ID, Apple Watch, or the local account password depending on hardware, session state, policy, and current macOS behavior. AgenticFortress requires successful local user presence; it does not guarantee that the UI will be Touch ID-only.
+LocalAuthentication is the macOS security mechanism. The visible prompt may offer Touch ID, Apple Watch, or the local account password depending on hardware, session state, policy, and current macOS behavior. Agentic Secrets requires successful local user presence; it does not guarantee that the UI will be Touch ID-only.
 
 The script name is kept for compatibility with older acceptance scripts, but the default self-build runtime path uses an owner-only encrypted local file store gated by LocalAuthentication. It does not require shared Keychain access groups.
 
 ## Register hcloud Without cli.toml
 
-Do not use `hcloud context create` for the AgenticFortress flow. That official hcloud mode stores the token in `~/.config/hcloud/cli.toml`.
+Do not use `hcloud context create` for the Agentic Secrets flow. That official hcloud mode stores the token in `~/.config/hcloud/cli.toml`.
 
-Instead, register `hcloud` through AgenticFortress and enter the token at the hidden prompt:
+Instead, register `hcloud` through Agentic Secrets and enter the token at the hidden prompt:
 
 ```sh
-PREFIX="$HOME/Library/Application Support/AgenticFortress/LocalInstall"
-"$PREFIX/bin/agentic-fortress" cli register hcloud \
+PREFIX="$HOME/Library/Application Support/AgenticSecrets/LocalInstall"
+"$PREFIX/bin/agentic-secrets" cli register hcloud \
   --env HCLOUD_TOKEN \
   --secret-prompt
 ```
 
-The token is read by the core-owned registration command and stored in the local encrypted secret store. Do not pass token values as command-line arguments.
+The token is read by the broker-owned registration command and stored in the local encrypted secret store. Do not pass token values as command-line arguments.
 
 For clipboard or automation use, pipe the value explicitly:
 
 ```sh
-pbpaste | "$PREFIX/bin/agentic-fortress" cli register hcloud \
+pbpaste | "$PREFIX/bin/agentic-secrets" cli register hcloud \
   --env HCLOUD_TOKEN \
   --secret-stdin
 ```
 
-Run `hcloud` through AgenticFortress with arguments after `--`:
+Run `hcloud` through Agentic Secrets with arguments after `--`:
 
 ```sh
-"$PREFIX/bin/agentic-fortress" cli run hcloud -- server list
+"$PREFIX/bin/agentic-secrets" cli run hcloud -- server list
 ```
 
-AgenticFortress prints its own diagnostics to stderr, requests local authentication before reading the secret, scrubs inherited secret-like environment variables, injects `HCLOUD_TOKEN` only into the child process, and leaves the target CLI stdout/stderr intact. Use `--quiet` before `--` when wrapping scripts:
+Agentic Secrets prints its own diagnostics to stderr, requests local authentication before reading the secret, scrubs inherited secret-like environment variables, injects `HCLOUD_TOKEN` only into the child process, and leaves the target CLI stdout/stderr intact. Use `--quiet` before `--` when wrapping scripts:
 
 ```sh
-"$PREFIX/bin/agentic-fortress" cli run hcloud --quiet -- server list
+"$PREFIX/bin/agentic-secrets" cli run hcloud --quiet -- server list
 ```
 
-After a successful prompt, AgenticFortress writes a local authorization grant so repeated matching runs do not prompt every time. The default CLI authorization mode is `always`, which does not expire. `remember-24h`, `short`, and `once` are available per run. Grants store no secret value. Persistent grants are HMAC-signed with a device-local macOS Keychain key and bound to CLI name, target identity, workspace hash, config context, untrusted origin hint, provenance confidence, delivery mode, and secret alias. Short grants additionally bind action class, command digest, and risk. Each command is still policy-checked before secret delivery, and destructive commands require fresh approval.
+After a successful prompt, Agentic Secrets writes a local authorization grant so repeated matching runs do not prompt every time. The default CLI authorization mode is `always`, which does not expire. `remember-24h`, `short`, and `once` are available per run. Grants store no secret value. Persistent grants are HMAC-signed with a device-local macOS Keychain key and bound to CLI name, target identity, workspace hash, config context, untrusted origin hint, provenance confidence, delivery mode, and secret alias. Short grants additionally bind action class, command digest, and risk. Each command is still policy-checked before secret delivery, and destructive commands require fresh approval.
 
 Choose authorization mode for one run:
 
 ```sh
-"$PREFIX/bin/agentic-fortress" cli run hcloud --authorization-mode remember-24h -- server list
-"$PREFIX/bin/agentic-fortress" cli run hcloud --authorization-mode short --unlock-ttl-seconds 60 -- server list
-"$PREFIX/bin/agentic-fortress" cli run hcloud --authorization-mode once -- server list
+"$PREFIX/bin/agentic-secrets" cli run hcloud --authorization-mode remember-24h -- server list
+"$PREFIX/bin/agentic-secrets" cli run hcloud --authorization-mode short --delivery-grant-ttl-seconds 60 -- server list
+"$PREFIX/bin/agentic-secrets" cli run hcloud --authorization-mode once -- server list
 ```
 
 Legacy TTL override still selects short authorization mode:
 
 ```sh
-"$PREFIX/bin/agentic-fortress" cli run hcloud --unlock-ttl-seconds 0 -- server list
+"$PREFIX/bin/agentic-secrets" cli run hcloud --delivery-grant-ttl-seconds 0 -- server list
 ```
 
 Changing target identity, workspace, config context, origin hint, provenance confidence, delivery mode, or secret alias produces a different persistent authorization scope and requires a fresh local authentication prompt. For short grants, changing action class, command shape, or risk also requires a fresh prompt.
 
 ### Optional hcloud Shim
 
-If you want the normal `hcloud ...` command to route through AgenticFortress, install an opt-in shim after registration:
+If you want the normal `hcloud ...` command to route through Agentic Secrets, install an opt-in shim after registration:
 
 ```sh
-agentic-fortress cli shim install hcloud --configure-shell
+agentic-secrets cli shim install hcloud --configure-shell
 ```
 
 Open a new terminal so the shell picks up the shim PATH block, then verify command resolution:
@@ -227,11 +227,11 @@ command -v hcloud
 hcloud version
 ```
 
-Expected: `command -v hcloud` points under `~/Library/Application Support/AgenticFortress/LocalInstall/shims/hcloud`.
+Expected: `command -v hcloud` points under `~/Library/Application Support/AgenticSecrets/LocalInstall/shims/hcloud`.
 
-The shim does not replace or modify the Homebrew binary. It is a symlink to the installed `agentic-fortress-shim` binary. The registered target remains the stable native CLI path, such as `/opt/homebrew/bin/hcloud`.
+The shim does not replace or modify the Homebrew binary. It is a symlink to the installed `agentic-secrets-shim` binary. The registered target remains the stable native CLI path, such as `/opt/homebrew/bin/hcloud`.
 
-Normal commands are routed through the same core-owned secret delivery path:
+Normal commands are routed through the same broker-owned secret delivery path:
 
 ```sh
 hcloud server list
@@ -254,10 +254,10 @@ Pass-through help/version reads only non-secret registry metadata and intentiona
 Codex App may not inherit the same shell startup environment as Terminal. Avoid
 putting provider tokens such as `HCLOUD_TOKEN` into `~/.codex/.env`; that would
 move secret delivery back into Codex process environment. Instead, keep the token
-registered in AgenticFortress and install the per-CLI shim:
+registered in AgenticSecrets and install the per-CLI shim:
 
 ```sh
-"$PREFIX/bin/agentic-fortress" cli shim install hcloud --force
+"$PREFIX/bin/agentic-secrets" cli shim install hcloud --force
 ```
 
 Then verify from inside Codex App or a Codex-spawned command:
@@ -268,23 +268,23 @@ hcloud server list
 ```
 
 Expected: `command -v hcloud` resolves to
-`~/Library/Application Support/AgenticFortress/LocalInstall/shims/hcloud`, and
-normal commands route through AgenticFortress secret delivery.
+`~/Library/Application Support/AgenticSecrets/LocalInstall/shims/hcloud`, and
+normal commands route through Agentic Secrets secret delivery.
 
 Remove only the shim:
 
 ```sh
-agentic-fortress cli shim uninstall hcloud
+agentic-secrets cli shim uninstall hcloud
 ```
 
-Registration metadata and secret records remain intact until you run `agentic-fortress cli unregister hcloud --delete-secrets`.
+Registration metadata and secret records remain intact until you run `agentic-secrets cli unregister hcloud --delete-secrets`.
 
-The default explicit flow does not require a separate `hcloud` shim symlink. The registration stores metadata in AgenticFortress state and keeps the stable invocation path discovered from `PATH`, such as `/opt/homebrew/bin/hcloud`, plus the target binary identity captured at registration time. The registry JSON is paired with `cli-registry.integrity.json`, an HMAC-SHA256 integrity sidecar whose key is stored in the user's macOS Keychain with `WhenUnlockedThisDeviceOnly` accessibility. Hand-editing either file fails closed before AgenticFortress asks for local authentication or resolves any secret.
+The default explicit flow does not require a separate `hcloud` shim symlink. The registration stores metadata in Agentic Secrets state and keeps the stable invocation path discovered from `PATH`, such as `/opt/homebrew/bin/hcloud`, plus the target binary identity captured at registration time. The registry JSON is paired with `cli-registry.integrity.json`, an HMAC-SHA256 integrity sidecar whose key is stored in the user's macOS Keychain with `WhenUnlockedThisDeviceOnly` accessibility. Hand-editing either file fails closed before Agentic Secrets asks for local authentication or resolves any secret.
 
-Each run validates the current target against the captured macOS designated requirement when available and otherwise falls back to SHA-256 identity pinning. Homebrew upgrades therefore fail closed until you verify the new binary and refresh target trust through AgenticFortress; this does not require entering the token again, but it does require local authentication because it changes trusted CLI identity metadata:
+Each run validates the current target against the captured macOS designated requirement when available and otherwise falls back to SHA-256 identity pinning. Homebrew upgrades therefore fail closed until you verify the new binary and refresh target trust through Agentic Secrets; this does not require entering the token again, but it does require local authentication because it changes trusted CLI identity metadata:
 
 ```sh
-"$PREFIX/bin/agentic-fortress" cli trust-refresh hcloud
+"$PREFIX/bin/agentic-secrets" cli trust-refresh hcloud
 ```
 
 If the LocalAuthentication prompt is canceled or the target changes between the prompt and the registry write, the trust refresh fails closed and the existing registration remains unchanged. A manually registered versioned Cellar path is also pinned and must be trust-refreshed or registered again after that version is removed.
@@ -292,7 +292,7 @@ If the LocalAuthentication prompt is canceled or the target changes between the 
 To remove the registration and its local secret record:
 
 ```sh
-"$PREFIX/bin/agentic-fortress" cli unregister hcloud --delete-secrets
+"$PREFIX/bin/agentic-secrets" cli unregister hcloud --delete-secrets
 ```
 
 ## Update
@@ -301,23 +301,23 @@ Update by checking out the desired commit and running install again:
 
 ```sh
 git pull --ff-only
-./scripts/install_local.sh --prefix "$HOME/Library/Application Support/AgenticFortress/LocalInstall" --load
+./scripts/install_local.sh --prefix "$HOME/Library/Application Support/AgenticSecrets/LocalInstall" --load
 ```
 
 The installer replaces the app bundle, refreshes command symlinks, validates the package, and rewrites the install manifest.
 
 ## Uninstall
 
-Remove runtime surface while retaining local AgenticFortress state:
+Remove runtime surface while retaining local Agentic Secrets state:
 
 ```sh
-./scripts/uninstall_local.sh --prefix "$HOME/Library/Application Support/AgenticFortress/LocalInstall" --keep-secrets
+./scripts/uninstall_local.sh --prefix "$HOME/Library/Application Support/AgenticSecrets/LocalInstall" --keep-secrets
 ```
 
-Remove runtime surface and local AgenticFortress state:
+Remove runtime surface and local Agentic Secrets state:
 
 ```sh
-./scripts/uninstall_local.sh --prefix "$HOME/Library/Application Support/AgenticFortress/LocalInstall" --purge-local-state
+./scripts/uninstall_local.sh --prefix "$HOME/Library/Application Support/AgenticSecrets/LocalInstall" --purge-local-state
 ```
 
 Uninstall bootouts the LaunchAgent if present, removes command symlinks, removes runtime files, and removes the installed app bundle. Local secret records are retained unless local state purge is explicitly requested.
@@ -342,7 +342,7 @@ The default prefix contains spaces. Always quote `$PREFIX` and the default path.
 Make sure interactive mode is set:
 
 ```sh
-AGENTIC_FORTRESS_INTERACTIVE=1 ./scripts/interactive_keychain_prompt_check.sh
+AGENTIC_SECRETS_INTERACTIVE=1 ./scripts/interactive_keychain_prompt_check.sh
 ```
 
 The default non-interactive run executes contract tests and intentionally does not produce a prompt.
@@ -366,16 +366,16 @@ The supported path is source checkout plus local build. Do not make quarantine-r
 Install with `--load`, or bootstrap the generated plist manually:
 
 ```sh
-PREFIX="$HOME/Library/Application Support/AgenticFortress/LocalInstall"
-launchctl bootstrap "gui/$(id -u)" "$PREFIX/Library/LaunchAgents/com.agenticfortress.core.plist"
-launchctl print "gui/$(id -u)/com.agenticfortress.core"
+PREFIX="$HOME/Library/Application Support/AgenticSecrets/LocalInstall"
+launchctl bootstrap "gui/$(id -u)" "$PREFIX/Library/LaunchAgents/com.agenticsecrets.broker.plist"
+launchctl print "gui/$(id -u)/com.agenticsecrets.broker"
 ```
 
 If it is already loaded, unload and load again:
 
 ```sh
-launchctl bootout "gui/$(id -u)" "$PREFIX/Library/LaunchAgents/com.agenticfortress.core.plist"
-launchctl bootstrap "gui/$(id -u)" "$PREFIX/Library/LaunchAgents/com.agenticfortress.core.plist"
+launchctl bootout "gui/$(id -u)" "$PREFIX/Library/LaunchAgents/com.agenticsecrets.broker.plist"
+launchctl bootstrap "gui/$(id -u)" "$PREFIX/Library/LaunchAgents/com.agenticsecrets.broker.plist"
 ```
 
 ### IPC Health Fails After Rebuild

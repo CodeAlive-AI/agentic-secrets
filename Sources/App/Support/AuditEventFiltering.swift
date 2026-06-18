@@ -1,4 +1,4 @@
-import AgenticFortressCore
+import AgenticSecretsBroker
 
 enum AuditEventFilter {
     static func filtered(_ events: [AuditEventSummary], query: String) -> [AuditEventSummary] {

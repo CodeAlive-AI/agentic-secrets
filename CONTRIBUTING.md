@@ -1,6 +1,6 @@
 # Contributing
 
-Thanks for considering a contribution to AgenticFortress.
+Thanks for considering a contribution to Agentic Secrets.
 
 ## License
 
@@ -25,7 +25,7 @@ area you changed. The full local verification gate is:
 
 ```sh
 swift build
-swift run agentic-fortress-contract-tests
+swift run agentic-secrets-contract-tests
 ./script/ui_smoke.sh
 ./script/build_and_run.sh --verify
 ./scripts/ci.sh

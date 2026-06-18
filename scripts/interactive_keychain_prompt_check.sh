@@ -2,27 +2,27 @@
 set -eu
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-SERVICE="com.agenticfortress.interactive-smoke"
-ALIAS="agentic-fortress.interactive-smoke"
+SERVICE="com.agenticsecrets.interactive-smoke"
+ALIAS="agentic-secrets.interactive-smoke"
 
 echo "This check creates a temporary device-local encrypted secret record, reads it through LocalAuthentication, and deletes it."
 echo "The secret value is generated locally and is never printed."
 echo "Canceling the macOS prompt should make this command fail closed."
 
-if [ "${AGENTIC_FORTRESS_INTERACTIVE:-0}" != "1" ]; then
-  echo "Set AGENTIC_FORTRESS_INTERACTIVE=1 to run the prompt-producing check."
-  echo "Set AGENTIC_FORTRESS_EXPECT_CANCEL=1 with interactive mode, then press Deny or Cancel, to verify fail-closed cancellation."
+if [ "${AGENTIC_SECRETS_INTERACTIVE:-0}" != "1" ]; then
+  echo "Set AGENTIC_SECRETS_INTERACTIVE=1 to run the prompt-producing check."
+  echo "Set AGENTIC_SECRETS_EXPECT_CANCEL=1 with interactive mode, then press Deny or Cancel, to verify fail-closed cancellation."
   echo "Non-interactive static contract check:"
-  swift run --package-path "$ROOT" agentic-fortress-contract-tests
+  swift run --package-path "$ROOT" agentic-secrets-contract-tests
   exit 0
 fi
 
 PACKAGE_LOG="$(mktemp)"
 trap 'rm -f "$PACKAGE_LOG"' EXIT
 "$ROOT/scripts/package_release.sh" > "$PACKAGE_LOG"
-CORE_BINARY="$(tail -n 1 "$PACKAGE_LOG")/Contents/MacOS/agentic-fortressd-core"
+CORE_BINARY="$(tail -n 1 "$PACKAGE_LOG")/Contents/MacOS/agentic-secrets-brokerd"
 
-if [ "${AGENTIC_FORTRESS_EXPECT_CANCEL:-0}" = "1" ]; then
+if [ "${AGENTIC_SECRETS_EXPECT_CANCEL:-0}" = "1" ]; then
   set +e
   OUTPUT="$("$CORE_BINARY" local-secret-smoke --service "$SERVICE" --alias "$ALIAS" 2>&1)"
   STATUS=$?

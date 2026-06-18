@@ -2,7 +2,7 @@
 set -eu
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-APP_PATH="${1:-$ROOT/build/AgenticFortress.app}"
+APP_PATH="${1:-$ROOT/build/AgenticSecrets.app}"
 APPROVED="$ROOT/packaging/approved-entitlements.plist"
 TMP_DIR="$(mktemp -d)"
 trap 'rm -rf "$TMP_DIR"' EXIT

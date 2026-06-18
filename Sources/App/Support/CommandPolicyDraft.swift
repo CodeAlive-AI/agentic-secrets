@@ -1,4 +1,4 @@
-import AgenticFortressCore
+import AgenticSecretsBroker
 import SwiftUI
 
 struct CommandPolicyTermDraft: Identifiable, Equatable, Comparable {

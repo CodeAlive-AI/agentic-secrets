@@ -1,8 +1,8 @@
 # Future EndpointSecurity Provenance Track
 
-AgenticFortress does not require EndpointSecurity for the default local self-build release track. EndpointSecurity is a possible future provenance enhancement for maintainers who want stronger process-origin evidence than terminal environment hints or best-effort process-tree inspection can provide.
+Agentic Secrets does not require EndpointSecurity for the default local self-build release track. EndpointSecurity is a possible future provenance enhancement for maintainers who want stronger process-origin evidence than terminal environment hints or best-effort process-tree inspection can provide.
 
-The default product boundary remains unchanged: AgenticFortress is a lower-leakage secret delivery system, not a general endpoint monitoring agent.
+The default product boundary remains unchanged: Agentic Secrets is a lower-leakage secret delivery system, not a general endpoint monitoring agent.
 
 ## What EndpointSecurity Adds
 
@@ -20,7 +20,7 @@ EndpointSecurity conflicts with the current default release model:
 - EndpointSecurity clients require `com.apple.developer.endpoint-security.client`, which is a restricted Apple entitlement and cannot be made available to every source-build user by adding it to the repository entitlements file.
 - EndpointSecurity clients must be approved by the user through TCC as Full Disk Access.
 - EndpointSecurity clients must run with elevated privileges; `es_new_client` can fail with `ES_NEW_CLIENT_RESULT_ERR_NOT_PRIVILEGED`.
-- Shipping an EndpointSecurity client changes AgenticFortress from a user-local secret-delivery tool into a privileged endpoint-observation component with a larger privacy and reliability surface.
+- Shipping an EndpointSecurity client changes AgenticSecrets from a user-local secret-delivery tool into a privileged endpoint-observation component with a larger privacy and reliability surface.
 
 ## Required External State
 
@@ -36,13 +36,13 @@ These are intentionally not repository secrets:
 
 EndpointSecurity should be isolated in a separate component:
 
-- `agentic-fortress-esd` observes process provenance only.
+- `agentic-secrets-esd` observes process provenance only.
 - It never reads, stores, receives, or resolves secret values.
 - It runs as a privileged observer with the EndpointSecurity entitlement.
 - It subscribes to the minimum process events needed to correlate registered CLI executions.
-- It mutes or ignores AgenticFortress-owned helper activity to avoid feedback loops.
+- It mutes or ignores AgenticSecrets-owned helper activity to avoid feedback loops.
 - It writes short-lived provenance assertions to core over authenticated local IPC.
-- Core treats those assertions as confidence evidence for prompts, audit, and grant scoping, not as a standalone permission to deliver secrets.
+- Broker treats those assertions as confidence evidence for prompts, audit, and grant scoping, not as a standalone permission to deliver secrets.
 
 Suggested assertion fields:
 
@@ -57,7 +57,7 @@ Suggested assertion fields:
 
 ## Trust Model
 
-- Core must authenticate `agentic-fortress-esd` as a separate trusted peer.
+- Broker must authenticate `agentic-secrets-esd` as a separate trusted peer.
 - The assertion must be bound to a specific invocation, not just to a CLI name.
 - Assertions must expire quickly and must be replay-protected.
 - If EndpointSecurity is unavailable, core must fail back to the non-EndpointSecurity policy instead of weakening delivery rules.
@@ -65,7 +65,7 @@ Suggested assertion fields:
 
 ## Privacy And Reliability Constraints
 
-- Do not log raw command arguments unless they already pass AgenticFortress command redaction rules.
+- Do not log raw command arguments unless they already pass AgenticSecrets command redaction rules.
 - Do not log unrelated process activity.
 - Do not subscribe to broad AUTH events unless the product explicitly needs enforcement; prefer NOTIFY-style provenance collection.
 - Keep event handling non-blocking and minimal.
@@ -77,14 +77,14 @@ Suggested assertion fields:
 
 - Add a separate EndpointSecurity build target and install layout.
 - Add dedicated entitlements for the EndpointSecurity component only.
-- Keep default `packaging/AgenticFortress.entitlements` restricted-entitlement-free.
-- Add Developer ID-only or enterprise-only package validation for `agentic-fortress-esd`.
+- Keep default `packaging/AgenticSecrets.entitlements` restricted-entitlement-free.
+- Add Developer ID-only or enterprise-only package validation for `agentic-secrets-esd`.
 - Document Full Disk Access setup and failure states.
 
 ### IPC
 
 - Add a typed provenance assertion message.
-- Authenticate `agentic-fortress-esd` independently from app, CLI, and shim helpers.
+- Authenticate `agentic-secrets-esd` independently from app, CLI, and shim helpers.
 - Bind assertions to invocation handles or process audit-token digests.
 - Reject stale, replayed, malformed, or cross-invocation assertions.
 
@@ -129,7 +129,7 @@ EndpointSecurity failure must not make `canRunLocal` false.
 
 1. Implement verified invocation context without EndpointSecurity first: action-bound unlock scopes, socket peer validation, and XPC peer requirements where available.
 2. Add a provenance confidence field to decision manifests and audit events.
-3. Design the `agentic-fortress-esd` assertion schema and replay protection.
+3. Design the `agentic-secrets-esd` assertion schema and replay protection.
 4. Prototype EndpointSecurity in a disabled-by-default target.
 5. Add Developer ID and entitlement-specific packaging checks.
 6. Add Full Disk Access diagnostics and user-facing setup guidance.

@@ -1,0 +1,26 @@
+name: Feature request
+description: Propose a change to Agentic Secrets behavior or documentation.
+title: "[Feature]: "
+labels: ["enhancement"]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem
+      description: What user or maintainer problem should this solve?
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposal
+      description: What should Agentic Secrets do differently?
+    validations:
+      required: true
+  - type: textarea
+    id: security
+    attributes:
+      label: Security Impact
+      description: How does this affect secret delivery, local authentication, audit, grants, policy, or provider bindings?
+    validations:
+      required: true

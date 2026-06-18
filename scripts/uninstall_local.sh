@@ -3,7 +3,7 @@ set -eu
 
 . "$(cd "$(dirname "$0")/.." && pwd)/version.env"
 
-PREFIX="$HOME/Library/Application Support/AgenticFortress/LocalInstall"
+PREFIX="$HOME/Library/Application Support/AgenticSecrets/LocalInstall"
 PURGE_LOCAL_STATE=0
 KEEP_SECRETS=1
 
@@ -30,17 +30,17 @@ done
 
 APP_DEST="$PREFIX/Applications/$APP_NAME.app"
 BIN_DIR="$PREFIX/bin"
-STATE_DIR="$PREFIX/var/agentic-fortress"
-RUN_DIR="$PREFIX/run/agentic-fortress"
-SOCKET_DIR="/tmp/agentic-fortress-$(id -u)"
+STATE_DIR="$PREFIX/var/agentic-secrets"
+RUN_DIR="$PREFIX/run/agentic-secrets"
+SOCKET_DIR="/tmp/agentic-secrets-$(id -u)"
 LAUNCH_DIR="$PREFIX/Library/LaunchAgents"
-CORE_PLIST="$LAUNCH_DIR/com.agenticfortress.core.plist"
+CORE_PLIST="$LAUNCH_DIR/com.agenticsecrets.broker.plist"
 
 if [ -f "$CORE_PLIST" ]; then
   launchctl bootout "gui/$(id -u)" "$CORE_PLIST" >/dev/null 2>&1 || true
 fi
 
-for executable in agentic-fortress AgenticFortress agentic-fortress-shim agentic-fortressd-core agentic-fortress-proxyd agentic-fortress-bwsd agentic-fortress-mcpd; do
+for executable in agentic-secrets AgenticSecrets agentic-secrets-shim agentic-secrets-brokerd agentic-secrets-api-sessiond agentic-secrets-bitwarden-providerd agentic-secrets-mcpd; do
   rm -f "$BIN_DIR/$executable"
 done
 
@@ -54,9 +54,9 @@ if [ "$PURGE_LOCAL_STATE" -eq 1 ]; then
 fi
 
 if [ "$PURGE_LOCAL_STATE" -eq 1 ]; then
-  echo "Local AgenticFortress state purged."
+  echo "Local Agentic Secrets state purged."
 elif [ "$KEEP_SECRETS" -eq 1 ]; then
-  echo "Local secret records retained. Use --purge-local-state only when you intentionally want to remove local AgenticFortress state."
+  echo "Local secret records retained. Use --purge-local-state only when you intentionally want to remove local Agentic Secrets state."
 fi
 
 find "$PREFIX" -type d -empty -delete 2>/dev/null || true

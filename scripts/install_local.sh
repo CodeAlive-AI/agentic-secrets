@@ -4,7 +4,7 @@ set -eu
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 . "$ROOT/version.env"
 
-PREFIX="$HOME/Library/Application Support/AgenticFortress/LocalInstall"
+PREFIX="$HOME/Library/Application Support/AgenticSecrets/LocalInstall"
 LOAD_LAUNCHD=0
 CONFIGURE_SHELL=0
 SHELL_CONFIG=""
@@ -37,14 +37,14 @@ while [ "$#" -gt 0 ]; do
 done
 
 APP_SOURCE="$ROOT/build/$APP_NAME.app"
-"$ROOT/scripts/package_release.sh" >/tmp/agentic-fortress-install-package-path.txt
-APP_SOURCE="$(tail -n 1 /tmp/agentic-fortress-install-package-path.txt)"
+"$ROOT/scripts/package_release.sh" >/tmp/agentic-secrets-install-package-path.txt
+APP_SOURCE="$(tail -n 1 /tmp/agentic-secrets-install-package-path.txt)"
 
 APP_DEST="$PREFIX/Applications/$APP_NAME.app"
 BIN_DIR="$PREFIX/bin"
-STATE_DIR="$PREFIX/var/agentic-fortress"
-RUN_DIR="$PREFIX/run/agentic-fortress"
-SOCKET_DIR="/tmp/agentic-fortress-$(id -u)"
+STATE_DIR="$PREFIX/var/agentic-secrets"
+RUN_DIR="$PREFIX/run/agentic-secrets"
+SOCKET_DIR="/tmp/agentic-secrets-$(id -u)"
 SOCKET_PATH="$SOCKET_DIR/core.sock"
 LAUNCH_DIR="$PREFIX/Library/LaunchAgents"
 MANIFEST_PATH="$STATE_DIR/install-manifest.json"
@@ -54,21 +54,21 @@ mkdir -p "$(dirname "$APP_DEST")" "$BIN_DIR" "$STATE_DIR" "$RUN_DIR" "$SOCKET_DI
 chmod 700 "$SOCKET_DIR"
 ditto "$APP_SOURCE" "$APP_DEST"
 
-for executable in AgenticFortress agentic-fortress agentic-fortress-shim agentic-fortressd-core agentic-fortress-proxyd agentic-fortress-bwsd agentic-fortress-mcpd; do
+for executable in AgenticSecrets agentic-secrets agentic-secrets-shim agentic-secrets-brokerd agentic-secrets-api-sessiond agentic-secrets-bitwarden-providerd agentic-secrets-mcpd; do
   ln -sf "$APP_DEST/Contents/MacOS/$executable" "$BIN_DIR/$executable"
 done
 
-CORE_PLIST="$LAUNCH_DIR/com.agenticfortress.core.plist"
+CORE_PLIST="$LAUNCH_DIR/com.agenticsecrets.broker.plist"
 cat >"$CORE_PLIST" <<PLIST
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
   <key>Label</key>
-  <string>com.agenticfortress.core</string>
+  <string>com.agenticsecrets.broker</string>
   <key>ProgramArguments</key>
   <array>
-    <string>$APP_DEST/Contents/MacOS/agentic-fortressd-core</string>
+    <string>$APP_DEST/Contents/MacOS/agentic-secrets-brokerd</string>
     <string>serve</string>
     <string>--socket</string>
     <string>$SOCKET_PATH</string>
@@ -91,14 +91,14 @@ write_manifest() {
   {
     printf '{\n'
     printf '  "schemaVersion": 1,\n'
-    printf '  "productName": "AgenticFortress",\n'
+    printf '  "productName": "Agentic Secrets",\n'
     printf '  "appVersion": "%s",\n' "$MARKETING_VERSION"
     printf '  "releaseChannel": "%s",\n' "$RELEASE_CHANNEL"
     printf '  "prefix": "%s",\n' "$(printf '%s' "$PREFIX" | sed 's/\\/\\\\/g; s/"/\\"/g')"
     printf '  "installedAt": "%s",\n' "$(date -u +"%Y-%m-%dT%H:%M:%SZ")"
     printf '  "helpers": [\n'
     first=1
-    for helper in AgenticFortress agentic-fortress-shim agentic-fortressd-core agentic-fortress-proxyd agentic-fortress-bwsd agentic-fortress-mcpd; do
+    for helper in AgenticSecrets agentic-secrets-shim agentic-secrets-brokerd agentic-secrets-api-sessiond agentic-secrets-bitwarden-providerd agentic-secrets-mcpd; do
       path="$APP_DEST/Contents/MacOS/$helper"
       hash="$(shasum -a 256 "$path" | awk '{print $1}')"
       owner="$(stat -f '%u' "$path")"
@@ -153,7 +153,7 @@ configure_shell_path() {
   mkdir -p "$(dirname "$target")"
   touch "$target"
   {
-    printf '\n# AgenticFortress PATH\n'
+    printf '\n# Agentic Secrets PATH\n'
     printf 'case ":$PATH:" in\n'
     printf '  *":%s:"*) ;;\n' "$BIN_DIR"
     printf '  *) export PATH="%s:$PATH" ;;\n' "$BIN_DIR"
@@ -172,11 +172,11 @@ if [ "$LOAD_LAUNCHD" -eq 1 ]; then
 fi
 
 printf '%s\n' "$PREFIX"
-printf '\nInstalled AgenticFortress commands under:\n  %s\n' "$BIN_DIR"
-if command -v agentic-fortress >/dev/null 2>&1; then
-  printf 'agentic-fortress is already available on PATH: %s\n' "$(command -v agentic-fortress)"
+printf '\nInstalled Agentic Secrets commands under:\n  %s\n' "$BIN_DIR"
+if command -v agentic-secrets >/dev/null 2>&1; then
+  printf 'agentic-secrets is already available on PATH: %s\n' "$(command -v agentic-secrets)"
 else
-  printf '\nagentic-fortress is not on PATH in this shell yet.\n'
+  printf '\nagentic-secrets is not on PATH in this shell yet.\n'
   printf 'For the current shell, run:\n  export PATH="%s:$PATH"\n' "$BIN_DIR"
   cat <<NEXT_STEPS
 

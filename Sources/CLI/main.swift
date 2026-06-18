@@ -1,14 +1,14 @@
-import AgenticFortressCore
+import AgenticSecretsBroker
 import Darwin
 import Foundation
 
 @main
-struct AgenticFortressCLI {
+struct AgenticSecretsCLI {
     static func main() {
         do {
             try run()
         } catch {
-            fputs("Error: \(error)\nRun `agentic-fortress` for usage.\n", stderr)
+            fputs("Error: \(error)\nRun `agentic-secrets` for usage.\n", stderr)
             exit(64)
         }
     }
@@ -23,15 +23,15 @@ struct AgenticFortressCLI {
 
         switch command {
         case "profiles":
-            print(try AgenticFortressJSON.encodePretty(BoundedSafetyProfiles.all))
+            print(try AgenticSecretsJSON.encodePretty(DeliveryContracts.all))
         case "invariants":
-            print(try AgenticFortressJSON.encodePretty(AgenticFortressInvariant.allCases))
+            print(try AgenticSecretsJSON.encodePretty(SecurityInvariant.allCases))
         case "classify":
             guard let executable = args.first else {
                 throw CLIError.missingArgument("executable")
             }
             let normalized = CommandClassifier().classify(executableName: executable, arguments: Array(args.dropFirst()))
-            print(try AgenticFortressJSON.encodePretty(normalized))
+            print(try AgenticSecretsJSON.encodePretty(normalized))
         case "manifest":
             guard let executable = args.first else {
                 throw CLIError.missingArgument("executable")
@@ -39,7 +39,7 @@ struct AgenticFortressCLI {
             let normalized = CommandClassifier().classify(executableName: executable, arguments: Array(args.dropFirst()))
             let target = TargetAssessor().synthetic(path: "/opt/homebrew/bin/\(executable)", identity: "sha256:\(shortDigest(executable))")
             let origin = ProcessOriginHint.current()
-            let intent = DeliveryIntent(
+            let intent = DeliveryRequest(
                 flow: .cliEnv,
                 secretAlias: "cloud.hcloud.dev",
                 delivery: .env,
@@ -48,24 +48,24 @@ struct AgenticFortressCLI {
                 originHint: origin.displayName,
                 provenanceConfidence: origin.provenanceConfidence
             )
-            let manifest = DecisionManifestFactory().make(command: normalized, intent: intent, target: target)
-            print(try AgenticFortressJSON.encodePretty(manifest))
-        case "proxy-session":
-            let profile = BuiltInProxyProfiles.openAI
-            let (session, token) = ProxyAuthorizer().createSession(profile: profile, bindPort: 48177)
-            let payload = ["session": try AgenticFortressJSON.encodePretty(session), "proxy_token_preview": "sha256:\(shortDigest(token))"]
-            print(try AgenticFortressJSON.encodePretty(payload))
+            let manifest = DeliveryDecisionManifestFactory().make(command: normalized, intent: intent, target: target)
+            print(try AgenticSecretsJSON.encodePretty(manifest))
+        case "api-session":
+            let profile = BuiltInAPISessionProfiles.openAI
+            let (session, token) = APISessionAuthorizer().createSession(profile: profile, bindPort: 48177)
+            let payload = ["session": try AgenticSecretsJSON.encodePretty(session), "api_session_token_preview": "sha256:\(shortDigest(token))"]
+            print(try AgenticSecretsJSON.encodePretty(payload))
         case "mcp-conformance":
-            print(try AgenticFortressJSON.encodePretty(MCPConformanceSuite.required))
+            print(try AgenticSecretsJSON.encodePretty(MCPConformanceSuite.required))
         case "ipc-conformance":
-            print(try AgenticFortressJSON.encodePretty(IPCConformanceReport()))
+            print(try AgenticSecretsJSON.encodePretty(IPCConformanceReport()))
         case "release-gates":
-            print(try AgenticFortressJSON.encodePretty(ReleaseGateRunner().staticReport()))
+            print(try AgenticSecretsJSON.encodePretty(ReleaseGateRunner().staticReport()))
         case "default-config":
-            print(try ConfigurationLoader.encode(AgenticFortressConfig()))
+            print(try ConfigurationLoader.encode(AgenticSecretsConfiguration()))
         case "check-macos":
             let sdkMajor = args.first.flatMap(Int.init)
-            print(try AgenticFortressJSON.encodePretty(MacOSCompatibility.runtimeReport(sdkMajor: sdkMajor)))
+            print(try AgenticSecretsJSON.encodePretty(MacOSCompatibility.runtimeReport(sdkMajor: sdkMajor)))
         case "adapter":
             try handleAdapter(args)
         case "cli":
@@ -79,32 +79,32 @@ struct AgenticFortressCLI {
 
     private static func printUsage() {
         print("""
-        AgenticFortress
+        AgenticSecrets
 
         Usage:
-          agentic-fortress profiles
-          agentic-fortress invariants
-          agentic-fortress classify hcloud server list
-          agentic-fortress manifest hcloud server list
-          agentic-fortress proxy-session
-          agentic-fortress mcp-conformance
-          agentic-fortress ipc-conformance
-          agentic-fortress release-gates
-          agentic-fortress default-config
-          agentic-fortress check-macos 26
-          agentic-fortress adapter list
-          agentic-fortress adapter install-payload <payload.json> <registry.json>
-          agentic-fortress adapter revoke <adapter-id> <registry.json>
-          agentic-fortress cli register hcloud --env HCLOUD_TOKEN --secret-stdin
-          agentic-fortress cli run hcloud -- server list
-          agentic-fortress cli run hcloud --authorization-mode always -- server list
-          agentic-fortress cli run hcloud --authorization-mode remember-24h -- server list
-          agentic-fortress cli run hcloud --authorization-mode once -- server delete prod-db-01
-          agentic-fortress cli run hcloud --authorization-mode short --unlock-ttl-seconds 300 -- server list
-          agentic-fortress cli shim install hcloud --configure-shell
-          agentic-fortress cli trust-refresh hcloud
-          agentic-fortress cli unregister hcloud --delete-secrets
-          agentic-fortress redact "OPENAI_API_KEY=..."
+          agentic-secrets profiles
+          agentic-secrets invariants
+          agentic-secrets classify hcloud server list
+          agentic-secrets manifest hcloud server list
+          agentic-secrets api-session
+          agentic-secrets mcp-conformance
+          agentic-secrets ipc-conformance
+          agentic-secrets release-gates
+          agentic-secrets default-config
+          agentic-secrets check-macos 26
+          agentic-secrets adapter list
+          agentic-secrets adapter install-payload <payload.json> <registry.json>
+          agentic-secrets command policy pack revoke <adapter-id> <registry.json>
+          agentic-secrets cli register hcloud --env HCLOUD_TOKEN --secret-stdin
+          agentic-secrets cli run hcloud -- server list
+          agentic-secrets cli run hcloud --authorization-mode always -- server list
+          agentic-secrets cli run hcloud --authorization-mode remember-24h -- server list
+          agentic-secrets cli run hcloud --authorization-mode once -- server delete prod-db-01
+          agentic-secrets cli run hcloud --authorization-mode short --delivery-grant-ttl-seconds 300 -- server list
+          agentic-secrets cli shim install hcloud --configure-shell
+          agentic-secrets cli trust-refresh hcloud
+          agentic-secrets cli unregister hcloud --delete-secrets
+          agentic-secrets redact "OPENAI_API_KEY=..."
         """)
     }
 
@@ -115,19 +115,19 @@ struct AgenticFortressCLI {
         switch subcommand {
         case "list":
             let entries = [
-                AdapterRegistryEntry(payload: BuiltInAdapterPacks.hcloud, installedAt: Date(timeIntervalSince1970: 0)),
-                AdapterRegistryEntry(payload: BuiltInAdapterPacks.githubCLI, installedAt: Date(timeIntervalSince1970: 0)),
-                AdapterRegistryEntry(payload: BuiltInAdapterPacks.terraform, installedAt: Date(timeIntervalSince1970: 0))
+                PolicyPackRegistryEntry(payload: BuiltInPolicyPacks.hcloud, installedAt: Date(timeIntervalSince1970: 0)),
+                PolicyPackRegistryEntry(payload: BuiltInPolicyPacks.githubCLI, installedAt: Date(timeIntervalSince1970: 0)),
+                PolicyPackRegistryEntry(payload: BuiltInPolicyPacks.terraform, installedAt: Date(timeIntervalSince1970: 0))
             ]
-            print(try AgenticFortressJSON.encodePretty(AdapterRegistryDocument(entries: entries)))
+            print(try AgenticSecretsJSON.encodePretty(PolicyPackRegistryDocument(entries: entries)))
         case "install-payload":
             guard args.count >= 3 else { throw CLIError.missingArgument("payload.json registry.json") }
-            let payload = try JSONDecoder().decode(AdapterPackPayload.self, from: Data(contentsOf: URL(fileURLWithPath: args[1])))
-            try AdapterRegistryStore(url: URL(fileURLWithPath: args[2])).install(payload: payload)
-            print("installed \(payload.adapterID)@\(payload.adapterVersion)")
+            let payload = try JSONDecoder().decode(CommandPolicyPackPayload.self, from: Data(contentsOf: URL(fileURLWithPath: args[1])))
+            try PolicyPackRegistryStore(url: URL(fileURLWithPath: args[2])).install(payload: payload)
+            print("installed \(payload.policyPackID)@\(payload.policyPackVersion)")
         case "revoke":
             guard args.count >= 3 else { throw CLIError.missingArgument("adapter-id registry.json") }
-            try AdapterRegistryStore(url: URL(fileURLWithPath: args[2])).revoke(adapterID: args[1])
+            try PolicyPackRegistryStore(url: URL(fileURLWithPath: args[2])).revoke(policyPackID: args[1])
             print("revoked \(args[1])")
         default:
             throw CLIError.missingArgument("known adapter subcommand")
@@ -247,14 +247,14 @@ struct AgenticFortressCLI {
             } else {
                 printCLIShimInstallResult(name: name, shimURL: shimURL, shimDir: shimDir, configureShell: configureShell, alreadyInstalled: true)
                 if configureShell {
-                    try configureShellPath(directory: shimDir, label: "AgenticFortress CLI shims")
+                    try configureShellPath(directory: shimDir, label: "AgenticSecrets CLI shims")
                 }
                 return
             }
         }
         try FileManager.default.createSymbolicLink(atPath: shimURL.path, withDestinationPath: shimBinary)
         if configureShell {
-            try configureShellPath(directory: shimDir, label: "AgenticFortress CLI shims")
+            try configureShellPath(directory: shimDir, label: "AgenticSecrets CLI shims")
         }
         printCLIShimInstallResult(name: name, shimURL: shimURL, shimDir: shimDir, configureShell: configureShell, alreadyInstalled: false)
     }
@@ -272,15 +272,15 @@ struct AgenticFortressCLI {
         }
         let shimURL = shimDir.appendingPathComponent(name)
         guard FileManager.default.fileExists(atPath: shimURL.path) || isSymlink(shimURL) else {
-            print("AgenticFortress shim for \(name) is not installed at \(shimURL.path).")
+            print("AgenticSecrets shim for \(name) is not installed at \(shimURL.path).")
             return
         }
         let resolved = URL(fileURLWithPath: shimURL.path).resolvingSymlinksInPath().path
         guard resolved == (try shimBinaryPath()) else {
-            throw CLIError.pathExists("refusing to remove non-AgenticFortress path: \(shimURL.path)")
+            throw CLIError.pathExists("refusing to remove non-AgenticSecrets path: \(shimURL.path)")
         }
         try FileManager.default.removeItem(at: shimURL)
-        print("AgenticFortress shim removed for \(name): \(shimURL.path)")
+        print("AgenticSecrets shim removed for \(name): \(shimURL.path)")
     }
 
     private static func printCLIShimInstallResult(
@@ -291,12 +291,12 @@ struct AgenticFortressCLI {
         alreadyInstalled: Bool
     ) {
         print("""
-        AgenticFortress shim \(alreadyInstalled ? "already installed" : "installed") for \(name).
+        AgenticSecrets shim \(alreadyInstalled ? "already installed" : "installed") for \(name).
 
         Shim:
           \(shimURL.path)
 
-        Normal commands now go through AgenticFortress secret delivery when this shim directory is before the native CLI on PATH.
+        Normal commands now go through AgenticSecrets secret delivery when this shim directory is before the native CLI on PATH.
         If \(name) is not registered yet, the first non-help command will fail closed with a registration error.
         Global help/version commands pass through without secret delivery:
           \(name) --help
@@ -311,7 +311,7 @@ struct AgenticFortressCLI {
               export PATH="\(shimDir.path):$PATH"
 
             For future sessions:
-              agentic-fortress cli shim install \(name) --configure-shell
+              agentic-secrets cli shim install \(name) --configure-shell
             """)
         }
     }
@@ -343,48 +343,48 @@ struct AgenticFortressCLI {
     }
 
     private static func coreDaemonPath() throws -> String {
-        if let override = ProcessInfo.processInfo.environment["AGENTIC_FORTRESS_CORE_BINARY"], !override.isEmpty {
+        if let override = ProcessInfo.processInfo.environment["AGENTIC_SECRETS_CORE_BINARY"], !override.isEmpty {
             return override
         }
         let candidates = executableCandidateURLs().map {
-            $0.deletingLastPathComponent().appendingPathComponent("agentic-fortressd-core")
+            $0.deletingLastPathComponent().appendingPathComponent("agentic-secrets-brokerd")
         }
         for candidate in candidates where FileManager.default.isExecutableFile(atPath: candidate.path) {
             return candidate.path
         }
-        throw CLIError.missingArgument("agentic-fortressd-core sibling binary or AGENTIC_FORTRESS_CORE_BINARY")
+        throw CLIError.missingArgument("agentic-secrets-brokerd sibling binary or AGENTIC_SECRETS_CORE_BINARY")
     }
 
     private static func shimBinaryPath() throws -> String {
-        if let override = ProcessInfo.processInfo.environment["AGENTIC_FORTRESS_SHIM_BINARY"], !override.isEmpty {
+        if let override = ProcessInfo.processInfo.environment["AGENTIC_SECRETS_SHIM_BINARY"], !override.isEmpty {
             return override
         }
         let candidates = executableCandidateURLs().map {
-            $0.deletingLastPathComponent().appendingPathComponent("agentic-fortress-shim")
+            $0.deletingLastPathComponent().appendingPathComponent("agentic-secrets-shim")
         }
         for candidate in candidates where FileManager.default.isExecutableFile(atPath: candidate.path) {
             return candidate.path
         }
-        throw CLIError.missingArgument("agentic-fortress-shim sibling binary or AGENTIC_FORTRESS_SHIM_BINARY")
+        throw CLIError.missingArgument("agentic-secrets-shim sibling binary or AGENTIC_SECRETS_SHIM_BINARY")
     }
 
     private static func defaultStateDirectory() -> URL {
-        if let override = ProcessInfo.processInfo.environment["AGENTIC_FORTRESS_STATE_DIR"], !override.isEmpty {
+        if let override = ProcessInfo.processInfo.environment["AGENTIC_SECRETS_STATE_DIR"], !override.isEmpty {
             return URL(fileURLWithPath: override, isDirectory: true)
         }
         return defaultInstallPrefix().map {
-            $0.appendingPathComponent("var/agentic-fortress", isDirectory: true)
-        } ?? AgenticFortressStateLayout.defaultStateDirectory()
+            $0.appendingPathComponent("var/agentic-secrets", isDirectory: true)
+        } ?? LocalInstallLayout.defaultStateDirectory()
     }
 
     private static func defaultShimDirectory() -> URL {
-        if let override = ProcessInfo.processInfo.environment["AGENTIC_FORTRESS_SHIM_DIR"], !override.isEmpty {
+        if let override = ProcessInfo.processInfo.environment["AGENTIC_SECRETS_SHIM_DIR"], !override.isEmpty {
             return URL(fileURLWithPath: override, isDirectory: true)
         }
         return defaultInstallPrefix().map {
             $0.appendingPathComponent("shims", isDirectory: true)
         } ?? FileManager.default.homeDirectoryForCurrentUser
-            .appendingPathComponent("Library/Application Support/AgenticFortress/LocalInstall/shims", isDirectory: true)
+            .appendingPathComponent("Library/Application Support/AgenticSecrets/LocalInstall/shims", isDirectory: true)
     }
 
     private static func defaultInstallPrefix() -> URL? {

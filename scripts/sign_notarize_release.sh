@@ -16,8 +16,8 @@ fi
 APP_PATH="$(CODESIGN_IDENTITY="$CODESIGN_IDENTITY" "$ROOT/scripts/package_release.sh" | tail -n 1)"
 "$ROOT/scripts/validate_release_artifact.sh" "$APP_PATH"
 
-ZIP_PATH="$ROOT/build/AgenticFortress.zip"
-SUBMISSION_ZIP="$ROOT/build/AgenticFortress.notary-submission.zip"
+ZIP_PATH="$ROOT/build/AgenticSecrets.zip"
+SUBMISSION_ZIP="$ROOT/build/AgenticSecrets.notary-submission.zip"
 rm -f "$ZIP_PATH" "$SUBMISSION_ZIP"
 ditto --norsrc -c -k --keepParent "$APP_PATH" "$SUBMISSION_ZIP"
 xcrun notarytool submit "$SUBMISSION_ZIP" --keychain-profile "$NOTARYTOOL_PROFILE" --wait

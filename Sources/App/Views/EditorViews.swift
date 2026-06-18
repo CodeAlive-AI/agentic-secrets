@@ -1,8 +1,8 @@
-import AgenticFortressCore
+import AgenticSecretsBroker
 import SwiftUI
 
 struct RegisterCLIView: View {
-    @Bindable var store: ManagementStore
+    @Bindable var store: ControlPlaneStore
     @Environment(\.dismiss) private var dismiss
     @State private var step: RegisterCLIStep = .target
     @State private var name = ""
@@ -78,7 +78,7 @@ struct RegisterCLIView: View {
                         .font(.caption)
                         .foregroundStyle(.orange)
                 }
-                Text("Use the resolved executable path for the CLI you want Agentic Fortress to verify before delivery.")
+                Text("Use the resolved executable path for the CLI you want Agentic Secrets to verify before delivery.")
                     .foregroundStyle(.secondary)
             }
         case .bindings:
@@ -122,7 +122,7 @@ struct RegisterCLIView: View {
                     Text("Secret values cannot be only whitespace.")
                         .foregroundStyle(.red)
                 }
-                Text("Values are written once through core-owned local state. Saved values are never displayed in the UI.")
+                Text("Values are written once through broker-owned local state. Saved values are never displayed in the UI.")
                     .foregroundStyle(.secondary)
             }
         case .review:
@@ -135,8 +135,8 @@ struct RegisterCLIView: View {
                     .foregroundStyle(.secondary)
                 DisclosureGroup("Advanced", isExpanded: $reviewAdvancedExpanded) {
                     Toggle("Install command shim", isOn: $installShim)
-                        .help("Create a local shim named like this CLI so normal invocations can route through Agentic Fortress.")
-                    Text("The shim is installed in the local Agentic Fortress shims folder. Shell PATH configuration remains a separate explicit install action.")
+                        .help("Create a local shim named like this CLI so normal invocations can route through Agentic Secrets.")
+                    Text("The shim is installed in the local Agentic Secrets shims folder. Shell PATH configuration remains a separate explicit install action.")
                         .foregroundStyle(.secondary)
                 }
             }
@@ -178,7 +178,7 @@ enum RegisterCLIFormDefaults {
     static let installShim = true
 }
 
-enum ProxyProfileEditorDefaults {
+enum APISessionProfileEditorDefaults {
     static let origin = "https://api.openai.com"
     static let pathPrefixes = "/v1/"
     static let methods = "GET, POST"
@@ -192,7 +192,7 @@ enum MCPProfileEditorDefaults {
     static let allowCrossOriginRedirects = false
 }
 
-enum BWSBindingEditorDefaults {
+enum BitwardenBindingEditorDefaults {
     static let environment = ProviderEnvironment.dev.rawValue
 }
 
@@ -214,7 +214,7 @@ private enum RegisterCLIStep: Int, CaseIterable {
     var subtitle: String {
         switch self {
         case .target: "Choose the CLI executable to verify."
-        case .bindings: "Name the environment variables Agentic Fortress may deliver."
+        case .bindings: "Name the environment variables Agentic Secrets may deliver."
         case .secrets: "Enter secret material once; it will not be shown again."
         case .review: "Confirm the target and write-only bindings."
         }
@@ -251,7 +251,7 @@ private struct RegisterCLIStepHeader: View {
 }
 
 struct ReplaceSecretView: View {
-    @Bindable var store: ManagementStore
+    @Bindable var store: ControlPlaneStore
     @Environment(\.dismiss) private var dismiss
     var alias: String
     var label: String
@@ -292,8 +292,8 @@ struct ReplaceSecretView: View {
     }
 }
 
-struct ProxyProfileEditor: View {
-    @Bindable var store: ManagementStore
+struct APISessionProfileEditor: View {
+    @Bindable var store: ControlPlaneStore
     @Environment(\.dismiss) private var dismiss
     @State private var name: String
     @State private var origin: String
@@ -303,20 +303,20 @@ struct ProxyProfileEditor: View {
     @State private var ttl: Double
     @State private var advancedExpanded: Bool
 
-    init(store: ManagementStore, profile: ProxyProfileSummary? = nil) {
+    init(store: ControlPlaneStore, profile: APISessionProfileSummary? = nil) {
         self.store = store
         _name = State(initialValue: profile?.name ?? "")
-        _origin = State(initialValue: profile?.upstreamOrigin.absoluteString ?? ProxyProfileEditorDefaults.origin)
-        _prefixes = State(initialValue: profile?.allowedPathPrefixes.joined(separator: ", ") ?? ProxyProfileEditorDefaults.pathPrefixes)
-        _methods = State(initialValue: profile?.allowedMethods.joined(separator: ", ") ?? ProxyProfileEditorDefaults.methods)
+        _origin = State(initialValue: profile?.upstreamOrigin.absoluteString ?? APISessionProfileEditorDefaults.origin)
+        _prefixes = State(initialValue: profile?.allowedPathPrefixes.joined(separator: ", ") ?? APISessionProfileEditorDefaults.pathPrefixes)
+        _methods = State(initialValue: profile?.allowedMethods.joined(separator: ", ") ?? APISessionProfileEditorDefaults.methods)
         _secretAlias = State(initialValue: profile?.secretAlias ?? "")
-        _ttl = State(initialValue: profile?.tokenTTLSeconds ?? ProxyProfileEditorDefaults.tokenTTL)
+        _ttl = State(initialValue: profile?.tokenTTLSeconds ?? APISessionProfileEditorDefaults.tokenTTL)
         _advancedExpanded = State(initialValue: profile != nil)
     }
 
     var body: some View {
         Form {
-            Section("Proxy Profile") {
+            Section("API Session Profile") {
                 TextField("Name", text: $name)
                 TextField("Upstream origin", text: $origin)
                 if let originMessage = ManagementEditorValidation.urlStatusMessage(origin, field: "upstream origin") {
@@ -344,13 +344,13 @@ struct ProxyProfileEditor: View {
                 Button("Cancel", role: .cancel) { dismiss() }
                 Button("Save") {
                     Task {
-                        if await store.upsertProxy(name: name, origin: origin, pathPrefixes: prefixes, methods: methods, secretAlias: secretAlias, ttl: ttl) {
+                        if await store.upsertAPISessionProfile(name: name, origin: origin, pathPrefixes: prefixes, methods: methods, secretAlias: secretAlias, ttl: ttl) {
                             dismiss()
                         }
                     }
                 }
                 .buttonStyle(.borderedProminent)
-                .disabled(!ManagementEditorValidation.canSaveProxy(
+                .disabled(!ManagementEditorValidation.canSaveAPISessionProfile(
                     name: name,
                     origin: origin,
                     pathPrefixes: prefixes,
@@ -369,7 +369,7 @@ struct ProxyProfileEditor: View {
 }
 
 struct MCPProfileEditor: View {
-    @Bindable var store: ManagementStore
+    @Bindable var store: ControlPlaneStore
     @Environment(\.dismiss) private var dismiss
     @State private var name: String
     @State private var origin: String
@@ -378,7 +378,7 @@ struct MCPProfileEditor: View {
     @State private var allowRedirects: Bool
     @State private var advancedExpanded: Bool
 
-    init(store: ManagementStore, profile: MCPProfileSummary? = nil) {
+    init(store: ControlPlaneStore, profile: MCPProfileSummary? = nil) {
         self.store = store
         _name = State(initialValue: profile?.name ?? "")
         _origin = State(initialValue: profile?.origin.absoluteString ?? MCPProfileEditorDefaults.origin)
@@ -437,8 +437,8 @@ struct MCPProfileEditor: View {
     }
 }
 
-struct BWSBindingEditor: View {
-    @Bindable var store: ManagementStore
+struct BitwardenBindingEditor: View {
+    @Bindable var store: ControlPlaneStore
     @Environment(\.dismiss) private var dismiss
     @State private var alias: String
     @State private var projectID: String
@@ -446,24 +446,24 @@ struct BWSBindingEditor: View {
     @State private var environment: String
     @State private var advancedExpanded: Bool
 
-    init(store: ManagementStore, binding: BWSBindingSummary? = nil) {
+    init(store: ControlPlaneStore, binding: BitwardenBindingSummary? = nil) {
         self.store = store
         _alias = State(initialValue: binding?.alias ?? "")
         _projectID = State(initialValue: binding?.projectID ?? "")
         _secretID = State(initialValue: "")
-        _environment = State(initialValue: binding?.environment ?? BWSBindingEditorDefaults.environment)
+        _environment = State(initialValue: binding?.environment ?? BitwardenBindingEditorDefaults.environment)
         _advancedExpanded = State(initialValue: binding != nil)
     }
 
     var body: some View {
         Form {
-            Section("BWS Binding") {
+            Section("Bitwarden Provider Binding") {
                 TextField("Alias", text: $alias, prompt: Text("cloud.hcloud.dev"))
-                    .accessibilityLabel("BWS binding alias")
+                    .accessibilityLabel("Bitwarden provider binding alias")
                 TextField("Project ID", text: $projectID)
                     .accessibilityLabel("BWS project ID")
                 SecureField(secretPlaceholder, text: $secretID)
-                    .accessibilityLabel("BWS secret ID")
+                    .accessibilityLabel("Bitwarden secret ID")
                 Text("Creates a development binding by default. Change the environment in Advanced when this binding is for staging or production.")
                     .foregroundStyle(.secondary)
                 DisclosureGroup("Advanced", isExpanded: $advancedExpanded) {
@@ -472,7 +472,7 @@ struct BWSBindingEditor: View {
                         Text("Staging").tag(ProviderEnvironment.staging.rawValue)
                         Text("Production").tag(ProviderEnvironment.prod.rawValue)
                     }
-                    Text("Secret IDs are written to core-owned configuration and shown later only as a digest. Secret values are never fetched or displayed here.")
+                    Text("Secret IDs are written to broker-owned configuration and shown later only as a digest. Secret values are never fetched or displayed here.")
                         .foregroundStyle(.secondary)
                 }
             }
@@ -482,7 +482,7 @@ struct BWSBindingEditor: View {
                 Button("Cancel", role: .cancel) { dismiss() }
                 Button("Save") {
                     Task {
-                        if await store.upsertBWSBinding(
+                        if await store.upsertBitwardenBinding(
                             alias: alias.trimmingCharacters(in: .whitespacesAndNewlines),
                             projectID: projectID.trimmingCharacters(in: .whitespacesAndNewlines),
                             secretID: secretID.trimmingCharacters(in: .whitespacesAndNewlines),
@@ -512,12 +512,12 @@ struct BWSBindingEditor: View {
     }
 
     private var secretPlaceholder: String {
-        "BWS secret ID"
+        "Bitwarden secret ID"
     }
 }
 
 private struct SheetFeedbackBanner: View {
-    @Bindable var store: ManagementStore
+    @Bindable var store: ControlPlaneStore
 
     var body: some View {
         if let message = store.errorMessage {
@@ -670,7 +670,7 @@ enum SecretInputValidation {
 }
 
 enum ManagementEditorValidation {
-    static func canSaveProxy(name: String, origin: String, pathPrefixes: String, methods: String, secretAlias: String) -> Bool {
+    static func canSaveAPISessionProfile(name: String, origin: String, pathPrefixes: String, methods: String, secretAlias: String) -> Bool {
         !trimmed(name).isEmpty
             && urlStatusMessage(origin, field: "upstream origin") == nil
             && !trimmed(secretAlias).isEmpty

@@ -7,7 +7,7 @@ enum ExecutablePathChooser {
         let panel = NSOpenPanel()
         panel.title = "Choose CLI Executable"
         panel.prompt = "Choose"
-        panel.message = "Choose the CLI binary that Agentic Fortress should verify before delivering secrets."
+        panel.message = "Choose the CLI binary that Agentic Secrets should verify before delivering secrets."
         panel.canChooseFiles = true
         panel.canChooseDirectories = false
         panel.allowsMultipleSelection = false
