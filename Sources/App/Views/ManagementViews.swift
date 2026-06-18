@@ -228,19 +228,21 @@ private struct NoCLIRegistrationsView: View {
     @Bindable var store: ManagementStore
 
     var body: some View {
-        ContentUnavailableView {
-            Label("No CLI Registered", systemImage: "terminal")
-        } description: {
-            Text("Register a CLI to bind secret delivery to a trusted executable.")
-        } actions: {
-            Button {
-                store.presentRegisterCLI()
-            } label: {
-                Label("Register CLI", systemImage: "plus")
+        PageCenteredState {
+            ContentUnavailableView {
+                Label("No CLI Registered", systemImage: "terminal")
+            } description: {
+                Text("Register a CLI to bind secret delivery to a trusted executable.")
+            } actions: {
+                Button {
+                    store.presentRegisterCLI()
+                } label: {
+                    Label("Register CLI", systemImage: "plus")
+                }
+                .buttonStyle(.borderedProminent)
+                .disabled(!store.canRegisterCLI)
+                .help("Start the CLI registration wizard")
             }
-            .buttonStyle(.borderedProminent)
-            .disabled(!store.canRegisterCLI)
-            .help("Start the CLI registration wizard")
         }
     }
 }
@@ -249,18 +251,20 @@ private struct NoMatchingCLIView: View {
     @Bindable var store: ManagementStore
 
     var body: some View {
-        ContentUnavailableView {
-            Label("No Matching CLIs", systemImage: "magnifyingglass")
-        } description: {
-            Text("No registered CLI, alias, or target matches this search.")
-        } actions: {
-            Button {
-                store.searchText = ""
-            } label: {
-                Label("Clear Search", systemImage: "xmark.circle")
+        PageCenteredState {
+            ContentUnavailableView {
+                Label("No Matching CLIs", systemImage: "magnifyingglass")
+            } description: {
+                Text("No registered CLI, alias, or target matches this search.")
+            } actions: {
+                Button {
+                    store.searchText = ""
+                } label: {
+                    Label("Clear Search", systemImage: "xmark.circle")
+                }
+                .buttonStyle(.borderedProminent)
+                .help("Clear the current search query")
             }
-            .buttonStyle(.borderedProminent)
-            .help("Clear the current search query")
         }
     }
 }
@@ -314,18 +318,20 @@ struct ProxyProfilesView: View {
             if store.snapshot == nil {
                 LocalStateUnavailableView(store: store)
             } else if store.proxyProfiles.isEmpty {
-                ContentUnavailableView {
-                    Label("No Proxy Profiles", systemImage: "point.3.connected.trianglepath.dotted")
-                } description: {
-                    Text("Create a bounded localhost proxy profile before starting proxy sessions.")
-                } actions: {
-                    Button {
-                        store.presentProxyProfileEditor()
-                    } label: {
-                        Label("Add Proxy Profile", systemImage: "plus")
+                PageCenteredState {
+                    ContentUnavailableView {
+                        Label("No Proxy Profiles", systemImage: "point.3.connected.trianglepath.dotted")
+                    } description: {
+                        Text("Create a bounded localhost proxy profile before starting proxy sessions.")
+                    } actions: {
+                        Button {
+                            store.presentProxyProfileEditor()
+                        } label: {
+                            Label("Add Proxy Profile", systemImage: "plus")
+                        }
+                        .buttonStyle(.borderedProminent)
+                        .disabled(!store.canManageCoreState)
                     }
-                    .buttonStyle(.borderedProminent)
-                    .disabled(!store.canManageCoreState)
                 }
             } else {
                 HSplitView {
@@ -524,18 +530,20 @@ struct MCPProfilesView: View {
             if store.snapshot == nil {
                 LocalStateUnavailableView(store: store)
             } else if store.mcpProfiles.isEmpty {
-                ContentUnavailableView {
-                    Label("No MCP Profiles", systemImage: "server.rack")
-                } description: {
-                    Text("Pinned MCP upstreams keep authorization injection bounded.")
-                } actions: {
-                    Button {
-                        store.presentMCPProfileEditor()
-                    } label: {
-                        Label("Add MCP Profile", systemImage: "plus")
+                PageCenteredState {
+                    ContentUnavailableView {
+                        Label("No MCP Profiles", systemImage: "server.rack")
+                    } description: {
+                        Text("Pinned MCP upstreams keep authorization injection bounded.")
+                    } actions: {
+                        Button {
+                            store.presentMCPProfileEditor()
+                        } label: {
+                            Label("Add MCP Profile", systemImage: "plus")
+                        }
+                        .buttonStyle(.borderedProminent)
+                        .disabled(!store.canManageCoreState)
                     }
-                    .buttonStyle(.borderedProminent)
-                    .disabled(!store.canManageCoreState)
                 }
             } else {
                 HSplitView {
@@ -676,26 +684,28 @@ struct BWSView: View {
             if store.snapshot == nil {
                 LocalStateUnavailableView(store: store)
             } else if store.bwsBindings.isEmpty {
-                ContentUnavailableView {
-                    Label("No BWS Bindings", systemImage: "key.horizontal")
-                } description: {
-                    Text("Create a binding to authorize one exact BWS secret per invocation.")
-                } actions: {
-                    Button {
-                        store.presentBWSBindingEditor()
-                    } label: {
-                        Label("Create BWS Binding", systemImage: "plus")
+                PageCenteredState {
+                    ContentUnavailableView {
+                        Label("No BWS Bindings", systemImage: "key.horizontal")
+                    } description: {
+                        Text("Create a binding to authorize one exact BWS secret per invocation.")
+                    } actions: {
+                        Button {
+                            store.presentBWSBindingEditor()
+                        } label: {
+                            Label("Create BWS Binding", systemImage: "plus")
+                        }
+                        .buttonStyle(.borderedProminent)
+                        .disabled(!store.canManageCoreState)
+                        .help("Create a Bitwarden Secrets Manager binding")
+                        Button {
+                            store.presentDiagnostics()
+                        } label: {
+                            Label("Review Diagnostics", systemImage: "stethoscope")
+                        }
+                        .buttonStyle(.bordered)
+                        .help("Review local core and provider setup")
                     }
-                    .buttonStyle(.borderedProminent)
-                    .disabled(!store.canManageCoreState)
-                    .help("Create a Bitwarden Secrets Manager binding")
-                    Button {
-                        store.presentDiagnostics()
-                    } label: {
-                        Label("Review Diagnostics", systemImage: "stethoscope")
-                    }
-                    .buttonStyle(.bordered)
-                    .help("Review local core and provider setup")
                 }
             } else {
                 HSplitView {
@@ -821,18 +831,20 @@ struct AdaptersView: View {
             if store.snapshot == nil {
                 LocalStateUnavailableView(store: store)
             } else if store.adapters.isEmpty {
-                ContentUnavailableView {
-                    Label("No Adapters", systemImage: "puzzlepiece.extension")
-                } description: {
-                    Text("Install a signed adapter pack JSON payload to classify a supported CLI.")
-                } actions: {
-                    Button {
-                        AdapterPackInstaller.presentOpenPanel(store: store)
-                    } label: {
-                        Label("Install Adapter Pack", systemImage: "square.and.arrow.down")
+                PageCenteredState {
+                    ContentUnavailableView {
+                        Label("No Adapters", systemImage: "puzzlepiece.extension")
+                    } description: {
+                        Text("Install a signed adapter pack JSON payload to classify a supported CLI.")
+                    } actions: {
+                        Button {
+                            AdapterPackInstaller.presentOpenPanel(store: store)
+                        } label: {
+                            Label("Install Adapter Pack", systemImage: "square.and.arrow.down")
+                        }
+                        .buttonStyle(.borderedProminent)
+                        .disabled(!store.canManageCoreState)
                     }
-                    .buttonStyle(.borderedProminent)
-                    .disabled(!store.canManageCoreState)
                 }
             } else {
                 HSplitView {
@@ -1209,18 +1221,20 @@ struct LocalStateUnavailableView: View {
     @Bindable var store: ManagementStore
 
     var body: some View {
-        ContentUnavailableView {
-            Label("Local State Unavailable", systemImage: "pause.circle")
-        } description: {
-            Text("This page will load after the local daemon is reachable.")
-        } actions: {
-            Button {
-                store.presentDiagnostics()
-            } label: {
-                Label("Open Diagnostics", systemImage: "stethoscope")
+        PageCenteredState {
+            ContentUnavailableView {
+                Label("Local State Unavailable", systemImage: "pause.circle")
+            } description: {
+                Text("This page will load after the local daemon is reachable.")
+            } actions: {
+                Button {
+                    store.presentDiagnostics()
+                } label: {
+                    Label("Open Diagnostics", systemImage: "stethoscope")
+                }
+                .buttonStyle(.borderedProminent)
+                .help("Open daemon diagnostics and repair actions")
             }
-            .buttonStyle(.borderedProminent)
-            .help("Open daemon diagnostics and repair actions")
         }
     }
 }
@@ -1516,6 +1530,16 @@ struct ManagementPageFrame<Content: View>: View {
         }
         .padding(24)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+    }
+}
+
+struct PageCenteredState<Content: View>: View {
+    @ViewBuilder var content: Content
+
+    var body: some View {
+        content
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
+            .frame(minHeight: 420)
     }
 }
 
