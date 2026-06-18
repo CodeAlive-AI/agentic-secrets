@@ -113,6 +113,7 @@ struct AgenticSecretsCommandShim {
                 let prefix = directory.deletingLastPathComponent()
                 candidates.append(prefix.appendingPathComponent("bin/agentic-secrets-brokerd"))
                 candidates.append(prefix.appendingPathComponent("Applications/AgenticSecrets.app/Contents/MacOS/agentic-secrets-brokerd"))
+                candidates.append(userApplicationsApp().appendingPathComponent("Contents/MacOS/agentic-secrets-brokerd"))
             }
         }
         var seen = Set<String>()
@@ -123,14 +124,47 @@ struct AgenticSecretsCommandShim {
         if let override = ProcessInfo.processInfo.environment["AGENTIC_SECRETS_STATE_DIR"], !override.isEmpty {
             return URL(fileURLWithPath: override, isDirectory: true)
         }
+        if let prefix = installPrefixFromExecutable() {
+            return prefix.appendingPathComponent("var/agentic-secrets", isDirectory: true)
+        }
+        return LocalInstallLayout.defaultStateDirectory()
+    }
+
+    private static func installPrefixFromExecutable() -> URL? {
+        if let override = ProcessInfo.processInfo.environment["AGENTIC_SECRETS_INSTALL_PREFIX"], !override.isEmpty {
+            return URL(fileURLWithPath: override, isDirectory: true)
+        }
         for invoked in executableCandidateURLs().map({ $0.resolvingSymlinksInPath() }) {
+            if isUserApplicationsExecutable(invoked) {
+                return defaultLocalInstallPrefix()
+            }
             let components = invoked.pathComponents
             if let applicationsIndex = components.lastIndex(of: "Applications"), applicationsIndex > 0 {
                 let prefix = URL(fileURLWithPath: "/" + components[1..<applicationsIndex].joined(separator: "/"), isDirectory: true)
-                return prefix.appendingPathComponent("var/agentic-secrets", isDirectory: true)
+                if isLegacyLocalInstallPrefix(prefix) {
+                    return prefix
+                }
             }
         }
-        return LocalInstallLayout.defaultStateDirectory()
+        return nil
+    }
+
+    private static func defaultLocalInstallPrefix() -> URL {
+        FileManager.default.homeDirectoryForCurrentUser
+            .appendingPathComponent("Library/Application Support/AgenticSecrets/LocalInstall", isDirectory: true)
+    }
+
+    private static func userApplicationsApp() -> URL {
+        FileManager.default.homeDirectoryForCurrentUser
+            .appendingPathComponent("Applications/AgenticSecrets.app", isDirectory: true)
+    }
+
+    private static func isUserApplicationsExecutable(_ url: URL) -> Bool {
+        url.standardizedFileURL.path.hasPrefix(userApplicationsApp().standardizedFileURL.path + "/Contents/MacOS/")
+    }
+
+    private static func isLegacyLocalInstallPrefix(_ url: URL) -> Bool {
+        url.standardizedFileURL.path.hasSuffix("/Library/Application Support/AgenticSecrets/LocalInstall")
     }
 
     private static func executableCandidateURLs() -> [URL] {

@@ -32,7 +32,7 @@ struct BrokerInstallPlan: Codable, Equatable, Sendable {
     var prefixPath: String
     var appSourcePath: String
     var appDestinationPath: String
-    var applicationsShortcutPath: String
+    var legacyAppDestinationPath: String
     var binDirectoryPath: String
     var stateDirectoryPath: String
     var runDirectoryPath: String
@@ -57,7 +57,7 @@ struct BrokerUninstallPlan: Codable, Equatable, Sendable {
     var summary: String
     var prefixPath: String
     var appDestinationPath: String
-    var applicationsShortcutPath: String
+    var legacyAppDestinationPath: String
     var binDirectoryPath: String
     var shimDirectoryPath: String
     var stateDirectoryPath: String
@@ -226,8 +226,8 @@ struct LocalBrokerStatusController: BrokerStatusControlling {
     private func makeInstallPlan() -> BrokerInstallPlan {
         let source = Bundle.main.bundleURL.standardizedFileURL
         let prefix = IPCControlPlaneClient.installPrefixFromBundle() ?? Self.defaultInstallPrefix()
-        let appDestination = prefix.appendingPathComponent("Applications/AgenticSecrets.app")
-        let applicationsShortcut = Self.userApplicationsShortcut()
+        let appDestination = Self.userApplicationsApp()
+        let legacyAppDestination = Self.legacyPrefixAppDestination(prefix: prefix)
         let binDirectory = prefix.appendingPathComponent("bin", isDirectory: true)
         let stateDirectory = prefix.appendingPathComponent("var/agentic-secrets", isDirectory: true)
         let runDirectory = prefix.appendingPathComponent("run/agentic-secrets", isDirectory: true)
@@ -247,9 +247,9 @@ struct LocalBrokerStatusController: BrokerStatusControlling {
         } else if !missing.isEmpty {
             summary = "This app bundle is missing helper executables: \(missing.joined(separator: ", ")). Build a release package before installing."
         } else if currentInstalled {
-            summary = "Repair will refresh the Applications shortcut, helper links, the install manifest, and the per-user LaunchAgent."
+            summary = "Repair will refresh the app in Applications, helper links, the install manifest, and the per-user LaunchAgent."
         } else {
-            summary = "Install will copy this app bundle into the local self-build install prefix, add a user Applications shortcut, and start the broker daemon."
+            summary = "Install will copy this app bundle into Applications, keep runtime files under the local support prefix, and start the broker daemon."
         }
         return BrokerInstallPlan(
             supported: supported,
@@ -258,7 +258,7 @@ struct LocalBrokerStatusController: BrokerStatusControlling {
             prefixPath: prefix.path,
             appSourcePath: source.path,
             appDestinationPath: appDestination.path,
-            applicationsShortcutPath: applicationsShortcut.path,
+            legacyAppDestinationPath: legacyAppDestination.path,
             binDirectoryPath: binDirectory.path,
             stateDirectoryPath: stateDirectory.path,
             runDirectoryPath: runDirectory.path,
@@ -273,8 +273,8 @@ struct LocalBrokerStatusController: BrokerStatusControlling {
 
     private func makeUninstallPlan() -> BrokerUninstallPlan {
         let prefix = IPCControlPlaneClient.installPrefixFromBundle() ?? Self.defaultInstallPrefix()
-        let appDestination = prefix.appendingPathComponent("Applications/AgenticSecrets.app")
-        let applicationsShortcut = Self.userApplicationsShortcut()
+        let appDestination = Self.userApplicationsApp()
+        let legacyAppDestination = Self.legacyPrefixAppDestination(prefix: prefix)
         let binDirectory = prefix.appendingPathComponent("bin", isDirectory: true)
         let shimDirectory = prefix.appendingPathComponent("shims", isDirectory: true)
         let stateDirectory = prefix.appendingPathComponent("var/agentic-secrets", isDirectory: true)
@@ -283,16 +283,18 @@ struct LocalBrokerStatusController: BrokerStatusControlling {
         let launchAgent = prefix.appendingPathComponent("Library/LaunchAgents/com.agenticsecrets.broker.plist")
         let shellConfigs = Self.managedShellConfigPaths().map(\.path)
         let canUninstall = FileManager.default.fileExists(atPath: prefix.path)
-            || (try? FileManager.default.destinationOfSymbolicLink(atPath: applicationsShortcut.path)) != nil
+            || FileManager.default.fileExists(atPath: appDestination.path)
+            || (try? FileManager.default.destinationOfSymbolicLink(atPath: appDestination.path)) != nil
+            || FileManager.default.fileExists(atPath: legacyAppDestination.path)
             || FileManager.default.fileExists(atPath: socketDirectory.path)
             || FileManager.default.fileExists(atPath: launchAgent.path)
             || Self.managedShellConfigPaths().contains { FileManager.default.fileExists(atPath: $0.path) }
         return BrokerUninstallPlan(
             title: "Remove Local Install",
-            summary: "Remove the local app copy, Applications shortcut, helper links, command shims, runtime files, socket directory, and per-user LaunchAgent. Local state is deleted only when explicitly selected.",
+            summary: "Remove the local app copy, helper links, command shims, runtime files, socket directory, and per-user LaunchAgent. Local state is deleted only when explicitly selected.",
             prefixPath: prefix.path,
             appDestinationPath: appDestination.path,
-            applicationsShortcutPath: applicationsShortcut.path,
+            legacyAppDestinationPath: legacyAppDestination.path,
             binDirectoryPath: binDirectory.path,
             shimDirectoryPath: shimDirectory.path,
             stateDirectoryPath: stateDirectory.path,
@@ -314,7 +316,7 @@ struct LocalBrokerStatusController: BrokerStatusControlling {
         let launchAgent = URL(fileURLWithPath: plan.launchAgentPath)
         let manifest = URL(fileURLWithPath: plan.manifestPath)
         let source = URL(fileURLWithPath: plan.appSourcePath, isDirectory: true)
-        let applicationsShortcut = URL(fileURLWithPath: plan.applicationsShortcutPath)
+        let legacyAppDestination = URL(fileURLWithPath: plan.legacyAppDestinationPath, isDirectory: true)
 
         try fileManager.createDirectory(at: appDestination.deletingLastPathComponent(), withIntermediateDirectories: true)
         try fileManager.createDirectory(at: binDirectory, withIntermediateDirectories: true)
@@ -325,12 +327,13 @@ struct LocalBrokerStatusController: BrokerStatusControlling {
         try? fileManager.setAttributes([.posixPermissions: 0o700], ofItemAtPath: socketDirectory.path)
 
         if !plan.currentAppIsInstalledCopy {
-            try? fileManager.removeItem(at: appDestination)
+            try removeManagedAppBundle(at: appDestination, legacyAppDestination: legacyAppDestination)
             let copied = runProcess(executable: "/usr/bin/ditto", arguments: [source.path, appDestination.path])
             guard copied.exitCode == 0 else {
                 throw DaemonInstallError.commandFailed("ditto", copied.output)
             }
         }
+        try removeManagedAppBundle(at: legacyAppDestination, legacyAppDestination: legacyAppDestination)
 
         for executable in Self.installExecutables {
             let link = binDirectory.appendingPathComponent(executable)
@@ -340,8 +343,6 @@ struct LocalBrokerStatusController: BrokerStatusControlling {
                 withDestinationURL: appDestination.appendingPathComponent("Contents/MacOS/\(executable)")
             )
         }
-
-        try createManagedUserApplicationsShortcut(at: applicationsShortcut, appDestination: appDestination)
 
         try launchAgentPlist(plan: plan).write(to: launchAgent, atomically: true, encoding: .utf8)
         try writeManifest(appDestination: appDestination, manifestURL: manifest)
@@ -359,7 +360,7 @@ struct LocalBrokerStatusController: BrokerStatusControlling {
         let binDirectory = URL(fileURLWithPath: plan.binDirectoryPath, isDirectory: true)
         let shimDirectory = URL(fileURLWithPath: plan.shimDirectoryPath, isDirectory: true)
         let appDestination = URL(fileURLWithPath: plan.appDestinationPath, isDirectory: true)
-        let applicationsShortcut = URL(fileURLWithPath: plan.applicationsShortcutPath)
+        let legacyAppDestination = URL(fileURLWithPath: plan.legacyAppDestinationPath, isDirectory: true)
         let runDirectory = URL(fileURLWithPath: plan.runDirectoryPath, isDirectory: true)
         let socketDirectory = URL(fileURLWithPath: plan.socketDirectoryPath, isDirectory: true)
         let stateDirectory = URL(fileURLWithPath: plan.stateDirectoryPath, isDirectory: true)
@@ -369,7 +370,6 @@ struct LocalBrokerStatusController: BrokerStatusControlling {
         }
 
         removeManagedShims(in: shimDirectory, appDestination: appDestination)
-        removeManagedUserApplicationsShortcut(at: applicationsShortcut, appDestination: appDestination)
         try? fileManager.removeItem(at: shimDirectory)
 
         for executable in Self.installExecutables {
@@ -379,7 +379,8 @@ struct LocalBrokerStatusController: BrokerStatusControlling {
         try? fileManager.removeItem(at: launchAgent)
         try? fileManager.removeItem(at: runDirectory)
         try? fileManager.removeItem(at: socketDirectory)
-        try? fileManager.removeItem(at: appDestination)
+        try? removeManagedAppBundle(at: appDestination, legacyAppDestination: legacyAppDestination)
+        try? removeManagedAppBundle(at: legacyAppDestination, legacyAppDestination: legacyAppDestination)
         if purgeLocalState {
             removeStateKeychainItems(stateDirectory: stateDirectory)
             try? fileManager.removeItem(at: stateDirectory)
@@ -405,30 +406,28 @@ struct LocalBrokerStatusController: BrokerStatusControlling {
         }
     }
 
-    private func createManagedUserApplicationsShortcut(at shortcut: URL, appDestination: URL) throws {
+    private func removeManagedAppBundle(at appURL: URL, legacyAppDestination: URL) throws {
         let fileManager = FileManager.default
-        try fileManager.createDirectory(at: shortcut.deletingLastPathComponent(), withIntermediateDirectories: true)
-        removeManagedUserApplicationsShortcut(at: shortcut, appDestination: appDestination)
-        guard !itemExistsOrSymlink(at: shortcut) else { return }
-        try fileManager.createSymbolicLink(at: shortcut, withDestinationURL: appDestination)
-    }
-
-    private func removeManagedUserApplicationsShortcut(at shortcut: URL, appDestination: URL) {
-        let fileManager = FileManager.default
-        guard let target = try? fileManager.destinationOfSymbolicLink(atPath: shortcut.path) else { return }
-        let targetURL = URL(fileURLWithPath: target)
-        let expected = Set([
-            appDestination.path,
-            appDestination.standardizedFileURL.path
-        ])
-        guard expected.contains(target) || expected.contains(targetURL.standardizedFileURL.path) else { return }
-        try? fileManager.removeItem(at: shortcut)
-    }
-
-    private func itemExistsOrSymlink(at url: URL) -> Bool {
-        let fileManager = FileManager.default
-        if fileManager.fileExists(atPath: url.path) { return true }
-        return (try? fileManager.destinationOfSymbolicLink(atPath: url.path)) != nil
+        guard fileManager.fileExists(atPath: appURL.path) || (try? fileManager.destinationOfSymbolicLink(atPath: appURL.path)) != nil else {
+            return
+        }
+        if let target = try? fileManager.destinationOfSymbolicLink(atPath: appURL.path) {
+            let targetURL = URL(fileURLWithPath: target)
+            let expected = Set([
+                legacyAppDestination.path,
+                legacyAppDestination.standardizedFileURL.path,
+                appURL.path,
+                appURL.standardizedFileURL.path
+            ])
+            if expected.contains(target) || expected.contains(targetURL.standardizedFileURL.path) {
+                try fileManager.removeItem(at: appURL)
+                return
+            }
+        }
+        guard Self.bundleIdentifier(at: appURL) == "com.agenticsecrets.AgenticSecrets" else {
+            throw DaemonInstallError.refusingToReplaceApp(appURL.path)
+        }
+        try fileManager.removeItem(at: appURL)
     }
 
     private func removeEmptyDirectories(from prefix: URL) {
@@ -568,13 +567,21 @@ struct LocalBrokerStatusController: BrokerStatusControlling {
     }
 
     private static func defaultInstallPrefix() -> URL {
-        FileManager.default.homeDirectoryForCurrentUser
-            .appendingPathComponent("Library/Application Support/AgenticSecrets/LocalInstall", isDirectory: true)
+        IPCControlPlaneClient.defaultInstallPrefix()
     }
 
-    private static func userApplicationsShortcut() -> URL {
-        FileManager.default.homeDirectoryForCurrentUser
-            .appendingPathComponent("Applications/AgenticSecrets.app", isDirectory: true)
+    private static func userApplicationsApp() -> URL {
+        IPCControlPlaneClient.userApplicationsApp()
+    }
+
+    private static func legacyPrefixAppDestination(prefix: URL) -> URL {
+        prefix.appendingPathComponent("Applications/AgenticSecrets.app", isDirectory: true)
+    }
+
+    private static func bundleIdentifier(at appURL: URL) -> String? {
+        let infoURL = appURL.appendingPathComponent("Contents/Info.plist")
+        guard let dictionary = NSDictionary(contentsOf: infoURL) else { return nil }
+        return dictionary["CFBundleIdentifier"] as? String
     }
 
     private static func managedShellConfigPaths() -> [URL] {
@@ -701,11 +708,14 @@ private enum DaemonUnavailableReason {
 
 private enum DaemonInstallError: Error, CustomStringConvertible {
     case commandFailed(String, String)
+    case refusingToReplaceApp(String)
 
     var description: String {
         switch self {
         case .commandFailed(let command, let output):
             "\(command) failed: \(output)"
+        case .refusingToReplaceApp(let path):
+            "Refusing to replace a non-Agentic Secrets app at \(path)."
         }
     }
 }
@@ -716,11 +726,11 @@ struct StubBrokerStatusController: BrokerStatusControlling {
     var installPlanValue: BrokerInstallPlan = BrokerInstallPlan(
         supported: true,
         title: "Install Local Daemon",
-        summary: "Install will copy this app bundle into the local self-build install prefix and start the broker daemon.",
+        summary: "Install will copy this app bundle into Applications and start the broker daemon.",
         prefixPath: "/tmp/agentic-secrets-ui-smoke",
         appSourcePath: "/tmp/AgenticSecrets.app",
-        appDestinationPath: "/tmp/agentic-secrets-ui-smoke/Applications/AgenticSecrets.app",
-        applicationsShortcutPath: "/tmp/agentic-secrets-ui-smoke-home/Applications/AgenticSecrets.app",
+        appDestinationPath: "/tmp/agentic-secrets-ui-smoke-home/Applications/AgenticSecrets.app",
+        legacyAppDestinationPath: "/tmp/agentic-secrets-ui-smoke/Applications/AgenticSecrets.app",
         binDirectoryPath: "/tmp/agentic-secrets-ui-smoke/bin",
         stateDirectoryPath: "/tmp/agentic-secrets-ui-smoke/var/agentic-secrets",
         runDirectoryPath: "/tmp/agentic-secrets-ui-smoke/run/agentic-secrets",
@@ -735,8 +745,8 @@ struct StubBrokerStatusController: BrokerStatusControlling {
         title: "Remove Local Install",
         summary: "Remove the local app copy, helper links, command shims, runtime files, socket directory, and per-user LaunchAgent.",
         prefixPath: "/tmp/agentic-secrets-ui-smoke",
-        appDestinationPath: "/tmp/agentic-secrets-ui-smoke/Applications/AgenticSecrets.app",
-        applicationsShortcutPath: "/tmp/agentic-secrets-ui-smoke-home/Applications/AgenticSecrets.app",
+        appDestinationPath: "/tmp/agentic-secrets-ui-smoke-home/Applications/AgenticSecrets.app",
+        legacyAppDestinationPath: "/tmp/agentic-secrets-ui-smoke/Applications/AgenticSecrets.app",
         binDirectoryPath: "/tmp/agentic-secrets-ui-smoke/bin",
         shimDirectoryPath: "/tmp/agentic-secrets-ui-smoke/shims",
         stateDirectoryPath: "/tmp/agentic-secrets-ui-smoke/var/agentic-secrets",

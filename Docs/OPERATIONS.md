@@ -42,7 +42,7 @@ Smoke-test installed IPC:
 ```sh
 PREFIX="$HOME/Library/Application Support/AgenticSecrets/LocalInstall"
 SOCKET="/tmp/agentic-secrets-core-smoke.sock"
-"$PREFIX/Applications/AgenticSecrets.app/Contents/MacOS/agentic-secrets-brokerd" serve-once \
+"$HOME/Applications/AgenticSecrets.app/Contents/MacOS/agentic-secrets-brokerd" serve-once \
   --socket "$SOCKET" \
   --manifest "$PREFIX/var/agentic-secrets/install-manifest.json" &
 "$PREFIX/bin/agentic-secrets-shim" --ipc-health \
@@ -64,7 +64,7 @@ Uninstall and remove local Agentic Secrets state:
 ./scripts/uninstall_local.sh --prefix "$HOME/Library/Application Support/AgenticSecrets/LocalInstall" --purge-local-state
 ```
 
-Uninstall removes the per-user LaunchAgent, user Applications shortcut, helper links, command shims under the local install prefix, runtime files, the socket directory, the installed app bundle, and Agentic Secrets-managed PATH blocks from known shell startup files. With state purge selected, it also removes local state files and known Agentic Secrets Keychain integrity sidecars for that state directory. Local secret record deletion is intentionally not implicit. Use `--purge-local-state` only as an explicit operator action, not as a side effect of package removal.
+Uninstall removes the per-user LaunchAgent, installed app bundle, helper links, command shims under the local install prefix, runtime files, the socket directory, and Agentic Secrets-managed PATH blocks from known shell startup files. With state purge selected, it also removes local state files and known Agentic Secrets Keychain integrity sidecars for that state directory. Local secret record deletion is intentionally not implicit. Use `--purge-local-state` only as an explicit operator action, not as a side effect of package removal.
 
 ## Local Secret Prompt Verification
 
@@ -291,7 +291,7 @@ The native app is the preferred recovery path for ordinary users:
 - Use **Repair Local Daemon** when helper links, the install manifest, or the LaunchAgent need to be refreshed.
 - Use **Restart Daemon** when the LaunchAgent exists but IPC is unavailable.
 
-The UI shows the app copy, user Applications shortcut, helper directory, state directory, run directory, install manifest, LaunchAgent, and socket before changing files. It does not read or move local secret material. If the app was launched from a temporary build location, open the installed copy after installation so IPC authorization matches the install manifest.
+The UI shows the app copy, helper directory, state directory, run directory, install manifest, LaunchAgent, and socket before changing files. It does not read or move local secret material. If the app was launched from a temporary build location, open the installed copy after installation so IPC authorization matches the install manifest.
 
 Run these checks before accepting a local production release:
 

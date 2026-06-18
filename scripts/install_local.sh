@@ -12,7 +12,6 @@ SHELL_CONFIG=""
 PREFIX_EXPLICIT=0
 OPEN_APP=1
 OPEN_EXPLICIT=0
-LINK_USER_APPLICATIONS=1
 
 while [ "$#" -gt 0 ]; do
   case "$1" in
@@ -35,14 +34,6 @@ while [ "$#" -gt 0 ]; do
       OPEN_EXPLICIT=1
       shift
       ;;
-    --link-user-applications)
-      LINK_USER_APPLICATIONS=1
-      shift
-      ;;
-    --no-link-user-applications)
-      LINK_USER_APPLICATIONS=0
-      shift
-      ;;
     --configure-shell)
       CONFIGURE_SHELL=1
       shift
@@ -62,9 +53,12 @@ APP_SOURCE="$ROOT/build/$APP_NAME.app"
 "$ROOT/scripts/package_release.sh" >/tmp/agentic-secrets-install-package-path.txt
 APP_SOURCE="$(tail -n 1 /tmp/agentic-secrets-install-package-path.txt)"
 
-APP_DEST="$PREFIX/Applications/$APP_NAME.app"
-USER_APPLICATIONS_DIR="$HOME/Applications"
-USER_APP_LINK="$USER_APPLICATIONS_DIR/$APP_NAME.app"
+if [ "$PREFIX" = "$DEFAULT_PREFIX" ]; then
+  APP_DEST="$HOME/Applications/$APP_NAME.app"
+else
+  APP_DEST="$PREFIX/Applications/$APP_NAME.app"
+fi
+LEGACY_APP_DEST="$PREFIX/Applications/$APP_NAME.app"
 BIN_DIR="$PREFIX/bin"
 STATE_DIR="$PREFIX/var/agentic-secrets"
 RUN_DIR="$PREFIX/run/agentic-secrets"
@@ -73,31 +67,34 @@ SOCKET_PATH="$SOCKET_DIR/core.sock"
 LAUNCH_DIR="$PREFIX/Library/LaunchAgents"
 MANIFEST_PATH="$STATE_DIR/install-manifest.json"
 
-rm -rf "$APP_DEST"
+bundle_id_at() {
+  [ -d "$1" ] || return 1
+  /usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$1/Contents/Info.plist" 2>/dev/null || return 1
+}
+
+remove_managed_app_bundle() {
+  path="$1"
+  [ -e "$path" ] || [ -L "$path" ] || return 0
+  if [ -L "$path" ]; then
+    link_target="$(readlink "$path" 2>/dev/null || printf '')"
+    if [ "$link_target" = "$LEGACY_APP_DEST" ] || [ "$link_target" = "$APP_DEST" ]; then
+      rm -f "$path"
+      return 0
+    fi
+  fi
+  if [ "$(bundle_id_at "$path" || printf '')" = "$BUNDLE_ID" ]; then
+    rm -rf "$path"
+    return 0
+  fi
+  printf 'Refusing to replace non-Agentic Secrets app at:\n  %s\n' "$path" >&2
+  exit 73
+}
+
+remove_managed_app_bundle "$APP_DEST"
+remove_managed_app_bundle "$LEGACY_APP_DEST"
 mkdir -p "$(dirname "$APP_DEST")" "$BIN_DIR" "$STATE_DIR" "$RUN_DIR" "$SOCKET_DIR" "$LAUNCH_DIR"
 chmod 700 "$SOCKET_DIR"
 ditto "$APP_SOURCE" "$APP_DEST"
-
-remove_managed_user_app_link() {
-  [ -L "$USER_APP_LINK" ] || return 0
-  link_target="$(readlink "$USER_APP_LINK" 2>/dev/null || printf '')"
-  if [ "$link_target" = "$APP_DEST" ]; then
-    rm -f "$USER_APP_LINK"
-  fi
-}
-
-link_user_applications() {
-  [ "$LINK_USER_APPLICATIONS" -eq 1 ] || return 0
-  mkdir -p "$USER_APPLICATIONS_DIR"
-  remove_managed_user_app_link
-  if [ -e "$USER_APP_LINK" ] || [ -L "$USER_APP_LINK" ]; then
-    printf 'Skipped Applications shortcut because a file already exists:\n  %s\n' "$USER_APP_LINK"
-    return 0
-  fi
-  ln -s "$APP_DEST" "$USER_APP_LINK"
-}
-
-link_user_applications
 
 for executable in AgenticSecrets agentic-secrets agentic-secrets-shim agentic-secrets-brokerd agentic-secrets-api-sessiond agentic-secrets-bitwarden-providerd agentic-secrets-mcpd; do
   ln -sf "$APP_DEST/Contents/MacOS/$executable" "$BIN_DIR/$executable"
@@ -241,9 +238,7 @@ if [ "$PREFIX" != "$DEFAULT_PREFIX" ] && [ "$OPEN_EXPLICIT" -eq 0 ]; then
 fi
 
 printf '%s\n' "$PREFIX"
-if [ "$LINK_USER_APPLICATIONS" -eq 1 ] && [ -L "$USER_APP_LINK" ]; then
-  printf '\nApplications shortcut:\n  %s\n' "$USER_APP_LINK"
-fi
+printf '\nInstalled Agentic Secrets app:\n  %s\n' "$APP_DEST"
 printf '\nInstalled Agentic Secrets commands under:\n  %s\n' "$BIN_DIR"
 if command -v agentic-secrets >/dev/null 2>&1; then
   printf 'agentic-secrets is already available on PATH: %s\n' "$(command -v agentic-secrets)"

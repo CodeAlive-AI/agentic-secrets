@@ -3,7 +3,8 @@ set -eu
 
 . "$(cd "$(dirname "$0")/.." && pwd)/version.env"
 
-PREFIX="$HOME/Library/Application Support/AgenticSecrets/LocalInstall"
+DEFAULT_PREFIX="$HOME/Library/Application Support/AgenticSecrets/LocalInstall"
+PREFIX="$DEFAULT_PREFIX"
 PURGE_LOCAL_STATE=0
 KEEP_SECRETS=1
 
@@ -28,9 +29,12 @@ while [ "$#" -gt 0 ]; do
   esac
 done
 
-APP_DEST="$PREFIX/Applications/$APP_NAME.app"
-USER_APPLICATIONS_DIR="$HOME/Applications"
-USER_APP_LINK="$USER_APPLICATIONS_DIR/$APP_NAME.app"
+if [ "$PREFIX" = "$DEFAULT_PREFIX" ]; then
+  APP_DEST="$HOME/Applications/$APP_NAME.app"
+else
+  APP_DEST="$PREFIX/Applications/$APP_NAME.app"
+fi
+LEGACY_APP_DEST="$PREFIX/Applications/$APP_NAME.app"
 BIN_DIR="$PREFIX/bin"
 SHIM_DIR="$PREFIX/shims"
 STATE_DIR="$PREFIX/var/agentic-secrets"
@@ -43,15 +47,28 @@ if [ -f "$CORE_PLIST" ]; then
   launchctl bootout "gui/$(id -u)" "$CORE_PLIST" >/dev/null 2>&1 || true
 fi
 
-remove_managed_user_app_link() {
-  [ -L "$USER_APP_LINK" ] || return 0
-  link_target="$(readlink "$USER_APP_LINK" 2>/dev/null || printf '')"
-  if [ "$link_target" = "$APP_DEST" ]; then
-    rm -f "$USER_APP_LINK"
+bundle_id_at() {
+  [ -d "$1" ] || return 1
+  /usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$1/Contents/Info.plist" 2>/dev/null || return 1
+}
+
+remove_managed_app_bundle() {
+  path="$1"
+  [ -e "$path" ] || [ -L "$path" ] || return 0
+  if [ -L "$path" ]; then
+    link_target="$(readlink "$path" 2>/dev/null || printf '')"
+    if [ "$link_target" = "$LEGACY_APP_DEST" ] || [ "$link_target" = "$APP_DEST" ]; then
+      rm -f "$path"
+      return 0
+    fi
+  fi
+  if [ "$(bundle_id_at "$path" || printf '')" = "$BUNDLE_ID" ]; then
+    rm -rf "$path"
   fi
 }
 
-remove_managed_user_app_link
+remove_managed_app_bundle "$APP_DEST"
+remove_managed_app_bundle "$LEGACY_APP_DEST"
 
 for executable in agentic-secrets AgenticSecrets agentic-secrets-shim agentic-secrets-brokerd agentic-secrets-api-sessiond agentic-secrets-bitwarden-providerd agentic-secrets-mcpd; do
   rm -f "$BIN_DIR/$executable"
@@ -61,7 +78,6 @@ rm -f "$CORE_PLIST"
 rm -rf "$SHIM_DIR"
 rm -rf "$RUN_DIR"
 rm -rf "$SOCKET_DIR"
-rm -rf "$APP_DEST"
 
 if [ "$PURGE_LOCAL_STATE" -eq 1 ]; then
   state_parent="$(dirname "$STATE_DIR")"

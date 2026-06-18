@@ -168,11 +168,34 @@ struct IPCControlPlaneClient: ControlPlaneClient {
     }
 
     static func installPrefixFromBundle() -> URL? {
-        let components = Bundle.main.bundleURL.standardizedFileURL.pathComponents
+        let environment = ProcessInfo.processInfo.environment
+        if let override = environment["AGENTIC_SECRETS_INSTALL_PREFIX"], !override.isEmpty {
+            return URL(fileURLWithPath: override, isDirectory: true)
+        }
+        let bundle = Bundle.main.bundleURL.standardizedFileURL
+        if bundle.path == userApplicationsApp().standardizedFileURL.path {
+            return defaultInstallPrefix()
+        }
+        let components = bundle.pathComponents
         guard let applicationsIndex = components.lastIndex(of: "Applications"), applicationsIndex > 0 else {
             return nil
         }
-        return URL(fileURLWithPath: "/" + components[1..<applicationsIndex].joined(separator: "/"), isDirectory: true)
+        let prefix = URL(fileURLWithPath: "/" + components[1..<applicationsIndex].joined(separator: "/"), isDirectory: true)
+        return isLegacyLocalInstallPrefix(prefix) ? prefix : nil
+    }
+
+    static func defaultInstallPrefix() -> URL {
+        FileManager.default.homeDirectoryForCurrentUser
+            .appendingPathComponent("Library/Application Support/AgenticSecrets/LocalInstall", isDirectory: true)
+    }
+
+    static func userApplicationsApp() -> URL {
+        FileManager.default.homeDirectoryForCurrentUser
+            .appendingPathComponent("Applications/AgenticSecrets.app", isDirectory: true)
+    }
+
+    private static func isLegacyLocalInstallPrefix(_ url: URL) -> Bool {
+        url.standardizedFileURL.path.hasSuffix("/Library/Application Support/AgenticSecrets/LocalInstall")
     }
 
     static func defaultPeer() throws -> SelfBuildPeerIdentity {
