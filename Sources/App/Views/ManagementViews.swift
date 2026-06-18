@@ -174,7 +174,7 @@ private struct CLIRegistrationDetail: View {
                                 Label("Lock All Grants on This Mac", systemImage: "lock")
                             }
                             .disabled(!store.canClearUnlockGrants)
-                            .help("Clear every active unlock grant on this Mac. Scoped CLI grant clearing is not available in the current core contract.")
+                            .help("Clear every active authorization grant on this Mac. Scoped CLI grant clearing is not available in the current core contract.")
                         }
                         Section("Danger Zone") {
                             Button("Unregister CLI", role: .destructive) {

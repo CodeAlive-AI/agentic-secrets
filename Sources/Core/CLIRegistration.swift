@@ -375,6 +375,17 @@ public struct AgenticFortressStateLayout: Sendable {
         stateDirectory.appendingPathComponent("secrets/cli-unlock-grants.key")
     }
 
+    public var cliPersistentAllowGrantsURL: URL {
+        stateDirectory.appendingPathComponent("cli-persistent-allow-grants.json")
+    }
+
+    public var cliPersistentAllowIntegrityProtector: any CLIRegistryIntegrityProtector {
+        KeychainCLIRegistryIntegrityProtector(
+            service: "com.agenticfortress.cli-persistent-allow",
+            account: "local-state:" + shortDigest(stateDirectory.standardizedFileURL.path, length: 24)
+        )
+    }
+
     public var configURL: URL {
         stateDirectory.appendingPathComponent("config/agentic-fortress.json")
     }

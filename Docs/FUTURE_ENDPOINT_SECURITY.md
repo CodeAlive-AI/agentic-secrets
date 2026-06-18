@@ -61,7 +61,7 @@ Suggested assertion fields:
 - The assertion must be bound to a specific invocation, not just to a CLI name.
 - Assertions must expire quickly and must be replay-protected.
 - If EndpointSecurity is unavailable, core must fail back to the non-EndpointSecurity policy instead of weakening delivery rules.
-- EndpointSecurity provenance may reduce prompt frequency for low-risk commands, but it must not bypass fresh approval for destructive, unknown, prod, or policy-changing operations.
+- EndpointSecurity provenance may reduce prompt frequency, but it must not bypass fresh approval for destructive or policy-changing operations.
 
 ## Privacy And Reliability Constraints
 
@@ -98,7 +98,7 @@ Suggested assertion fields:
   - `xpcPeer`;
   - `endpointSecurity`.
 - Allow policy to require higher provenance confidence for specific secrets, environments, or command classes.
-- Keep destructive and unknown commands fresh-auth by default.
+- Keep destructive commands fresh-auth by default; unknown non-destructive commands may reuse authorization only under the same scoped policy gates as other non-destructive commands.
 
 ### UI And Operations
 

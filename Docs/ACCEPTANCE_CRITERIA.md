@@ -197,7 +197,7 @@ Pass condition:
 - If IPC is unavailable, the UI shows daemon status, socket path, LaunchAgent path when known, and install/repair actions when the local app bundle supports them.
 - Diagnostics shows a concrete install plan before writing files: app copy, helper links, state directory, run directory, install manifest, LaunchAgent, and socket path.
 - Install and repair actions require explicit confirmation and use the existing per-user LaunchAgent and install manifest model; the UI does not become the secret authority.
-- If the app is launched outside the install prefix, the UI explains that the installed app copy should be opened after install because IPC authorization is bound to the installed bundle path.
+- If the app is launched outside the install prefix, the UI explains that the installed copy should be opened after install because IPC authorization is bound to the installed bundle path.
 - Menu bar status reflects healthy, attention, locked, and daemon-unavailable states.
 
 Verification:
@@ -388,8 +388,8 @@ Pass condition:
 - The prompt reason includes manifest digest, action class, target command, workspace, secret alias, and delivery mode.
 - Approval proof expires quickly and is bound to the decision manifest.
 - Prompt cancellation denies the operation without reading the secret.
-- Repeated CLI runs may use a short signed unlock grant only when CLI name, target identity, workspace hash, action class, command digest, risk, config context, untrusted origin hint, provenance confidence, delivery mode, and secret alias match. Action-level command policy is still evaluated before each secret delivery.
-- CLI unlock grants store no secret material, expire by default after 300 seconds, and cannot exceed 900 seconds.
+- Repeated CLI runs may use a signed authorization grant only when CLI name, target identity, workspace hash, config context, untrusted origin hint, provenance confidence, delivery mode, and secret alias match. Short grants additionally require action class, command digest, and risk to match. Command policy is still evaluated before each secret delivery, and destructive commands require fresh approval.
+- CLI authorization grants store no secret material. Default persistent grants use `always` and are signed with a device-local macOS Keychain key, `remember-24h` expires after 24 hours, `short` expires by default after 300 seconds and cannot exceed 900 seconds, and `once` disables reuse.
 
 Verification:
 
@@ -402,7 +402,8 @@ AGENTIC_FORTRESS_INTERACTIVE=1 AGENTIC_FORTRESS_EXPECT_CANCEL=1 ./scripts/intera
 Required evidence:
 
 - Automated tests cover prompt reason construction and proof expiry.
-- Automated tests cover CLI unlock grant TTL, expiry, tamper rejection, scope mismatch, and rejection across different action classes, destructive actions, workspaces, origin hints, and custom config contexts.
+- Automated tests cover short unlock grant TTL, expiry, tamper rejection, scope mismatch, and rejection across different action classes, destructive actions, workspaces, origin hints, and custom config contexts.
+- Automated tests cover persistent authorization default `always`, `remember-24h` expiry, protected signing keys, tamper rejection, scope mismatch, reuse across non-destructive action classes, and destructive policy gating.
 - The interactive script uses the packaged, ad-hoc signed core binary so the Tahoe no-Developer-ID runtime path is exercised.
 - Interactive transcript confirms the macOS prompt appears before secret resolution and cancellation denies access with `userCanceled`.
 
@@ -410,7 +411,7 @@ Failure examples:
 
 - Prompt says only "AgenticFortress wants to access a local secret".
 - A prompt approval can be replayed for a different target or workspace.
-- A local unlock grant can be edited to extend expiry.
+- A local authorization grant can be edited to extend expiry.
 
 ## Shim and CLI Env Delivery
 

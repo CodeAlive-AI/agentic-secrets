@@ -8,7 +8,8 @@ Implemented:
 
 - `DeliveryIntent.parentApp` has been replaced with `originHint`.
 - Decision manifests now carry `origin.hint`, `origin.provenanceConfidence`, `commandDigest`, `configContext`, and adapter identity.
-- CLI unlock grants are action-bound and include action class, command digest, risk, config context, origin hint, provenance confidence, target identity, workspace, delivery mode, and secret alias.
+- Short CLI unlock grants are action-bound and include action class, command digest, risk, config context, origin hint, provenance confidence, target identity, workspace, delivery mode, and secret alias.
+- Persistent CLI authorization grants support `always` and `remember-24h` modes for matching non-destructive invocation contexts, use a device-local macOS Keychain signing key, and re-evaluate command policy every run.
 - Active unlock grant summaries retain non-secret scope metadata for audit/UI explanation.
 - LocalAuthentication prompt text shows `Parent app` and labels environment-derived/process-derived origin with explicit provenance.
 - The shim no longer routes normal execution through the public CLI process; it invokes core directly for `run-cli`.
@@ -33,14 +34,14 @@ registered CLI shim -> agentic-fortress CLI -> agentic-fortressd-core run-cli ->
 
 In that path, the core run command saw the AgenticFortress CLI process and inherited environment, not a verified origin for the app, terminal, editor, or agent that caused the invocation.
 
-The current unlock grant scope is also too broad for the documented model because `CLIUnlockScope` does not include `actionClass`, command digest, risk, or config context. Documentation says grants are scoped to action-level policy, but the implementation currently scopes to target, workspace, parent hint, delivery, and secret only.
+The old unlock grant scope was too broad for the documented short-grant model because `CLIUnlockScope` did not include `actionClass`, command digest, risk, or config context. Short grants are now action-bound. Persistent authorization grants intentionally use a broader non-action scope, but command policy is re-evaluated before each secret delivery and destructive commands never reuse persistent grants.
 
 ## Design Goals
 
 - Never treat environment variables as trusted identity.
-- Make unlock grants action-bound enough that a read-only command cannot unlock a later destructive command.
-- Keep low-risk read-only workflows fast after one local approval.
-- Preserve fresh LocalAuthentication for destructive, unknown, prod, target-change, config-change, and policy-change operations.
+- Make short unlock grants action-bound enough that one command cannot unlock a later destructive command.
+- Keep non-destructive workflows fast after one local approval.
+- Preserve fresh LocalAuthentication for destructive operations and for target, workspace, origin, config, delivery, or secret scope changes.
 - Prefer macOS-provided peer identity over self-reported JSON fields.
 - Keep the default self-build track free of restricted entitlements.
 
@@ -151,23 +152,24 @@ Verification:
 
 Scope:
 
-- Keep LocalAuthentication required when no matching action-bound grant exists.
-- Allow low-risk read-only commands to reuse short grants after a successful prompt.
-- Require fresh LocalAuthentication for destructive, unknown, prod, target identity changes, policy changes, custom config invalidators, and trust refresh.
-- Add an explicit opt-in `notifyOnlyWhileUnlocked` policy only for low-risk local/dev secrets if the product intentionally wants a Secretive-like mode.
+- Keep LocalAuthentication required when no matching valid grant exists.
+- Allow non-destructive commands to reuse scoped authorization after a successful prompt without trying to prove read/write semantics.
+- Require fresh LocalAuthentication for destructive commands, target identity changes, policy changes, custom config invalidators, and trust refresh.
+- Support explicit modes: `always` by default, `remember-24h`, `short`, and `once`.
 
 Suggested defaults:
 
 - help/version/metadata: no secret read and no LocalAuthentication.
-- dev read-only: prompt once, then short action-bound grant.
-- staging mutating: prompt per command class or short bounded grant only if explicitly configured.
-- prod, destructive, unknown, trust refresh, adapter install/revoke, policy update: fresh prompt.
+- default non-destructive CLI delivery: prompt once, then persistent `always` authorization for the same target, secret, workspace, origin, config, delivery mode, and CLI identity.
+- `remember-24h`: same persistent scope with a 24-hour expiry.
+- `short`: action-bound prompt reuse with the 300 second default TTL and 900 second maximum.
+- destructive, forbidden, trust refresh, adapter install/revoke, policy update: fresh prompt or denial.
 
 Verification:
 
-- Prompt frequency is reduced for repeated matching read-only commands.
+- Prompt frequency is reduced for repeated matching non-destructive commands.
 - A matching grant never bypasses policy evaluation.
-- A matching grant never applies to a higher-risk action class.
+- A short grant never applies to a different action class, while persistent grants are blocked before lookup for destructive commands.
 - Cancellation still fails closed before any secret is resolved.
 
 ## Step 7: Audit And UI

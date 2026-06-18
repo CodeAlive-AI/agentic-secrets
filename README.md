@@ -14,7 +14,7 @@ This is an alpha release: expect breaking changes while the CLI, storage format,
 - AgenticFortress stores the secret in a local encrypted store and keeps non-secret CLI metadata in its registry.
 - Each run validates the registered target binary identity before resolving the secret.
 - macOS LocalAuthentication is required before secret delivery. Depending on system state, macOS may ask for Touch ID, Apple Watch, or the local account password.
-- Successful CLI authentication creates a short scoped unlock grant for matching runs. The default TTL is 300 seconds and is bound to the CLI, target identity, workspace, action class, command digest, config context, untrusted origin hint, delivery mode, and secret alias. Each command is still policy-checked before secret delivery.
+- Successful CLI authentication creates a scoped authorization grant for matching runs. The default mode is `always`; `remember-24h`, `short`, and `once` are available per run. Persistent grants are signed with a device-local macOS Keychain key and are bound to the CLI, target identity, workspace, config context, untrusted origin hint, provenance confidence, delivery mode, and secret alias. Each command is still policy-checked before secret delivery, and destructive commands require fresh approval.
 - Trust changes, such as `trust-refresh` after a CLI upgrade, also require LocalAuthentication.
 - Registry tampering and target replacement fail closed before any secret is read.
 
@@ -57,9 +57,11 @@ Run `hcloud` through AgenticFortress:
 agentic-fortress cli run hcloud -- server list
 ```
 
-Disable the short unlock window for one run:
+Choose authorization mode for one run:
 
 ```sh
+agentic-fortress cli run hcloud --authorization-mode remember-24h -- server list
+agentic-fortress cli run hcloud --authorization-mode short --unlock-ttl-seconds 300 -- server list
 agentic-fortress cli run hcloud --unlock-ttl-seconds 0 -- server list
 ```
 

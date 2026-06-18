@@ -120,7 +120,6 @@ func runContracts() throws {
         target: TargetAssessor().synthetic(path: "/opt/homebrew/bin/hcloud")
     )
     try expect(destructiveManifest.approvalOptions == [.once, .deny], "destructive actions must offer one-time approval only")
-    try expect(!destructiveManifest.approvalOptions.contains(.readOnlyInWorkspace1h), "destructive actions must not offer remembered approval")
     try expect(destructiveManifest.typedChallenge == destructiveManifest.digest, "destructive manifest must expose typed challenge digest")
 
     let removeCommand = classifier.classify(executableName: "hcloud", arguments: ["server", "remove", "prod-db-01"], observedVersion: "1.52.0")
@@ -147,6 +146,19 @@ func runContracts() throws {
         intent: DeliveryIntent(flow: .cliEnv, secretAlias: "cloud.hcloud.dev", delivery: .env, environmentName: "HCLOUD_TOKEN", workspace: "/tmp/infra", originHint: "Codex"),
         target: TargetAssessor().synthetic(path: "/opt/homebrew/bin/hcloud")
     )
+    let reusableApprovalOptions: [ApprovalOption] = [.always, .remember24h, .short, .once, .deny]
+    try expect(approvalManifest.approvalOptions == reusableApprovalOptions, "non-destructive commands must offer always, 24h, short, once, and deny modes")
+    let unknownManifest = DecisionManifestFactory().make(
+        command: hcloudUnknownGlobal,
+        intent: DeliveryIntent(flow: .cliEnv, secretAlias: "cloud.hcloud.dev", delivery: .env, environmentName: "HCLOUD_TOKEN", workspace: "/tmp/infra", originHint: "Codex"),
+        target: TargetAssessor().synthetic(path: "/opt/homebrew/bin/hcloud")
+    )
+    try expect(unknownManifest.approvalOptions == reusableApprovalOptions, "unknown-but-not-destructive commands must not be forced into read-only approval")
+    let reusablePolicyDecision = try PolicyEngine().authorize(command: hcloudFirewallRule, intent: DeliveryIntent(flow: .cliEnv, secretAlias: "cloud.hcloud.dev", delivery: .env, environmentName: "HCLOUD_TOKEN", workspace: "/tmp/infra", originHint: "Codex"), target: TargetAssessor().synthetic(path: "/opt/homebrew/bin/hcloud"), approval: .always, state: PolicyState())
+    try expect(reusablePolicyDecision == .allowOnce, "non-destructive approval modes must pass the policy gate")
+    try expectThrows(PolicyError.destructiveRememberDenied, {
+        _ = try PolicyEngine().authorize(command: destructive, intent: DeliveryIntent(flow: .cliEnv, secretAlias: "cloud.hcloud.dev", delivery: .env, environmentName: "HCLOUD_TOKEN", workspace: "/tmp/infra", originHint: "Codex"), target: TargetAssessor().synthetic(path: "/opt/homebrew/bin/hcloud"), approval: .always, state: PolicyState())
+    }, "destructive commands must reject reusable approval modes")
     let approvalStore = ApprovalSessionStore()
     let approval = approvalStore.create(manifest: approvalManifest, policyEpoch: 3, ttl: 10, now: Date(timeIntervalSince1970: 0))
     let validatedApproval = try approvalStore.validate(sessionID: approval.id, manifest: approvalManifest, policyEpoch: 3, now: Date(timeIntervalSince1970: 1))
@@ -437,6 +449,12 @@ func runContracts() throws {
     try expect(unlockScope.configContext == approvalManifest.configContext, "CLI unlock scope must include config context")
     try expect(unlockScope.provenanceConfidence == .environmentHint, "CLI unlock scope must record untrusted environment-hint provenance")
     try expect(CLIUnlockGrantPolicy.allowsReuse(scope: unlockScope), "CLI unlock policy may reuse grants for read-only scopes")
+    let mutatingManifest = DecisionManifestFactory().make(
+        command: hcloudServerCreate,
+        intent: DeliveryIntent(flow: .cliEnv, secretAlias: "cloud.hcloud.dev", delivery: .env, environmentName: "HCLOUD_TOKEN", workspace: "/tmp/infra", originHint: "Codex"),
+        target: TargetAssessor().synthetic(path: "/opt/homebrew/bin/hcloud")
+    )
+    try expect(CLIUnlockGrantPolicy.allowsReuse(scope: CLIUnlockScope(manifest: mutatingManifest)), "CLI unlock policy may reuse grants for non-destructive mutating scopes")
     try expect(!CLIUnlockGrantPolicy.allowsReuse(scope: CLIUnlockScope(manifest: destructiveManifest)), "CLI unlock policy must not reuse grants for destructive scopes")
     let unlockGrant = try unlockStore.grant(scope: unlockScope, ttl: 120, now: Date(timeIntervalSince1970: 100))
     let validUnlockGrant = try unlockStore.validGrant(scope: unlockScope, now: Date(timeIntervalSince1970: 150))
@@ -471,7 +489,7 @@ func runContracts() throws {
     try expect(otherActionUnlockGrant == nil, "CLI unlock grant must not apply across different action classes")
     let destructiveUnlockScope = CLIUnlockScope(manifest: destructiveManifest).withOriginHint("Codex")
     let destructiveUnlockGrant = try unlockStore.validGrant(scope: destructiveUnlockScope, now: Date(timeIntervalSince1970: 301))
-    try expect(destructiveUnlockGrant == nil, "CLI unlock grant must not apply from read-only action to destructive action")
+    try expect(destructiveUnlockGrant == nil, "CLI unlock grant must not apply from one action class to a destructive action")
     let otherWorkspaceManifest = DecisionManifestFactory().make(
         command: hcloudRead,
         intent: DeliveryIntent(flow: .cliEnv, secretAlias: "cloud.hcloud.dev", delivery: .env, environmentName: "HCLOUD_TOKEN", workspace: "/tmp/other", originHint: "Codex"),
@@ -490,6 +508,81 @@ func runContracts() throws {
     try expect(customConfigManifest.configContext != approvalManifest.configContext, "test setup must produce different config context for custom hcloud config")
     let customConfigGrant = try unlockStore.validGrant(scope: CLIUnlockScope(manifest: customConfigManifest), now: Date(timeIntervalSince1970: 301))
     try expect(customConfigGrant == nil, "CLI unlock grant must not apply across custom config context")
+
+    let persistentRoot = URL(fileURLWithPath: NSTemporaryDirectory()).appendingPathComponent("agentic-fortress-persistent-allow-\(UUID().uuidString)", isDirectory: true)
+    let persistentLayout = AgenticFortressStateLayout(stateDirectory: persistentRoot)
+    let persistentStore = CLIPersistentAllowGrantStore(
+        url: persistentLayout.cliPersistentAllowGrantsURL,
+        keyURL: persistentRoot.appendingPathComponent("test-persistent-allow.key")
+    )
+    let protectedPersistentRoot = URL(fileURLWithPath: NSTemporaryDirectory()).appendingPathComponent("agentic-fortress-protected-persistent-allow-\(UUID().uuidString)", isDirectory: true)
+    let protectedPersistentLayout = AgenticFortressStateLayout(stateDirectory: protectedPersistentRoot)
+    let protectedPersistentStore = CLIPersistentAllowGrantStore(
+        url: protectedPersistentLayout.cliPersistentAllowGrantsURL,
+        integrityProtector: HMACCLIRegistryIntegrityProtector(keyID: "test-persistent-allow", keyData: Data(repeating: 0xA7, count: 32))
+    )
+    let persistentScope = CLIPersistentAllowScope(manifest: approvalManifest)
+    try expect(CLIPersistentAllowPolicy.defaultMode == .always, "persistent allow default mode must be always")
+    try expect(CLIPersistentAllowPolicy.allowsPersistentGrant(manifest: approvalManifest), "persistent allow may be created for read-only commands")
+    try expect(CLIPersistentAllowPolicy.allowsPersistentGrant(manifest: mutatingManifest), "persistent allow may be created for non-destructive mutating commands")
+    try expect(!CLIPersistentAllowPolicy.allowsPersistentGrant(manifest: destructiveManifest), "persistent allow must not be created for destructive commands")
+    try expect(ApprovalOption(authorizationMode: .always) == .always, "authorization mode must map to approval option")
+    try expect(ApprovalOption(authorizationMode: .remember24h) == .remember24h, "24h authorization mode must map to approval option")
+    let alwaysGrant = try persistentStore.grant(scope: persistentScope, mode: .always, now: Date(timeIntervalSince1970: 400))
+    try expect(alwaysGrant.expiresAt == nil, "always persistent allow must never expire")
+    let validAlwaysGrant = try persistentStore.validGrant(scope: persistentScope, now: Date(timeIntervalSince1970: 999_999))
+    try expect(validAlwaysGrant?.scopeDigest == alwaysGrant.scopeDigest, "always persistent allow must validate without expiry")
+    let otherActionPersistentGrant = try persistentStore.validGrant(scope: CLIPersistentAllowScope(manifest: otherReadManifest), now: Date(timeIntervalSince1970: 401))
+    try expect(otherActionPersistentGrant?.scopeDigest == alwaysGrant.scopeDigest, "persistent allow must apply across non-destructive action classes in the same invocation context")
+    let mutatingPersistentGrant = try persistentStore.validGrant(scope: CLIPersistentAllowScope(manifest: mutatingManifest), now: Date(timeIntervalSince1970: 402))
+    try expect(mutatingPersistentGrant?.scopeDigest == alwaysGrant.scopeDigest, "persistent allow must apply to non-destructive mutating commands in the same invocation context")
+    try expect(CLIPersistentAllowScope(manifest: destructiveManifest) == persistentScope, "persistent allow scope is intentionally command-class independent")
+    let otherWorkspacePersistentGrant = try persistentStore.validGrant(scope: CLIPersistentAllowScope(manifest: otherWorkspaceManifest), now: Date(timeIntervalSince1970: 404))
+    try expect(otherWorkspacePersistentGrant == nil, "persistent allow must not apply across workspaces")
+    let otherOriginPersistentManifest = DecisionManifestFactory().make(
+        command: hcloudRead,
+        intent: DeliveryIntent(flow: .cliEnv, secretAlias: "cloud.hcloud.dev", delivery: .env, environmentName: "HCLOUD_TOKEN", workspace: "/tmp/infra", originHint: "Terminal"),
+        target: TargetAssessor().synthetic(path: "/opt/homebrew/bin/hcloud")
+    )
+    let otherOriginPersistentGrant = try persistentStore.validGrant(scope: CLIPersistentAllowScope(manifest: otherOriginPersistentManifest), now: Date(timeIntervalSince1970: 405))
+    try expect(otherOriginPersistentGrant == nil, "persistent allow must not apply across origin hints")
+    let customConfigPersistentGrant = try persistentStore.validGrant(scope: CLIPersistentAllowScope(manifest: customConfigManifest), now: Date(timeIntervalSince1970: 406))
+    try expect(customConfigPersistentGrant == nil, "persistent allow must not apply across config contexts")
+    let rememberScope = CLIPersistentAllowScope(manifest: otherWorkspaceManifest)
+    let rememberGrant = try persistentStore.grant(scope: rememberScope, mode: .remember24h, now: Date(timeIntervalSince1970: 1_000))
+    try expect(rememberGrant.expiresAt == Date(timeIntervalSince1970: 1_000 + CLIPersistentAllowPolicy.remember24HTTL), "remember-24h persistent allow must expire after 24 hours")
+    let validRememberGrant = try persistentStore.validGrant(scope: rememberScope, now: Date(timeIntervalSince1970: 1_000 + CLIPersistentAllowPolicy.remember24HTTL - 1))
+    try expect(validRememberGrant != nil, "remember-24h persistent allow must validate before expiry")
+    let expiredRememberGrant = try persistentStore.validGrant(scope: rememberScope, now: Date(timeIntervalSince1970: 1_000 + CLIPersistentAllowPolicy.remember24HTTL + 1))
+    try expect(expiredRememberGrant == nil, "remember-24h persistent allow must expire")
+    try expectThrows(CLIPersistentAllowGrantError.invalidMode(.short), {
+        _ = try persistentStore.grant(scope: persistentScope, mode: .short, now: Date(timeIntervalSince1970: 500))
+    }, "persistent allow store must reject short mode")
+    let persistentDecoder = JSONDecoder()
+    persistentDecoder.dateDecodingStrategy = .iso8601
+    var tamperedPersistentDocument = try persistentDecoder.decode(CLIPersistentAllowGrantDocument.self, from: Data(contentsOf: persistentStore.url))
+    tamperedPersistentDocument.grants[alwaysGrant.scopeDigest]?.mode = .remember24h
+    let persistentEncoder = JSONEncoder()
+    persistentEncoder.dateEncodingStrategy = .iso8601
+    persistentEncoder.outputFormatting = [.prettyPrinted, .sortedKeys, .withoutEscapingSlashes]
+    try persistentEncoder.encode(tamperedPersistentDocument).write(to: persistentStore.url, options: [.atomic])
+    try expectThrows(CLIPersistentAllowGrantError.signatureMismatch, {
+        _ = try persistentStore.validGrant(scope: persistentScope, now: Date(timeIntervalSince1970: 600))
+    }, "persistent allow grant must reject tampered mode")
+    let protectedGrant = try protectedPersistentStore.grant(scope: persistentScope, mode: .always, now: Date(timeIntervalSince1970: 650))
+    let validProtectedGrant = try protectedPersistentStore.validGrant(scope: persistentScope, now: Date(timeIntervalSince1970: 651))
+    try expect(validProtectedGrant?.scopeDigest == protectedGrant.scopeDigest, "persistent allow store must support protected signing keys")
+    try expect(protectedPersistentStore.keyURL == nil, "protected persistent allow store must not use a file signing key")
+    _ = try persistentStore.grant(scope: persistentScope, mode: .always, now: Date(timeIntervalSince1970: 700))
+    let persistentManagement = CoreManagementService(stateDirectory: persistentRoot)
+    let persistentGrantSnapshot = try persistentManagement.snapshot(now: Date(timeIntervalSince1970: 701))
+    try expect(persistentGrantSnapshot.unlockGrants.contains(where: { $0.mode == .always && $0.scopeDigest == alwaysGrant.scopeDigest && $0.expiresAt == Date.distantFuture }), "management snapshot must expose always persistent allow grants")
+    try persistentManagement.clearUnlockGrants()
+    let clearedGrantSnapshot = try persistentManagement.snapshot(now: Date(timeIntervalSince1970: 702))
+    try expect(clearedGrantSnapshot.unlockGrants.isEmpty, "management grant clearing must remove persistent allow grants")
+    try expect(!FileManager.default.fileExists(atPath: persistentLayout.cliPersistentAllowGrantsURL.path), "management grant clearing must delete persistent allow file")
+    try? FileManager.default.removeItem(at: persistentRoot)
+    try? FileManager.default.removeItem(at: protectedPersistentRoot)
     let unlockDecoder = JSONDecoder()
     unlockDecoder.dateDecodingStrategy = .iso8601
     var tamperedUnlockDocument = try unlockDecoder.decode(CLIUnlockGrantDocument.self, from: Data(contentsOf: unlockStore.url))

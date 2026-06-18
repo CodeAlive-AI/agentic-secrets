@@ -145,17 +145,19 @@ Registration stores non-secret metadata in `var/agentic-fortress/cli-registry.js
 
 During `cli run`, the front-end CLI still does not resolve the secret; `agentic-fortressd-core` resolves it after local authentication, scrubs inherited secret-like environment variables, and injects the registered environment variables only into the child process.
 
-After a successful local authentication prompt, core writes a short HMAC-signed CLI unlock grant under AgenticFortress state. The default TTL is 300 seconds and the maximum accepted TTL is 900 seconds. The grant contains no secret material and is scoped to CLI name, target identity, workspace hash, action class, command digest, risk, config context, untrusted origin hint, provenance confidence, delivery mode, and secret alias. Matching runs reuse the grant and skip the LocalAuthentication prompt; non-matching runs prompt again. Each command is still policy-checked before secret delivery.
+After a successful local authentication prompt, core writes an HMAC-signed CLI authorization grant under AgenticFortress state. The default mode is `always`, which does not expire. `remember-24h` expires after 24 hours, `short` uses the 300 second default TTL with a 900 second maximum, and `once` disables reuse. Grants contain no secret material. Persistent grants are signed with a device-local macOS Keychain key and scoped to CLI name, target identity, workspace hash, config context, untrusted origin hint, provenance confidence, delivery mode, and secret alias. Short grants additionally bind action class, command digest, and risk. Matching runs reuse the grant and skip the LocalAuthentication prompt; non-matching runs prompt again. Each command is still policy-checked before secret delivery, and destructive commands require fresh approval.
 
 The LocalAuthentication prompt shows the parent app display name when available. Environment-derived names are display context only; they do not make the origin trusted.
 
-Per-run TTL override:
+Per-run authorization mode:
 
 ```sh
-"$PREFIX/bin/agentic-fortress" cli run hcloud --unlock-ttl-seconds 60 -- server list
+"$PREFIX/bin/agentic-fortress" cli run hcloud --authorization-mode remember-24h -- server list
+"$PREFIX/bin/agentic-fortress" cli run hcloud --authorization-mode short --unlock-ttl-seconds 60 -- server list
+"$PREFIX/bin/agentic-fortress" cli run hcloud --authorization-mode once -- server list
 ```
 
-Disable unlock reuse for a run:
+Legacy TTL override still selects short authorization mode:
 
 ```sh
 "$PREFIX/bin/agentic-fortress" cli run hcloud --unlock-ttl-seconds 0 -- server list
@@ -288,7 +290,7 @@ The native app is the preferred recovery path for ordinary users:
 - Use **Repair Local Daemon** when helper links, the install manifest, or the LaunchAgent need to be refreshed.
 - Use **Restart Daemon** when the LaunchAgent exists but IPC is unavailable.
 
-The UI shows the app copy, helper directory, state directory, run directory, install manifest, LaunchAgent, and socket before changing files. It does not read or move local secret material. If the app was launched from a temporary build location, open the installed app copy after installation so IPC authorization matches the install manifest.
+The UI shows the app copy, helper directory, state directory, run directory, install manifest, LaunchAgent, and socket before changing files. It does not read or move local secret material. If the app was launched from a temporary build location, open the installed copy after installation so IPC authorization matches the install manifest.
 
 Run these checks before accepting a local production release:
 

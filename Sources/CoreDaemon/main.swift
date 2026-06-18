@@ -4,6 +4,11 @@ import Foundation
 
 @main
 struct AgenticFortressCoreDaemon {
+    private struct CLIAuthorizationRequest {
+        var mode: CLIAuthorizationMode
+        var shortTTL: TimeInterval
+    }
+
     static func main() {
         do {
             try run()
@@ -90,7 +95,7 @@ struct AgenticFortressCoreDaemon {
         let controlArguments = argumentsBeforeRunSeparator(in: args)
         let name = try requiredValue(after: "--name", in: controlArguments)
         let quiet = controlArguments.contains("--quiet")
-        let unlockTTL = try cliUnlockTTL(from: controlArguments)
+        let authorization = try cliAuthorization(from: controlArguments)
         let targetArguments = argumentsAfterRunSeparator(in: args)
         let layout = AgenticFortressStateLayout(stateDirectory: stateDirectory(from: controlArguments))
         let registration = try layout.registrationService.registration(named: name)
@@ -107,6 +112,10 @@ struct AgenticFortressCoreDaemon {
 
         var injectedValues: [String: String] = [:]
         let unlockGrants = CLIUnlockGrantStore(url: layout.cliUnlockGrantsURL, keyURL: layout.cliUnlockKeyURL)
+        let persistentAllows = CLIPersistentAllowGrantStore(
+            url: layout.cliPersistentAllowGrantsURL,
+            integrityProtector: layout.cliPersistentAllowIntegrityProtector
+        )
         for binding in registration.environmentBindings {
             let origin = ProcessOriginHint.current()
             let intent = DeliveryIntent(
@@ -119,21 +128,31 @@ struct AgenticFortressCoreDaemon {
                 provenanceConfidence: origin.provenanceConfidence
             )
             let manifest = DecisionManifestFactory().make(command: command, intent: intent, target: target)
-            try authorizeCLIRun(command: command, intent: intent, target: target)
+            let approvalOption = effectiveApprovalOption(selectedMode: authorization.mode, manifest: manifest)
+            try authorizeCLIRun(command: command, intent: intent, target: target, approval: approvalOption)
             let unlockScope = CLIUnlockScope(manifest: manifest)
-            let cachedGrant = unlockTTL > 0 && CLIUnlockGrantPolicy.allowsReuse(scope: unlockScope) ? try unlockGrants.validGrant(scope: unlockScope) : nil
+            let persistentScope = CLIPersistentAllowScope(manifest: manifest)
+            let cachedPersistentGrant = authorization.mode.isPersistent && CLIPersistentAllowPolicy.allowsPersistentGrant(manifest: manifest)
+                ? try persistentAllows.validGrant(scope: persistentScope)
+                : nil
+            let cachedGrant = authorization.mode == .short && CLIUnlockGrantPolicy.allowsReuse(scope: unlockScope)
+                ? try unlockGrants.validGrant(scope: unlockScope)
+                : nil
             let session = ApprovalSession(
                 id: "run_" + shortDigest(UUID().uuidString, length: 16),
                 manifestDigest: manifest.digest,
                 actionClass: manifest.actionClass,
                 secretAlias: SecretAlias(binding.secretAlias),
-                approvalOption: .once,
+                approvalOption: approvalOption,
                 policyEpoch: 1,
                 expiresAt: Date().addingTimeInterval(60),
                 authenticationReason: LocalAuthenticationGate.reason(for: manifest)
             )
-            if cachedGrant == nil, !quiet {
+            if cachedPersistentGrant == nil, cachedGrant == nil, !quiet {
                 fputs("AgenticFortress: requesting local authentication for \(registration.name) \(binding.environmentName).\n", stderr)
+            } else if let cachedPersistentGrant, !quiet {
+                let detail = cachedPersistentGrant.expiresAt.map { "\(max(0, Int($0.timeIntervalSinceNow.rounded(.down))))s remaining" } ?? "always allow"
+                fputs("AgenticFortress: using persistent authorization for \(registration.name) \(binding.environmentName) (\(detail)).\n", stderr)
             } else if let cachedGrant, !quiet {
                 let seconds = max(0, Int(cachedGrant.expiresAt.timeIntervalSinceNow.rounded(.down)))
                 fputs("AgenticFortress: using cached local authentication for \(registration.name) \(binding.environmentName) (\(seconds)s remaining).\n", stderr)
@@ -141,10 +160,19 @@ struct AgenticFortressCoreDaemon {
             let material = try layout.registrationService.secretStore.resolve(
                 alias: SecretAlias(binding.secretAlias),
                 approvedFor: session,
-                localAuthentication: cachedGrant == nil ? .required : .alreadySatisfied
+                localAuthentication: cachedPersistentGrant == nil && cachedGrant == nil ? .required : .alreadySatisfied
             )
-            if cachedGrant == nil, unlockTTL > 0, CLIUnlockGrantPolicy.allowsReuse(scope: unlockScope) {
-                try unlockGrants.grant(scope: unlockScope, ttl: unlockTTL)
+            if cachedPersistentGrant == nil, cachedGrant == nil {
+                switch authorization.mode {
+                case .always, .remember24h:
+                    if CLIPersistentAllowPolicy.allowsPersistentGrant(manifest: manifest) {
+                        try persistentAllows.grant(scope: persistentScope, mode: authorization.mode)
+                    }
+                case .short where CLIUnlockGrantPolicy.allowsReuse(scope: unlockScope):
+                    try unlockGrants.grant(scope: unlockScope, ttl: authorization.shortTTL)
+                case .once, .short:
+                    break
+                }
             }
             material.withUTF8String { value in
                 injectedValues[binding.environmentName] = value
@@ -175,9 +203,14 @@ struct AgenticFortressCoreDaemon {
         }
     }
 
-    private static func authorizeCLIRun(command: NormalizedCommand, intent: DeliveryIntent, target: TargetAssessment) throws {
+    private static func effectiveApprovalOption(selectedMode: CLIAuthorizationMode, manifest: DecisionManifest) -> ApprovalOption {
+        let selected = ApprovalOption(authorizationMode: selectedMode)
+        return manifest.approvalOptions.contains(selected) ? selected : .once
+    }
+
+    private static func authorizeCLIRun(command: NormalizedCommand, intent: DeliveryIntent, target: TargetAssessment, approval: ApprovalOption) throws {
         do {
-            let decision = try PolicyEngine().authorize(command: command, intent: intent, target: target, approval: .once, state: PolicyState())
+            let decision = try PolicyEngine().authorize(command: command, intent: intent, target: target, approval: approval, state: PolicyState())
             if case .deny(let reason) = decision {
                 throw CoreDaemonError.policyDenied(reason)
             }
@@ -319,10 +352,25 @@ struct AgenticFortressCoreDaemon {
         return AgenticFortressStateLayout.defaultStateDirectory()
     }
 
-    private static func cliUnlockTTL(from args: [String]) throws -> TimeInterval {
+    private static func cliAuthorization(from args: [String]) throws -> CLIAuthorizationRequest {
+        if let rawMode = value(after: "--authorization-mode", in: args)
+            ?? ProcessInfo.processInfo.environment["AGENTIC_FORTRESS_CLI_AUTHORIZATION_MODE"] {
+            guard let mode = CLIAuthorizationMode(rawValue: rawMode) else {
+                throw CoreDaemonError.invalidArguments("--authorization-mode must be one of: once, short, remember-24h, always")
+            }
+            return CLIAuthorizationRequest(mode: mode, shortTTL: try cliUnlockTTL(from: args, defaultingTo: CLIUnlockGrantPolicy.defaultTTL))
+        }
+        if value(after: "--unlock-ttl-seconds", in: args) != nil || ProcessInfo.processInfo.environment["AGENTIC_FORTRESS_CLI_UNLOCK_TTL_SECONDS"] != nil {
+            let ttl = try cliUnlockTTL(from: args, defaultingTo: CLIUnlockGrantPolicy.defaultTTL)
+            return CLIAuthorizationRequest(mode: ttl == 0 ? .once : .short, shortTTL: ttl)
+        }
+        return CLIAuthorizationRequest(mode: CLIPersistentAllowPolicy.defaultMode, shortTTL: CLIUnlockGrantPolicy.defaultTTL)
+    }
+
+    private static func cliUnlockTTL(from args: [String], defaultingTo defaultTTL: TimeInterval) throws -> TimeInterval {
         let raw = value(after: "--unlock-ttl-seconds", in: args)
             ?? ProcessInfo.processInfo.environment["AGENTIC_FORTRESS_CLI_UNLOCK_TTL_SECONDS"]
-            ?? String(Int(CLIUnlockGrantPolicy.defaultTTL))
+            ?? String(Int(defaultTTL))
         guard let seconds = TimeInterval(raw), seconds >= 0, seconds <= CLIUnlockGrantPolicy.maxTTL else {
             throw CoreDaemonError.invalidArguments("--unlock-ttl-seconds must be between 0 and \(Int(CLIUnlockGrantPolicy.maxTTL))")
         }

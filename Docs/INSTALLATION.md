@@ -52,7 +52,7 @@ codesign --verify --strict --deep --verbose=4 build/AgenticFortress.app
 
 For a native guided install, open `build/AgenticFortress.app`, go to **Diagnostics**, review the daemon install plan, and choose **Install Local Daemon**. The app shows the app copy, helper links, state directory, run directory, install manifest, LaunchAgent, and socket path before writing files. It does not read or move local secret material.
 
-If you launched the app from `build/`, open the installed app copy after installation so authenticated IPC uses the installed bundle path recorded in the manifest.
+If you launched the app from `build/`, open the installed copy after installation so authenticated IPC uses the installed bundle path recorded in the manifest.
 
 The default prefix is `~/Library/Application Support/AgenticFortress/LocalInstall`, so the common install command is short:
 
@@ -194,21 +194,23 @@ AgenticFortress prints its own diagnostics to stderr, requests local authenticat
 "$PREFIX/bin/agentic-fortress" cli run hcloud --quiet -- server list
 ```
 
-After a successful prompt, AgenticFortress writes a short local unlock grant so repeated matching runs do not prompt every time. The default CLI unlock TTL is 300 seconds. The grant stores no secret value; it is an HMAC-signed scope record bound to CLI name, target identity, workspace hash, action class, command digest, risk, config context, untrusted origin hint, provenance confidence, delivery mode, and secret alias. Each command is still policy-checked before secret delivery.
+After a successful prompt, AgenticFortress writes a local authorization grant so repeated matching runs do not prompt every time. The default CLI authorization mode is `always`, which does not expire. `remember-24h`, `short`, and `once` are available per run. Grants store no secret value. Persistent grants are HMAC-signed with a device-local macOS Keychain key and bound to CLI name, target identity, workspace hash, config context, untrusted origin hint, provenance confidence, delivery mode, and secret alias. Short grants additionally bind action class, command digest, and risk. Each command is still policy-checked before secret delivery, and destructive commands require fresh approval.
 
-Override the TTL for one run:
+Choose authorization mode for one run:
 
 ```sh
-"$PREFIX/bin/agentic-fortress" cli run hcloud --unlock-ttl-seconds 60 -- server list
+"$PREFIX/bin/agentic-fortress" cli run hcloud --authorization-mode remember-24h -- server list
+"$PREFIX/bin/agentic-fortress" cli run hcloud --authorization-mode short --unlock-ttl-seconds 60 -- server list
+"$PREFIX/bin/agentic-fortress" cli run hcloud --authorization-mode once -- server list
 ```
 
-Disable the unlock window and require local authentication every time:
+Legacy TTL override still selects short authorization mode:
 
 ```sh
 "$PREFIX/bin/agentic-fortress" cli run hcloud --unlock-ttl-seconds 0 -- server list
 ```
 
-The maximum accepted TTL is 900 seconds. Changing target identity, workspace, action class, command shape, config context, origin hint, provenance confidence, delivery mode, or secret alias produces a different unlock scope and requires a fresh local authentication prompt.
+Changing target identity, workspace, config context, origin hint, provenance confidence, delivery mode, or secret alias produces a different persistent authorization scope and requires a fresh local authentication prompt. For short grants, changing action class, command shape, or risk also requires a fresh prompt.
 
 ### Optional hcloud Shim
 

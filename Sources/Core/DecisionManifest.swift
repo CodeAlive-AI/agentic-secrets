@@ -101,9 +101,24 @@ public struct DecisionManifest: Codable, Equatable, Sendable {
 
 public enum ApprovalOption: String, Codable, Equatable, Sendable {
     case once
-    case readOnlyInWorkspace1h = "read_only_in_workspace_1h"
+    case short
+    case remember24h = "remember-24h"
+    case always
     case providerLease5m = "provider_lease_5m"
     case deny
+
+    public init(authorizationMode: CLIAuthorizationMode) {
+        switch authorizationMode {
+        case .once:
+            self = .once
+        case .short:
+            self = .short
+        case .remember24h:
+            self = .remember24h
+        case .always:
+            self = .always
+        }
+    }
 }
 
 public struct DecisionManifestFactory: Sendable {
@@ -124,10 +139,10 @@ public struct DecisionManifestFactory: Sendable {
             [.deny]
         } else {
             switch command.risk {
-            case .readOnly:
-                [.once, .readOnlyInWorkspace1h, .deny]
-            case .mutating, .destructive, .unknown:
+            case .destructive:
                 [.once, .deny]
+            case .readOnly, .mutating, .unknown:
+                [.always, .remember24h, .short, .once, .deny]
             }
         }
 

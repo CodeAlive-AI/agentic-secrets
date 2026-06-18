@@ -84,11 +84,11 @@ public struct PolicyEngine: Sendable {
             return .deny("user-denied")
         case .once:
             return .allowOnce
-        case .readOnlyInWorkspace1h:
-            guard command.risk == .readOnly else { throw PolicyError.destructiveRememberDenied }
-            let scope = LeaseScope(subject: command.cli, adapterIdentity: command.adapterIdentity?.leaseComponent ?? "missing-adapter-identity", secretAlias: intent.secretAlias, workspaceHash: "hmac:" + shortDigest(intent.workspace, length: 16), originHint: intent.originHint, actionClass: command.actionClass, configContext: DecisionManifestFactory.configContext(for: command), deliveryMode: intent.delivery, targetIdentity: target.identity)
-            return .allowRemembered(CryptoLease(id: "lease_" + shortDigest(UUID().uuidString, length: 16), scope: scope, risk: command.risk, expiresAt: now.addingTimeInterval(3600), policyEpoch: state.epoch))
+        case .always, .remember24h, .short:
+            guard command.risk != .destructive else { throw PolicyError.destructiveRememberDenied }
+            return .allowOnce
         case .providerLease5m:
+            guard command.risk != .destructive else { throw PolicyError.destructiveRememberDenied }
             let scope = LeaseScope(subject: command.cli, adapterIdentity: command.adapterIdentity?.leaseComponent ?? "missing-adapter-identity", secretAlias: intent.secretAlias, workspaceHash: "hmac:" + shortDigest(intent.workspace, length: 16), originHint: intent.originHint, actionClass: command.actionClass, configContext: "provider;\(DecisionManifestFactory.configContext(for: command))", deliveryMode: intent.delivery, targetIdentity: target.identity)
             return .allowRemembered(CryptoLease(id: "lease_" + shortDigest(UUID().uuidString, length: 16), scope: scope, risk: command.risk, expiresAt: now.addingTimeInterval(300), policyEpoch: state.epoch))
         }

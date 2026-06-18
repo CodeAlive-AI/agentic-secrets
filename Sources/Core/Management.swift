@@ -133,6 +133,7 @@ public struct AdapterSummary: Codable, Equatable, Identifiable, Sendable {
 public struct UnlockGrantSummary: Codable, Equatable, Identifiable, Sendable {
     public var id: String { scopeDigest }
     public var scopeDigest: String
+    public var mode: CLIAuthorizationMode
     public var subject: String?
     public var actionClass: String?
     public var risk: RiskLevel?
@@ -141,8 +142,9 @@ public struct UnlockGrantSummary: Codable, Equatable, Identifiable, Sendable {
     public var grantedAt: Date
     public var expiresAt: Date
 
-    public init(scopeDigest: String, scope: CLIUnlockScope?, grantedAt: Date, expiresAt: Date) {
+    public init(scopeDigest: String, mode: CLIAuthorizationMode = .short, scope: CLIUnlockScope?, grantedAt: Date, expiresAt: Date) {
         self.scopeDigest = scopeDigest
+        self.mode = mode
         self.subject = scope?.subject
         self.actionClass = scope?.actionClass
         self.risk = scope?.risk
@@ -150,6 +152,18 @@ public struct UnlockGrantSummary: Codable, Equatable, Identifiable, Sendable {
         self.provenanceConfidence = scope?.provenanceConfidence
         self.grantedAt = grantedAt
         self.expiresAt = expiresAt
+    }
+
+    public init(grant: CLIPersistentAllowGrant) {
+        self.scopeDigest = grant.scopeDigest
+        self.mode = grant.mode
+        self.subject = grant.scope.subject
+        self.actionClass = nil
+        self.risk = nil
+        self.originHint = grant.scope.originHint
+        self.provenanceConfidence = grant.scope.provenanceConfidence
+        self.grantedAt = grant.grantedAt
+        self.expiresAt = grant.expiresAt ?? Date.distantFuture
     }
 }
 
@@ -593,6 +607,7 @@ public struct CoreManagementService: Sendable {
     public func clearUnlockGrants() throws {
         let layout = AgenticFortressStateLayout(stateDirectory: stateDirectory)
         try? FileManager.default.removeItem(at: layout.cliUnlockGrantsURL)
+        try? FileManager.default.removeItem(at: layout.cliPersistentAllowGrantsURL)
     }
 
     public func exportRedactedAuditJSON() throws -> String {
@@ -632,15 +647,27 @@ public struct CoreManagementService: Sendable {
     }
 
     private func loadUnlockGrantSummaries(layout: AgenticFortressStateLayout, now: Date) throws -> [UnlockGrantSummary] {
-        guard FileManager.default.fileExists(atPath: layout.cliUnlockGrantsURL.path) else {
-            return []
-        }
         let decoder = JSONDecoder()
         decoder.dateDecodingStrategy = .iso8601
-        let document = try decoder.decode(CLIUnlockGrantDocument.self, from: Data(contentsOf: layout.cliUnlockGrantsURL))
-        return document.grants.values
-            .filter { $0.expiresAt >= now }
-            .map { UnlockGrantSummary(scopeDigest: $0.scopeDigest, scope: $0.scope, grantedAt: $0.grantedAt, expiresAt: $0.expiresAt) }
+        let shortGrants: [UnlockGrantSummary]
+        if FileManager.default.fileExists(atPath: layout.cliUnlockGrantsURL.path) {
+            let document = try decoder.decode(CLIUnlockGrantDocument.self, from: Data(contentsOf: layout.cliUnlockGrantsURL))
+            shortGrants = document.grants.values
+                .filter { $0.expiresAt >= now }
+                .map { UnlockGrantSummary(scopeDigest: $0.scopeDigest, scope: $0.scope, grantedAt: $0.grantedAt, expiresAt: $0.expiresAt) }
+        } else {
+            shortGrants = []
+        }
+        let persistentGrants: [UnlockGrantSummary]
+        if FileManager.default.fileExists(atPath: layout.cliPersistentAllowGrantsURL.path) {
+            let persistentDocument = try decoder.decode(CLIPersistentAllowGrantDocument.self, from: Data(contentsOf: layout.cliPersistentAllowGrantsURL))
+            persistentGrants = persistentDocument.grants.values
+                .filter { $0.expiresAt.map { $0 >= now } ?? true }
+                .map(UnlockGrantSummary.init)
+        } else {
+            persistentGrants = []
+        }
+        return shortGrants + persistentGrants
     }
 
     private func adapterSummaries() throws -> [AdapterSummary] {

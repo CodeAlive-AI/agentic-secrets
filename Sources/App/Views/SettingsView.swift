@@ -12,10 +12,12 @@ struct SettingsView: View {
             Form {
                 Toggle("Show menu bar status", isOn: $launchMenuBarStatus)
                     .help("Show AgenticFortress health and grant status in the macOS menu bar")
-                Section("CLI Unlock Grants") {
+                Section("CLI Authorization Grants") {
+                    LabeledContent("Default mode", value: CLIPersistentAllowPolicy.defaultMode.rawValue)
+                    LabeledContent("24h mode", value: "\(Int(CLIPersistentAllowPolicy.remember24HTTL / 3600))h")
                     LabeledContent("Default TTL", value: "\(Int(CLIUnlockGrantPolicy.defaultTTL))s")
                     LabeledContent("Maximum TTL", value: "\(Int(CLIUnlockGrantPolicy.maxTTL))s")
-                    Text("CLI runs may override the TTL per invocation with --unlock-ttl-seconds. This app does not store a separate local TTL preference.")
+                    Text("CLI runs may choose --authorization-mode once, short, remember-24h, or always. Short mode may override TTL per invocation with --unlock-ttl-seconds.")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                         .fixedSize(horizontal: false, vertical: true)

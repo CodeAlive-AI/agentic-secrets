@@ -93,7 +93,7 @@ Native guided install:
 open build/AgenticFortress.app
 ```
 
-Then use **Diagnostics → Install Local Daemon** or **Diagnostics → Repair Local Daemon**. The app shows the app copy, helper symlinks, state directory, run directory, install manifest, LaunchAgent, and socket path before writing files. It does not read or move local secret material. If the app was launched from `build/`, open the installed app copy after installation so authenticated IPC matches the installed bundle path in the manifest.
+Then use **Diagnostics → Install Local Daemon** or **Diagnostics → Repair Local Daemon**. The app shows the app copy, helper symlinks, state directory, run directory, install manifest, LaunchAgent, and socket path before writing files. It does not read or move local secret material. If the app was launched from `build/`, open the installed copy after installation so authenticated IPC matches the installed bundle path in the manifest.
 
 Uninstall while keeping local secret state:
 
@@ -107,7 +107,7 @@ The core daemon serves the local control plane over a Unix domain socket. Helper
 
 On macOS Tahoe, the self-build track avoids restricted entitlements so ad-hoc signed binaries can execute normally. The core daemon stores local secret material in an owner-only encrypted file store gated by LocalAuthentication; no shared Keychain access group is required for the self-build track. Registered CLI trust metadata is protected by a device-local macOS Keychain integrity key so hand-edited registry files fail closed before any secret is resolved.
 
-CLI runs may reuse a short scoped unlock grant after successful LocalAuthentication. The default TTL is 300 seconds, the max is 900 seconds, and the scope includes CLI name, target identity, workspace hash, action class, command digest, risk, config context, untrusted origin hint, provenance confidence, delivery mode, and secret alias. Grants must never contain secret values.
+CLI runs may reuse scoped authorization grants after successful LocalAuthentication. The default mode is `always`; `remember-24h`, `short`, and `once` are available per run. Persistent grants are signed with a device-local macOS Keychain key and scoped to CLI name, target identity, workspace hash, config context, untrusted origin hint, provenance confidence, delivery mode, and secret alias. Short grants additionally include action class, command digest, and risk. Command policy is re-evaluated before every secret delivery, and destructive commands require fresh approval. Grants must never contain secret values.
 
 ## Release Evidence
 
