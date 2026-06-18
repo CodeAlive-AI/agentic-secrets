@@ -4,11 +4,11 @@ import SwiftUI
 
 enum ControlPlaneSection: String, CaseIterable, Identifiable {
     case overview = "Overview"
-    case cliSecrets = "CLI & Secrets"
+    case cliSecrets = "CLI Delivery"
+    case policyPacks = "CLI Policy"
     case apiSessions = "API Sessions (Proxy)"
     case mcp = "MCP"
-    case bitwardenProviderBindings = "Provider Bindings (BWS)"
-    case policyPacks = "Command Policy Packs"
+    case bitwardenProviderBindings = "Bitwarden Secrets"
     case audit = "Audit"
     case diagnostics = "Diagnostics"
 

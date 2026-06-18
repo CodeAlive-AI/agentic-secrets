@@ -114,16 +114,18 @@ public struct PolicyPackSummary: Codable, Equatable, Identifiable, Sendable {
     public var cliName: String
     public var publisher: String
     public var policyPackHash: String
+    public var source: String
     public var installedAt: Date?
     public var revokedAt: Date?
     public var ruleCount: Int
 
-    public init(payload: CommandPolicyPackPayload, policyPackHash: String, installedAt: Date? = nil, revokedAt: Date? = nil) {
+    public init(payload: CommandPolicyPackPayload, policyPackHash: String, source: String = "Installed", installedAt: Date? = nil, revokedAt: Date? = nil) {
         self.policyPackID = payload.policyPackID
         self.policyPackVersion = payload.policyPackVersion
         self.cliName = payload.cliName
         self.publisher = payload.publisher
         self.policyPackHash = policyPackHash
+        self.source = source
         self.installedAt = installedAt
         self.revokedAt = revokedAt
         self.ruleCount = payload.rules.count
@@ -560,7 +562,7 @@ public struct ControlPlane: Sendable {
         let registration = try layout.registrationService.registration(named: commandName)
         let executableName = URL(fileURLWithPath: registration.targetPath).lastPathComponent
         let commandPolicy = (try? loadConfig().commandPolicy) ?? .default
-        let command = CommandClassifier(commandPolicy: commandPolicy).classify(executableName: executableName, arguments: request.arguments)
+        let command = CommandClassifier(registry: try effectivePolicyPackRegistry(), commandPolicy: commandPolicy).classify(executableName: executableName, arguments: request.arguments)
         let target = try TargetAssessor().assess(path: registration.targetPath)
         try layout.registrationService.validateTargetIdentity(registration: registration, assessedTarget: target)
         let manifests = registration.environmentBindings.map { binding in
@@ -671,13 +673,27 @@ public struct ControlPlane: Sendable {
     }
 
     private func adapterSummaries() throws -> [PolicyPackSummary] {
-        let builtIns = [BuiltInPolicyPacks.hcloud, BuiltInPolicyPacks.githubCLI, BuiltInPolicyPacks.terraform].map {
-            PolicyPackSummary(payload: $0, policyPackHash: AdapterCanonicalizer.hash($0), installedAt: Date(timeIntervalSince1970: 0))
+        let document = try PolicyPackRegistryStore(url: adapterRegistryURL).loadDocument()
+        let entriesByPolicyPackID = Dictionary(uniqueKeysWithValues: document.entries.map { ($0.payload.policyPackID, $0) })
+        let builtInPolicyPackIDs = Set(BuiltInPolicyPacks.all.map(\.policyPackID))
+        let builtIns = BuiltInPolicyPacks.all.map { payload in
+            let entry = entriesByPolicyPackID[payload.policyPackID]
+            return PolicyPackSummary(
+                payload: payload,
+                policyPackHash: AdapterCanonicalizer.hash(payload),
+                source: "Built-in",
+                installedAt: entry?.installedAt ?? Date(timeIntervalSince1970: 0),
+                revokedAt: entry?.revokedAt
+            )
         }
-        let installed = try PolicyPackRegistryStore(url: adapterRegistryURL).loadDocument().entries.map {
-            PolicyPackSummary(payload: $0.payload, policyPackHash: $0.policyPackHash, installedAt: $0.installedAt, revokedAt: $0.revokedAt)
+        let installed = document.entries.filter { !builtInPolicyPackIDs.contains($0.payload.policyPackID) }.map {
+            PolicyPackSummary(payload: $0.payload, policyPackHash: $0.policyPackHash, source: "Installed", installedAt: $0.installedAt, revokedAt: $0.revokedAt)
         }
         return builtIns + installed
+    }
+
+    private func effectivePolicyPackRegistry() throws -> PolicyPackRegistry {
+        try PolicyPackRegistryStore(url: adapterRegistryURL).activeRegistry(including: BuiltInPolicyPacks.all)
     }
 
     private func securityHealth(registrations: [CLIRegistrationSummary]) -> SecurityHealthSummary {

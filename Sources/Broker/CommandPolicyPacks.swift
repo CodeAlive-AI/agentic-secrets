@@ -357,7 +357,9 @@ public struct PolicyPackRegistryStore: Sendable {
         guard FileManager.default.fileExists(atPath: url.path) else {
             return PolicyPackRegistryDocument()
         }
-        let document = try JSONDecoder().decode(PolicyPackRegistryDocument.self, from: Data(contentsOf: url))
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .secondsSince1970
+        let document = try decoder.decode(PolicyPackRegistryDocument.self, from: Data(contentsOf: url))
         guard document.schemaVersion == 1 else {
             throw PolicyPackRegistryStoreError.unsupportedSchema(document.schemaVersion)
         }
@@ -379,18 +381,34 @@ public struct PolicyPackRegistryStore: Sendable {
         try saveDocument(document)
     }
 
-    public func revoke(policyPackID: String, now: Date = Date()) throws {
+    public func revoke(policyPackID: String, knownPayloads: [CommandPolicyPackPayload] = BuiltInPolicyPacks.all, now: Date = Date()) throws {
         var document = try loadDocument()
-        guard let index = document.entries.firstIndex(where: { $0.payload.policyPackID == policyPackID }) else {
+        if let index = document.entries.firstIndex(where: { $0.payload.policyPackID == policyPackID }) {
+            document.entries[index].revokedAt = now
+            try saveDocument(document)
+            return
+        }
+        guard let payload = knownPayloads.first(where: { $0.policyPackID == policyPackID }) else {
             throw PolicyPackRegistryStoreError.missingAdapter(policyPackID)
         }
-        document.entries[index].revokedAt = now
+        document.entries.append(PolicyPackRegistryEntry(
+            payload: payload,
+            installedAt: Date(timeIntervalSince1970: 0),
+            revokedAt: now
+        ))
         try saveDocument(document)
     }
 
-    public func activeRegistry() throws -> PolicyPackRegistry {
+    public func activeRegistry(including basePayloads: [CommandPolicyPackPayload] = BuiltInPolicyPacks.all) throws -> PolicyPackRegistry {
         var registry = PolicyPackRegistry()
-        for entry in try loadDocument().entries where entry.revokedAt == nil {
+        let document = try loadDocument()
+        let revokedPolicyPackIDs = Set(document.entries.compactMap { entry in
+            entry.revokedAt == nil ? nil : entry.payload.policyPackID
+        })
+        for payload in basePayloads where !revokedPolicyPackIDs.contains(payload.policyPackID) {
+            try registry.installVerified(payload: payload)
+        }
+        for entry in document.entries where entry.revokedAt == nil {
             try registry.installVerified(payload: entry.payload)
         }
         return registry
@@ -428,11 +446,13 @@ public enum PolicyPackGoldenFixtureRunner {
 }
 
 public enum BuiltInPolicyPacks {
+    public static let all = [hcloud, githubCLI, terraform]
+
     public static func registry() -> PolicyPackRegistry {
         var registry = PolicyPackRegistry()
-        try! registry.installVerified(payload: hcloud)
-        try! registry.installVerified(payload: githubCLI)
-        try! registry.installVerified(payload: terraform)
+        for payload in all {
+            try! registry.installVerified(payload: payload)
+        }
         return registry
     }
 

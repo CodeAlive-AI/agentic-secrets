@@ -680,13 +680,13 @@ struct BitwardenProviderBindingsView: View {
     @Bindable var store: ControlPlaneStore
 
     var body: some View {
-        ControlPlanePageFrame(title: "Provider Bindings (BWS)", subtitle: "External secret provider bindings, without exposing fetched values.") {
+        ControlPlanePageFrame(title: "Bitwarden Secrets", subtitle: "Bitwarden Secrets Manager bindings, without exposing fetched values.") {
             if store.snapshot == nil {
                 LocalStateUnavailableView(store: store)
             } else if store.bitwardenBindings.isEmpty {
                 PageCenteredState {
                     ContentUnavailableView {
-                        Label("No Bitwarden Provider Bindings", systemImage: "key.horizontal")
+                        Label("No Bitwarden Secrets", systemImage: "key.horizontal")
                     } description: {
                         Text("Create a binding to authorize one exact Bitwarden secret per invocation.")
                     } actions: {
@@ -825,15 +825,15 @@ struct CommandPolicyPacksView: View {
 
     var body: some View {
         ControlPlanePageFrame(
-            title: "Command Policy Packs",
-            subtitle: "Signed command-classification packs. CLIs use policyPacks; policyPacks are not secrets."
+            title: "CLI Policy",
+            subtitle: "Signed classifiers for CLI command risk. They do not register a CLI or store secrets."
         ) {
             if store.snapshot == nil {
                 LocalStateUnavailableView(store: store)
             } else if store.policyPacks.isEmpty {
                 PageCenteredState {
                     ContentUnavailableView {
-                        Label("No Command Policy Packs", systemImage: "puzzlepiece.extension")
+                        Label("No CLI Policy Packs", systemImage: "puzzlepiece.extension")
                     } description: {
                         Text("Install a signed command policy pack JSON payload to classify a supported CLI.")
                     } actions: {
@@ -849,10 +849,11 @@ struct CommandPolicyPacksView: View {
             } else {
                 HSplitView {
                     Table(store.policyPacks, selection: $store.selectedAdapter) {
-                        TableColumn("CLI", value: \.cliName)
+                        TableColumn("Policy Pack", value: \.policyPackID)
+                        TableColumn("Applies To", value: \.cliName)
+                        TableColumn("Source", value: \.source)
+                        TableColumn("Status") { Text($0.revokedAt == nil ? "Active" : "Revoked") }
                         TableColumn("Publisher", value: \.publisher)
-                        TableColumn("Version") { Text("\($0.policyPackVersion)") }
-                        TableColumn("Rules") { Text("\($0.ruleCount)") }
                     }
                     .frame(minWidth: 440)
                     AdapterDetail(store: store, confirmingRevoke: $confirmingRevoke)
@@ -870,7 +871,7 @@ struct CommandPolicyPacksView: View {
             }
             Button("Cancel", role: .cancel) {}
         } message: {
-            Text("Revoked policyPacks no longer classify commands. Built-in policyPacks may reappear from the bundled registry.")
+            Text("Revoked policy packs no longer classify commands. Built-in revocations are recorded in local policy state.")
         }
     }
 }
@@ -887,6 +888,8 @@ private struct AdapterDetail: View {
                     header(adapter.cliName, subtitle: adapter.policyPackID)
                     Form {
                         Section("Manifest") {
+                            LabeledContent("Applies to CLI name", value: adapter.cliName)
+                            LabeledContent("Source", value: adapter.source)
                             LabeledContent("Publisher", value: adapter.publisher)
                             LabeledContent("Version", value: "\(adapter.policyPackVersion)")
                             LabeledContent("Rules", value: "\(adapter.ruleCount)")
@@ -911,7 +914,7 @@ private struct AdapterDetail: View {
                                 )
                             }
                         }
-                        Section("Affected CLIs") {
+                        Section("Related CLI Delivery") {
                             Text(adapter.cliName)
                             Button("Open CLI Registration") {
                                 store.selectedSection = .cliSecrets
@@ -943,7 +946,8 @@ private struct AdapterDetail: View {
     private func policyPackReport(_ adapter: PolicyPackSummary) -> String {
         """
         policyPackID: \(adapter.policyPackID)
-        cli: \(adapter.cliName)
+        source: \(adapter.source)
+        appliesToCLIName: \(adapter.cliName)
         publisher: \(adapter.publisher)
         version: \(adapter.policyPackVersion)
         rules: \(adapter.ruleCount)
