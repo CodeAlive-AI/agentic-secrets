@@ -1,0 +1,4 @@
+interface:
+  display_name: "Package macOS App Icons"
+  short_description: "Audit, mask, resize, and install macOS app icons"
+  default_prompt: "Use $package-macos-app-icons to replace a macOS app icon, verify Apple mask geometry, rebuild .icns assets, and install the app."
