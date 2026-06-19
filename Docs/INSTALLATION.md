@@ -305,7 +305,7 @@ git pull --ff-only
 ./scripts/install_local.sh --prefix "$HOME/Library/Application Support/AgenticSecrets/LocalInstall" --load
 ```
 
-The installer replaces the app bundle, refreshes command symlinks, validates the package, and rewrites the install manifest.
+The installer stops any running Agentic Secrets UI before replacing the app bundle, refreshes command symlinks, validates the package, rewrites the install manifest, restarts the broker daemon when it was already loaded, and reopens the installed UI copy unless `--no-open` is used.
 
 ## Uninstall
 

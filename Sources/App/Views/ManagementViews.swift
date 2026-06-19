@@ -65,7 +65,6 @@ struct CLISecretsView: View {
     @State private var pendingUnregister: CLIRegistrationSummary?
     @State private var deleteSecrets = false
     @State private var showingPolicyEditor = false
-    @State private var editingCLIName: String?
 
     var body: some View {
         ControlPlanePageFrame(
@@ -87,9 +86,14 @@ struct CLISecretsView: View {
             } else if store.filteredCLIRegistrations.isEmpty {
                 NoMatchingCLIView(store: store)
             } else {
-                CLIRegistrationTable(store: store) { cliName in
-                    store.selectedCLI = cliName
-                    editingCLIName = cliName
+                HSplitView {
+                    CLIRegistrationTable(store: store)
+                        .frame(minWidth: 560, idealWidth: 700)
+                    CLIRegistrationDetail(
+                        store: store,
+                        pendingUnregister: $pendingUnregister
+                    )
+                    .frame(minWidth: 460)
                 }
                 .frame(minHeight: 460)
             }
@@ -97,16 +101,6 @@ struct CLISecretsView: View {
         .sheet(isPresented: $showingPolicyEditor) {
             CLIDeliveryPolicyEditorSheet(store: store)
                 .frame(width: 900, height: 720)
-        }
-        .sheet(isPresented: Binding(
-            get: { editingCLIName != nil },
-            set: { if !$0 { editingCLIName = nil } }
-        )) {
-            CLIRegistrationEditorSheet(
-                store: store,
-                pendingUnregister: $pendingUnregister
-            )
-            .frame(width: 760, height: 760)
         }
         .confirmationDialog("Unregister CLI?", isPresented: Binding(
             get: { pendingUnregister != nil },
@@ -205,7 +199,6 @@ private struct CLIDeliveryPolicyMetric: View {
 
 private struct CLIRegistrationTable: View {
     @Bindable var store: ControlPlaneStore
-    var edit: (String) -> Void
 
     var body: some View {
         Table(store.filteredCLIRegistrations, selection: $store.selectedCLI) {
@@ -254,33 +247,22 @@ private struct CLIRegistrationTable: View {
 
             TableColumn("") { item in
                 Button {
-                    edit(item.name)
+                    store.selectedCLI = item.name
                 } label: {
-                    Label("Edit", systemImage: "slider.horizontal.3")
+                    Label("Details", systemImage: "sidebar.right")
+                        .labelStyle(.iconOnly)
                 }
                 .buttonStyle(.borderless)
-                .help("Edit delivery settings for \(item.name)")
-                .accessibilityLabel("Edit \(item.name)")
+                .help("Show details for \(item.name)")
+                .accessibilityLabel("Show details for \(item.name)")
             }
-            .width(min: 86, ideal: 96)
+            .width(44)
         }
         .accessibilityLabel("Registered CLI delivery table")
     }
 
     private func grantCount(for item: CLIRegistrationSummary) -> Int {
         store.snapshot?.deliveryGrants.filter { $0.subject == item.name }.count ?? 0
-    }
-}
-
-private struct CLIRegistrationEditorSheet: View {
-    @Bindable var store: ControlPlaneStore
-    @Binding var pendingUnregister: CLIRegistrationSummary?
-
-    var body: some View {
-        CLIRegistrationDetail(
-            store: store,
-            pendingUnregister: $pendingUnregister
-        )
     }
 }
 

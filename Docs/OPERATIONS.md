@@ -35,7 +35,7 @@ Install from the current checkout:
 ./scripts/install_local.sh --prefix "$HOME/Library/Application Support/AgenticSecrets/LocalInstall"
 ```
 
-Update by running the install command again from the desired commit. The script rebuilds, ad-hoc signs, validates, copies the app bundle, refreshes command symlinks, rewrites the install manifest, waits for broker IPC health when loading the LaunchAgent, and opens the installed app when using the default user-local prefix. Use `--no-open` for scripted updates.
+Update by running the install command again from the desired commit. The script rebuilds, ad-hoc signs, validates, stops any running Agentic Secrets UI, copies the app bundle, refreshes command symlinks, rewrites the install manifest, restarts the broker daemon when it was already loaded or `--load` is passed, waits for broker IPC health after restart, and opens the installed app when using the default user-local prefix or when the UI was running before the update. Use `--no-open` for scripted updates.
 
 Smoke-test installed IPC:
 

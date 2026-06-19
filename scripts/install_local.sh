@@ -66,6 +66,8 @@ SOCKET_DIR="/tmp/agentic-secrets-$(id -u)"
 SOCKET_PATH="$SOCKET_DIR/core.sock"
 LAUNCH_DIR="$PREFIX/Library/LaunchAgents"
 MANIFEST_PATH="$STATE_DIR/install-manifest.json"
+BROKER_LABEL="com.agenticsecrets.broker"
+CORE_PLIST="$LAUNCH_DIR/$BROKER_LABEL.plist"
 
 bundle_id_at() {
   [ -d "$1" ] || return 1
@@ -90,6 +92,75 @@ remove_managed_app_bundle() {
   exit 73
 }
 
+running_ui_pids() {
+  /usr/bin/pgrep -x "$APP_EXECUTABLE_NAME" 2>/dev/null || true
+}
+
+wait_for_ui_exit() {
+  attempt=1
+  while [ "$attempt" -le 25 ]; do
+    if [ -z "$(running_ui_pids)" ]; then
+      return 0
+    fi
+    sleep 0.2
+    attempt=$((attempt + 1))
+  done
+  return 1
+}
+
+terminate_running_ui() {
+  pids="$(running_ui_pids)"
+  [ -n "$pids" ] || return 1
+
+  printf 'Stopping running Agentic Secrets app before replacing it...\n'
+  /usr/bin/osascript -e "tell application id \"$BUNDLE_ID\" to quit" >/dev/null 2>&1 || true
+  if wait_for_ui_exit; then
+    return 0
+  fi
+
+  pids="$(running_ui_pids)"
+  if [ -n "$pids" ]; then
+    # shellcheck disable=SC2086
+    /bin/kill -TERM $pids >/dev/null 2>&1 || true
+  fi
+  if wait_for_ui_exit; then
+    return 0
+  fi
+
+  pids="$(running_ui_pids)"
+  if [ -n "$pids" ]; then
+    printf 'Agentic Secrets app did not exit cleanly; forcing shutdown.\n'
+    # shellcheck disable=SC2086
+    /bin/kill -KILL $pids >/dev/null 2>&1 || true
+  fi
+  wait_for_ui_exit || true
+  return 0
+}
+
+broker_is_loaded() {
+  launchctl print "gui/$(id -u)/$BROKER_LABEL" >/dev/null 2>&1
+}
+
+bootout_existing_broker() {
+  if [ -f "$CORE_PLIST" ]; then
+    launchctl bootout "gui/$(id -u)" "$CORE_PLIST" >/dev/null 2>&1 || true
+  else
+    launchctl bootout "gui/$(id -u)/$BROKER_LABEL" >/dev/null 2>&1 || true
+  fi
+}
+
+UI_WAS_RUNNING=0
+if terminate_running_ui; then
+  UI_WAS_RUNNING=1
+fi
+
+BROKER_WAS_LOADED=0
+if broker_is_loaded; then
+  BROKER_WAS_LOADED=1
+  printf 'Stopping running broker daemon before replacing it...\n'
+  bootout_existing_broker
+fi
+
 remove_managed_app_bundle "$APP_DEST"
 remove_managed_app_bundle "$LEGACY_APP_DEST"
 mkdir -p "$(dirname "$APP_DEST")" "$BIN_DIR" "$STATE_DIR" "$RUN_DIR" "$SOCKET_DIR" "$LAUNCH_DIR"
@@ -100,7 +171,6 @@ for executable in AgenticSecrets agentic-secrets agentic-secrets-shim agentic-se
   ln -sf "$APP_DEST/Contents/MacOS/$executable" "$BIN_DIR/$executable"
 done
 
-CORE_PLIST="$LAUNCH_DIR/com.agenticsecrets.broker.plist"
 cat >"$CORE_PLIST" <<PLIST
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -244,8 +314,10 @@ if [ "$CONFIGURE_SHELL" -eq 1 ]; then
 fi
 
 DAEMON_READY=0
-if [ "$LOAD_LAUNCHD" -eq 1 ]; then
-  launchctl bootout "gui/$(id -u)" "$CORE_PLIST" >/dev/null 2>&1 || true
+DAEMON_START_REQUESTED=0
+if [ "$LOAD_LAUNCHD" -eq 1 ] || [ "$BROKER_WAS_LOADED" -eq 1 ]; then
+  DAEMON_START_REQUESTED=1
+  bootout_existing_broker
   launchctl bootstrap "gui/$(id -u)" "$CORE_PLIST"
   printf 'Waiting for broker daemon...\n'
   if wait_for_daemon_health; then
@@ -256,8 +328,11 @@ if [ "$LOAD_LAUNCHD" -eq 1 ]; then
   fi
 fi
 
-if [ "$PREFIX" != "$DEFAULT_PREFIX" ] && [ "$OPEN_EXPLICIT" -eq 0 ]; then
+if [ "$PREFIX" != "$DEFAULT_PREFIX" ] && [ "$OPEN_EXPLICIT" -eq 0 ] && [ "$UI_WAS_RUNNING" -eq 0 ]; then
   OPEN_APP=0
+fi
+if [ "$UI_WAS_RUNNING" -eq 1 ] && [ "$OPEN_EXPLICIT" -eq 0 ]; then
+  OPEN_APP=1
 fi
 
 printf '%s\n' "$PREFIX"
@@ -279,7 +354,7 @@ NEXT_STEPS
   fi
 fi
 
-if [ "$OPEN_APP" -eq 1 ] && [ "$LOAD_LAUNCHD" -eq 1 ] && [ "$DAEMON_READY" -eq 0 ]; then
+if [ "$OPEN_APP" -eq 1 ] && [ "$DAEMON_START_REQUESTED" -eq 1 ] && [ "$DAEMON_READY" -eq 0 ]; then
   OPEN_APP=0
   printf '\nBroker daemon did not become reachable yet; leaving the app closed.\n'
   printf 'Check daemon status with:\n  launchctl print "gui/%s/com.agenticsecrets.broker"\n' "$(id -u)"
