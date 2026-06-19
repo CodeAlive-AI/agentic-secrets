@@ -123,16 +123,44 @@ public struct DeliveryDefaultsConfig: Codable, Equatable, Sendable {
     public var bitwardenRuntimeSingleSecretOnly: Bool
     public var mcpPinnedProfilesOnly: Bool
     public var maxInvocationHandleTTLSeconds: TimeInterval
+    public var cliAuthorizationMode: DeliveryAuthorizationMode
 
-    public init(denyRawEnvForGenericRunners: Bool = true, apiSessionTokensRequired: Bool = true, bitwardenRuntimeSingleSecretOnly: Bool = true, mcpPinnedProfilesOnly: Bool = true, maxInvocationHandleTTLSeconds: TimeInterval = 30) {
+    public init(
+        denyRawEnvForGenericRunners: Bool = true,
+        apiSessionTokensRequired: Bool = true,
+        bitwardenRuntimeSingleSecretOnly: Bool = true,
+        mcpPinnedProfilesOnly: Bool = true,
+        maxInvocationHandleTTLSeconds: TimeInterval = 30,
+        cliAuthorizationMode: DeliveryAuthorizationMode = RememberedApprovalPolicy.defaultMode
+    ) {
         self.denyRawEnvForGenericRunners = denyRawEnvForGenericRunners
         self.apiSessionTokensRequired = apiSessionTokensRequired
         self.bitwardenRuntimeSingleSecretOnly = bitwardenRuntimeSingleSecretOnly
         self.mcpPinnedProfilesOnly = mcpPinnedProfilesOnly
         self.maxInvocationHandleTTLSeconds = maxInvocationHandleTTLSeconds
+        self.cliAuthorizationMode = cliAuthorizationMode
     }
 
     public static let `default` = DeliveryDefaultsConfig()
+
+    enum CodingKeys: String, CodingKey {
+        case denyRawEnvForGenericRunners
+        case apiSessionTokensRequired
+        case bitwardenRuntimeSingleSecretOnly
+        case mcpPinnedProfilesOnly
+        case maxInvocationHandleTTLSeconds
+        case cliAuthorizationMode
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        self.denyRawEnvForGenericRunners = try container.decodeIfPresent(Bool.self, forKey: .denyRawEnvForGenericRunners) ?? Self.default.denyRawEnvForGenericRunners
+        self.apiSessionTokensRequired = try container.decodeIfPresent(Bool.self, forKey: .apiSessionTokensRequired) ?? Self.default.apiSessionTokensRequired
+        self.bitwardenRuntimeSingleSecretOnly = try container.decodeIfPresent(Bool.self, forKey: .bitwardenRuntimeSingleSecretOnly) ?? Self.default.bitwardenRuntimeSingleSecretOnly
+        self.mcpPinnedProfilesOnly = try container.decodeIfPresent(Bool.self, forKey: .mcpPinnedProfilesOnly) ?? Self.default.mcpPinnedProfilesOnly
+        self.maxInvocationHandleTTLSeconds = try container.decodeIfPresent(TimeInterval.self, forKey: .maxInvocationHandleTTLSeconds) ?? Self.default.maxInvocationHandleTTLSeconds
+        self.cliAuthorizationMode = try container.decodeIfPresent(DeliveryAuthorizationMode.self, forKey: .cliAuthorizationMode) ?? Self.default.cliAuthorizationMode
+    }
 }
 
 public struct MacOSCompatibilityConfig: Codable, Equatable, Sendable {

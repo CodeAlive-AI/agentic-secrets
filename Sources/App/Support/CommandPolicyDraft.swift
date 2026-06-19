@@ -38,25 +38,37 @@ struct CommandPolicyTermDraft: Identifiable, Equatable, Comparable {
 
 struct CommandPolicySettingsDraftState: Equatable {
     var terms: [CommandPolicyTermDraft]
+    var cliAuthorizationMode: DeliveryAuthorizationMode
     private(set) var baseline: CommandPolicyTermBaseline
+    private(set) var deliveryBaseline: DeliveryDefaultsBaseline
     private(set) var hasLoadedBaseline: Bool
 
-    init(baseline: CommandPolicyTermBaseline = .default, hasLoadedBaseline: Bool = false) {
+    init(
+        baseline: CommandPolicyTermBaseline = .default,
+        deliveryBaseline: DeliveryDefaultsBaseline = .default,
+        hasLoadedBaseline: Bool = false
+    ) {
         self.terms = baseline.drafts
+        self.cliAuthorizationMode = deliveryBaseline.cliAuthorizationMode
         self.baseline = baseline
+        self.deliveryBaseline = deliveryBaseline
         self.hasLoadedBaseline = hasLoadedBaseline
     }
 
     var hasChanges: Bool {
         baseline.destructiveTerms != CommandPolicyTermDraft.destructiveTerms(from: terms)
             || baseline.forbiddenTerms != CommandPolicyTermDraft.forbiddenTerms(from: terms)
+            || deliveryBaseline.cliAuthorizationMode != cliAuthorizationMode
     }
 
-    mutating func sync(summary: CommandPolicySummary?, force: Bool) {
+    mutating func sync(summary: CommandPolicySummary?, deliveryDefaults: DeliveryDefaultsSummary?, force: Bool) {
         guard force || !hasLoadedBaseline || !hasChanges else { return }
         let nextBaseline = CommandPolicyTermBaseline(summary: summary)
+        let nextDeliveryBaseline = DeliveryDefaultsBaseline(summary: deliveryDefaults)
         baseline = nextBaseline
+        deliveryBaseline = nextDeliveryBaseline
         terms = nextBaseline.drafts
+        cliAuthorizationMode = nextDeliveryBaseline.cliAuthorizationMode
         hasLoadedBaseline = true
     }
 }
@@ -88,6 +100,90 @@ struct CommandPolicyTermBaseline: Equatable {
             forbiddenTerms: forbiddenTerms
         )
     }
+}
+
+struct DeliveryDefaultsBaseline: Equatable {
+    var cliAuthorizationMode: DeliveryAuthorizationMode
+
+    init(cliAuthorizationMode: DeliveryAuthorizationMode) {
+        self.cliAuthorizationMode = cliAuthorizationMode
+    }
+
+    init(summary: DeliveryDefaultsSummary?) {
+        self.init(cliAuthorizationMode: summary?.cliAuthorizationMode ?? DeliveryDefaultsConfig.default.cliAuthorizationMode)
+    }
+
+    static let `default` = DeliveryDefaultsBaseline(
+        cliAuthorizationMode: DeliveryDefaultsConfig.default.cliAuthorizationMode
+    )
+}
+
+extension DeliveryAuthorizationMode: Identifiable {
+    public var id: String { rawValue }
+}
+
+enum CLIDeliveryAuthorizationChoice: CaseIterable, Identifiable {
+    case always
+    case remember24h
+    case once
+
+    var id: DeliveryAuthorizationMode { mode }
+
+    var mode: DeliveryAuthorizationMode {
+        switch self {
+        case .always:
+            .always
+        case .remember24h:
+            .remember24h
+        case .once:
+            .once
+        }
+    }
+
+    var title: String {
+        switch self {
+        case .always:
+            "Never ask again"
+        case .remember24h:
+            "Remember for 24 hours"
+        case .once:
+            "Always ask"
+        }
+    }
+
+    var detail: String {
+        switch self {
+        case .always:
+            "After one approval, matching non-destructive CLI delivery can reuse the remembered grant until policy or target scope changes."
+        case .remember24h:
+            "After one approval, matching non-destructive delivery can run without another prompt for one day."
+        case .once:
+            "Every run asks again. This is slower, but easiest to audit when a CLI is still being evaluated."
+        }
+    }
+
+    var systemImage: String {
+        switch self {
+        case .always:
+            "infinity"
+        case .remember24h:
+            "clock"
+        case .once:
+            "person.badge.key"
+        }
+    }
+
+    var accent: Color {
+        switch self {
+        case .always:
+            .green
+        case .remember24h:
+            .blue
+        case .once:
+            .orange
+        }
+    }
+
 }
 
 enum CommandPolicyDisposition: String, CaseIterable, Identifiable, Hashable {
@@ -138,6 +234,15 @@ enum CommandPolicyDisposition: String, CaseIterable, Identifiable, Hashable {
             "Requires fresh approval before secret delivery."
         case .forbidden:
             "Blocks secret delivery before policy authorization."
+        }
+    }
+
+    var columnDetail: String {
+        switch self {
+        case .destructive:
+            "Always require user approval."
+        case .forbidden:
+            "Always deny before delivery."
         }
     }
 

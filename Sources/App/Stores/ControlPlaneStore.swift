@@ -37,7 +37,7 @@ enum ControlPlaneSection: String, CaseIterable, Identifiable {
     }
 
     var isPreview: Bool {
-        self == .bitwardenProviderBindings
+        self == .mcp || self == .bitwardenProviderBindings
     }
 }
 
@@ -852,11 +852,16 @@ final class ControlPlaneStore {
     }
 
     @discardableResult
-    func updateCommandPolicy(destructiveTerms: [String], forbiddenTerms: [String]) async -> Bool {
-        await runAction("Command policy saved") {
+    func updateCommandPolicy(
+        destructiveTerms: [String],
+        forbiddenTerms: [String],
+        cliAuthorizationMode: DeliveryAuthorizationMode? = nil
+    ) async -> Bool {
+        await runAction(cliAuthorizationMode == nil ? "Command policy saved" : "CLI delivery settings saved") {
             _ = try await client.updateCommandPolicy(ControlPlaneCommandPolicyUpdateRequest(
                 destructiveTerms: destructiveTerms,
-                forbiddenTerms: forbiddenTerms
+                forbiddenTerms: forbiddenTerms,
+                cliAuthorizationMode: cliAuthorizationMode
             ))
         }
     }

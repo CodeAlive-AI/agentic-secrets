@@ -409,13 +409,15 @@ func runContracts() throws {
 
     let commandPolicy = try managementService.updateCommandPolicy(ControlPlaneCommandPolicyUpdateRequest(
         destructiveTerms: [" remove ", "remove"],
-        forbiddenTerms: ["shutdown"]
+        forbiddenTerms: ["shutdown"],
+        cliAuthorizationMode: .remember24h
     ))
     try expect(commandPolicy.destructiveTerms == ["remove"], "management command policy update must normalize destructive terms")
     try expect(commandPolicy.forbiddenTerms == ["shutdown"], "management command policy update must normalize forbidden terms")
     let commandPolicySnapshot = try managementService.snapshot(now: Date(timeIntervalSince1970: 105))
     try expect(commandPolicySnapshot.commandPolicy.destructiveTerms == ["remove"], "management snapshot must include destructive command policy")
     try expect(commandPolicySnapshot.commandPolicy.forbiddenTerms == ["shutdown"], "management snapshot must include forbidden command policy")
+    try expect(commandPolicySnapshot.deliveryDefaults.cliAuthorizationMode == .remember24h, "management snapshot must include CLI authorization mode")
 
     let managementHandler = BrokerIPCHandler(authorizer: ipcAuthorizer, management: managementService)
     let commandPolicyIPCResponse = try managementHandler.handle(BrokerIPCRequest(
@@ -1322,6 +1324,7 @@ func runContracts() throws {
     let config = try ConfigurationLoader.load(path: "config/default.agentic-secrets.json")
     try expect(config.policyPackTrust.requireSignatureForExternalPacks, "default config must require signed external command policy packs")
     try expect(config.deliveryDefaults.denyRawEnvForGenericRunners, "default config must deny raw env for generic runners")
+    try expect(config.deliveryDefaults.cliAuthorizationMode == .always, "default config must use always CLI authorization mode")
     try expect(config.macOSCompatibility.requiredSDKMajor == 26, "default config must target Tahoe SDK compatibility")
     let encodedConfig = try ConfigurationLoader.encode(config)
     try expect(encodedConfig.contains("\"requiredSDKMajor\" : 26"), "config encode path must preserve Tahoe SDK gate")

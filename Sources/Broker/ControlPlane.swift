@@ -238,6 +238,14 @@ public struct CommandPolicySummary: Codable, Equatable, Sendable {
     }
 }
 
+public struct DeliveryDefaultsSummary: Codable, Equatable, Sendable {
+    public var cliAuthorizationMode: DeliveryAuthorizationMode
+
+    public init(config: DeliveryDefaultsConfig) {
+        self.cliAuthorizationMode = config.cliAuthorizationMode
+    }
+}
+
 public struct ControlPlaneSnapshot: Codable, Equatable, Sendable {
     public var generatedAt: Date
     public var stateDirectory: String
@@ -252,6 +260,7 @@ public struct ControlPlaneSnapshot: Codable, Equatable, Sendable {
     public var auditEvents: [AuditEventSummary]
     public var securityHealth: SecurityHealthSummary
     public var commandPolicy: CommandPolicySummary
+    public var deliveryDefaults: DeliveryDefaultsSummary
 
     public init(
         generatedAt: Date,
@@ -266,7 +275,8 @@ public struct ControlPlaneSnapshot: Codable, Equatable, Sendable {
         deliveryGrants: [UnlockGrantSummary],
         auditEvents: [AuditEventSummary],
         securityHealth: SecurityHealthSummary,
-        commandPolicy: CommandPolicySummary
+        commandPolicy: CommandPolicySummary,
+        deliveryDefaults: DeliveryDefaultsSummary = DeliveryDefaultsSummary(config: .default)
     ) {
         self.generatedAt = generatedAt
         self.stateDirectory = stateDirectory
@@ -281,6 +291,7 @@ public struct ControlPlaneSnapshot: Codable, Equatable, Sendable {
         self.auditEvents = auditEvents
         self.securityHealth = securityHealth
         self.commandPolicy = commandPolicy
+        self.deliveryDefaults = deliveryDefaults
     }
 }
 
@@ -353,10 +364,12 @@ public struct ControlPlaneAPISessionResponse: Codable, Equatable, Sendable {
 public struct ControlPlaneCommandPolicyUpdateRequest: Codable, Equatable, Sendable {
     public var destructiveTerms: [String]
     public var forbiddenTerms: [String]
+    public var cliAuthorizationMode: DeliveryAuthorizationMode?
 
-    public init(destructiveTerms: [String], forbiddenTerms: [String]) {
+    public init(destructiveTerms: [String], forbiddenTerms: [String], cliAuthorizationMode: DeliveryAuthorizationMode? = nil) {
         self.destructiveTerms = destructiveTerms
         self.forbiddenTerms = forbiddenTerms
+        self.cliAuthorizationMode = cliAuthorizationMode
     }
 
     public var config: CommandPolicyConfig {
@@ -449,7 +462,8 @@ public struct ControlPlane: Sendable {
             deliveryGrants: deliveryGrants.sorted { $0.expiresAt < $1.expiresAt },
             auditEvents: auditLog.snapshot().map(AuditEventSummary.init).sorted { $0.time > $1.time },
             securityHealth: health,
-            commandPolicy: CommandPolicySummary(config: config.commandPolicy)
+            commandPolicy: CommandPolicySummary(config: config.commandPolicy),
+            deliveryDefaults: DeliveryDefaultsSummary(config: config.deliveryDefaults)
         ))
     }
 
@@ -611,6 +625,9 @@ public struct ControlPlane: Sendable {
     public func updateCommandPolicy(_ request: ControlPlaneCommandPolicyUpdateRequest) throws -> CommandPolicySummary {
         var config = try loadConfig()
         config.commandPolicy = request.config
+        if let cliAuthorizationMode = request.cliAuthorizationMode {
+            config.deliveryDefaults.cliAuthorizationMode = cliAuthorizationMode
+        }
         try saveConfig(config)
         return CommandPolicySummary(config: config.commandPolicy)
     }

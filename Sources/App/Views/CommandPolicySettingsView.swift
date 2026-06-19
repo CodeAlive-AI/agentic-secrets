@@ -3,6 +3,7 @@ import SwiftUI
 
 struct CommandPolicySettingsPage: View {
     @Binding var terms: [CommandPolicyTermDraft]
+    @Binding var authorizationMode: DeliveryAuthorizationMode
     @Binding var previewCommand: String
     var hasChanges: Bool
     var canSave: Bool
@@ -19,9 +20,11 @@ struct CommandPolicySettingsPage: View {
             VStack(alignment: .leading, spacing: 18) {
                 SettingsHeader(
                     systemImage: "shield.lefthalf.filled",
-                    title: "Command Policy",
-                    subtitle: "Classify command words before any secret is resolved. Keep the list short and explicit."
+                    title: "CLI Delivery",
+                    subtitle: "Choose when CLI secret delivery can reuse an approval, then define the command words that always ask or never deliver."
                 )
+
+                CLIDeliveryModePanel(mode: $authorizationMode)
 
                 CommandPolicySummaryPanel(
                     askCount: destructiveTerms.count,
@@ -37,7 +40,7 @@ struct CommandPolicySettingsPage: View {
                     add: addTerm
                 )
 
-                CommandPolicyRulesList(
+                CommandPolicyTwoColumnRulesPanel(
                     terms: terms,
                     move: moveTerm,
                     remove: removeTerm
@@ -106,6 +109,89 @@ struct CommandPolicySettingsPage: View {
         guard let index = terms.firstIndex(where: { $0.term == term }) else { return }
         terms[index].disposition = disposition
         terms.sort()
+    }
+}
+
+private struct CLIDeliveryModePanel: View {
+    @Binding var mode: DeliveryAuthorizationMode
+
+    var body: some View {
+        GroupBox {
+            VStack(alignment: .leading, spacing: 12) {
+                VStack(alignment: .leading, spacing: 3) {
+                    Text("Default approval behavior")
+                        .font(.headline)
+                    Text("Used when a CLI run does not pass `--authorization-mode`. Destructive and blocked rules still override this choice.")
+                        .font(.callout)
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+
+                ViewThatFits(in: .horizontal) {
+                    HStack(spacing: 10) {
+                        ForEach(CLIDeliveryAuthorizationChoice.allCases) { choice in
+                            CLIDeliveryModeCard(choice: choice, isSelected: mode == choice.mode) {
+                                mode = choice.mode
+                            }
+                        }
+                    }
+
+                    VStack(spacing: 10) {
+                        ForEach(CLIDeliveryAuthorizationChoice.allCases) { choice in
+                            CLIDeliveryModeCard(choice: choice, isSelected: mode == choice.mode) {
+                                mode = choice.mode
+                            }
+                        }
+                    }
+                }
+
+                Text("Temporary `short` grants remain available from the CLI for one-off automation and expire after \(Int(DeliveryGrantPolicy.defaultTTL)) seconds by default.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+            .padding(.vertical, 2)
+        }
+    }
+}
+
+private struct CLIDeliveryModeCard: View {
+    var choice: CLIDeliveryAuthorizationChoice
+    var isSelected: Bool
+    var select: () -> Void
+
+    var body: some View {
+        Button(action: select) {
+            HStack(alignment: .top, spacing: 10) {
+                Image(systemName: isSelected ? "checkmark.circle.fill" : choice.systemImage)
+                    .font(.title3)
+                    .foregroundStyle(isSelected ? Color.accentColor : choice.accent)
+                    .frame(width: 24)
+                    .accessibilityHidden(true)
+
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(choice.title)
+                        .font(.callout.weight(.semibold))
+                        .foregroundStyle(.primary)
+                    Text(choice.detail)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+
+                Spacer(minLength: 0)
+            }
+            .padding(12)
+            .frame(maxWidth: .infinity, minHeight: 104, alignment: .topLeading)
+            .background(isSelected ? Color.accentColor.opacity(0.10) : Color.secondary.opacity(0.06), in: RoundedRectangle(cornerRadius: 8))
+            .overlay {
+                RoundedRectangle(cornerRadius: 8)
+                    .stroke(isSelected ? Color.accentColor.opacity(0.55) : Color.secondary.opacity(0.16), lineWidth: 1)
+            }
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(choice.title)
+        .accessibilityValue(isSelected ? "Selected" : "Not selected")
+        .help(choice.detail)
     }
 }
 
@@ -394,7 +480,7 @@ private struct PolicySuggestionStrip: View {
     }
 }
 
-private struct CommandPolicyRulesList: View {
+private struct CommandPolicyTwoColumnRulesPanel: View {
     var terms: [CommandPolicyTermDraft]
     var move: (String, CommandPolicyDisposition) -> Void
     var remove: (String) -> Void
@@ -404,9 +490,9 @@ private struct CommandPolicyRulesList: View {
             VStack(alignment: .leading, spacing: 12) {
                 HStack(alignment: .firstTextBaseline) {
                     VStack(alignment: .leading, spacing: 3) {
-                        Text("Rules")
+                        Text("Policy lists")
                             .font(.headline)
-                        Text("Blocked rules win if the same command matches both behaviors.")
+                        Text("Keep these lists short. Blocked terms take precedence over approval terms.")
                             .font(.callout)
                             .foregroundStyle(.secondary)
                     }
@@ -416,27 +502,35 @@ private struct CommandPolicyRulesList: View {
                         .foregroundStyle(.secondary)
                 }
 
-                if terms.isEmpty {
-                    CommandPolicyEmptyRules()
-                } else {
-                    VStack(spacing: 0) {
-                        ForEach(terms) { draft in
-                            PolicyRuleRow(
-                                draft: draft,
-                                setDisposition: { move(draft.term, $0) },
-                                remove: { remove(draft.term) }
-                            )
-
-                            if draft.id != terms.last?.id {
-                                Divider()
-                                    .padding(.leading, 12)
-                            }
-                        }
+                ViewThatFits(in: .horizontal) {
+                    HStack(alignment: .top, spacing: 12) {
+                        CommandPolicyRuleColumn(
+                            disposition: .destructive,
+                            terms: terms.filter { $0.disposition == .destructive },
+                            move: move,
+                            remove: remove
+                        )
+                        CommandPolicyRuleColumn(
+                            disposition: .forbidden,
+                            terms: terms.filter { $0.disposition == .forbidden },
+                            move: move,
+                            remove: remove
+                        )
                     }
-                    .background(.quaternary.opacity(0.28), in: RoundedRectangle(cornerRadius: 8))
-                    .overlay {
-                        RoundedRectangle(cornerRadius: 8)
-                            .stroke(.separator.opacity(0.45), lineWidth: 1)
+
+                    VStack(alignment: .leading, spacing: 12) {
+                        CommandPolicyRuleColumn(
+                            disposition: .destructive,
+                            terms: terms.filter { $0.disposition == .destructive },
+                            move: move,
+                            remove: remove
+                        )
+                        CommandPolicyRuleColumn(
+                            disposition: .forbidden,
+                            terms: terms.filter { $0.disposition == .forbidden },
+                            move: move,
+                            remove: remove
+                        )
                     }
                 }
             }
@@ -445,25 +539,71 @@ private struct CommandPolicyRulesList: View {
     }
 }
 
-private struct CommandPolicyEmptyRules: View {
+private struct CommandPolicyRuleColumn: View {
+    var disposition: CommandPolicyDisposition
+    var terms: [CommandPolicyTermDraft]
+    var move: (String, CommandPolicyDisposition) -> Void
+    var remove: (String) -> Void
+
     var body: some View {
-        HStack(alignment: .top, spacing: 10) {
-            Image(systemName: "tray")
-                .font(.title3)
-                .foregroundStyle(.secondary)
-                .accessibilityHidden(true)
-            VStack(alignment: .leading, spacing: 4) {
-                Text("No rules")
-                    .font(.callout.weight(.semibold))
-                Text("Commands continue through normal CLI trust checks until you add an approval or block rule.")
-                    .font(.caption)
+        VStack(alignment: .leading, spacing: 0) {
+            HStack(spacing: 8) {
+                Image(systemName: disposition.systemImage)
+                    .foregroundStyle(disposition.tint)
+                    .frame(width: 20)
+                    .accessibilityHidden(true)
+                VStack(alignment: .leading, spacing: 1) {
+                    Text(disposition.title)
+                        .font(.callout.weight(.semibold))
+                    Text(disposition.columnDetail)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(2)
+                }
+                Spacer()
+                Text("\(terms.count)")
+                    .font(.caption.weight(.semibold))
                     .foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
+            }
+            .padding(12)
+
+            Divider()
+
+            if terms.isEmpty {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(disposition.emptyTitle)
+                        .font(.callout.weight(.semibold))
+                    Text(disposition.emptyDetail)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                .padding(12)
+                .frame(maxWidth: .infinity, minHeight: 90, alignment: .topLeading)
+            } else {
+                VStack(spacing: 0) {
+                    ForEach(terms) { draft in
+                        PolicyRuleRow(
+                            draft: draft,
+                            setDisposition: { move(draft.term, $0) },
+                            remove: { remove(draft.term) }
+                        )
+
+                        if draft.id != terms.last?.id {
+                            Divider()
+                                .padding(.leading, 12)
+                        }
+                    }
+                }
             }
         }
-        .padding(12)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(.quaternary.opacity(0.35), in: RoundedRectangle(cornerRadius: 8))
+        .frame(maxWidth: .infinity, alignment: .topLeading)
+        .background(.quaternary.opacity(0.28), in: RoundedRectangle(cornerRadius: 8))
+        .overlay {
+            RoundedRectangle(cornerRadius: 8)
+                .stroke(.separator.opacity(0.45), lineWidth: 1)
+        }
+        .accessibilityElement(children: .contain)
     }
 }
 
@@ -650,10 +790,10 @@ private struct CommandPolicyActionBar: View {
             Button("Revert", action: revert)
                 .disabled(!hasChanges)
                 .help("Discard unsaved command policy changes")
-            Button("Save Policy", action: save)
+            Button("Save CLI Delivery", action: save)
                 .buttonStyle(.borderedProminent)
                 .disabled(!canSave || !hasChanges || isLoading)
-                .accessibilityLabel("Save command policy")
+                .accessibilityLabel("Save CLI delivery settings")
                 .help(saveHelp)
         }
         .padding(.horizontal, 24)

@@ -28,6 +28,7 @@ struct SettingsView: View {
 
             CommandPolicySettingsPage(
                 terms: $commandPolicyDraft.terms,
+                authorizationMode: $commandPolicyDraft.cliAuthorizationMode,
                 previewCommand: $previewCommand,
                 hasChanges: commandPolicyDraft.hasChanges,
                 canSave: store.canManageBrokerState,
@@ -36,7 +37,7 @@ struct SettingsView: View {
                 revert: { syncCommandPolicyFromSnapshot(force: true) },
                 save: savePolicy
             )
-            .tabItem { Label("Command Policy", systemImage: "shield.lefthalf.filled") }
+            .tabItem { Label("CLI Delivery", systemImage: "shield.lefthalf.filled") }
 
             Form {
                 LabeledContent("State directory", value: store.snapshot?.stateDirectory ?? "Not loaded")
@@ -71,18 +72,26 @@ struct SettingsView: View {
             return "Start or repair the local daemon before saving policy"
         }
         if !commandPolicyDraft.hasChanges {
-            return "Command policy is already saved"
+            return "CLI delivery settings are already saved"
         }
-        return "Save command policy to the local broker config"
+        return "Save CLI delivery settings to the local broker config"
     }
 
     private func syncCommandPolicyFromSnapshot(force: Bool) {
-        commandPolicyDraft.sync(summary: store.snapshot?.commandPolicy, force: force)
+        commandPolicyDraft.sync(
+            summary: store.snapshot?.commandPolicy,
+            deliveryDefaults: store.snapshot?.deliveryDefaults,
+            force: force
+        )
     }
 
     private func savePolicy() {
         Task {
-            let didSave = await store.updateCommandPolicy(destructiveTerms: destructiveTerms, forbiddenTerms: forbiddenTerms)
+            let didSave = await store.updateCommandPolicy(
+                destructiveTerms: destructiveTerms,
+                forbiddenTerms: forbiddenTerms,
+                cliAuthorizationMode: commandPolicyDraft.cliAuthorizationMode
+            )
             if didSave {
                 syncCommandPolicyFromSnapshot(force: true)
             }

@@ -95,12 +95,16 @@ struct AgenticSecretsBrokerDaemon {
         let controlArguments = argumentsBeforeRunSeparator(in: args)
         let name = try requiredValue(after: "--name", in: controlArguments)
         let quiet = controlArguments.contains("--quiet")
-        let authorization = try cliAuthorization(from: controlArguments)
         let targetArguments = argumentsAfterRunSeparator(in: args)
         let layout = LocalInstallLayout(stateDirectory: stateDirectory(from: controlArguments))
+        let config = try? ConfigurationLoader.load(path: layout.configURL.path)
+        let authorization = try cliAuthorization(
+            from: controlArguments,
+            defaultMode: config?.deliveryDefaults.cliAuthorizationMode ?? RememberedApprovalPolicy.defaultMode
+        )
         let registration = try layout.registrationService.registration(named: name)
         let executableName = URL(fileURLWithPath: registration.targetPath).lastPathComponent
-        let commandPolicy = (try? ConfigurationLoader.load(path: layout.configURL.path).commandPolicy) ?? .default
+        let commandPolicy = config?.commandPolicy ?? .default
         let command = CommandClassifier(commandPolicy: commandPolicy).classify(executableName: executableName, arguments: targetArguments)
         let target = try TargetAssessor().assess(path: registration.targetPath)
         try layout.registrationService.validateTargetIdentity(registration: registration, assessedTarget: target)
@@ -349,7 +353,7 @@ struct AgenticSecretsBrokerDaemon {
         return LocalInstallLayout.defaultStateDirectory()
     }
 
-    private static func cliAuthorization(from args: [String]) throws -> DeliveryAuthorizationRequest {
+    private static func cliAuthorization(from args: [String], defaultMode: DeliveryAuthorizationMode) throws -> DeliveryAuthorizationRequest {
         if let rawMode = value(after: "--authorization-mode", in: args)
             ?? ProcessInfo.processInfo.environment["AGENTIC_SECRETS_CLI_AUTHORIZATION_MODE"] {
             guard let mode = DeliveryAuthorizationMode(rawValue: rawMode) else {
@@ -361,7 +365,7 @@ struct AgenticSecretsBrokerDaemon {
             let ttl = try cliUnlockTTL(from: args, defaultingTo: DeliveryGrantPolicy.defaultTTL)
             return DeliveryAuthorizationRequest(mode: ttl == 0 ? .once : .short, shortTTL: ttl)
         }
-        return DeliveryAuthorizationRequest(mode: RememberedApprovalPolicy.defaultMode, shortTTL: DeliveryGrantPolicy.defaultTTL)
+        return DeliveryAuthorizationRequest(mode: defaultMode, shortTTL: DeliveryGrantPolicy.defaultTTL)
     }
 
     private static func cliUnlockTTL(from args: [String], defaultingTo defaultTTL: TimeInterval) throws -> TimeInterval {

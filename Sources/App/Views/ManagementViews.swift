@@ -651,6 +651,7 @@ struct MCPProfilesView: View {
 
     var body: some View {
         ControlPlanePageFrame(title: "MCP Proxy", subtitle: "Pinned upstream proxy profiles for authorization injection.") {
+            MCPPreviewNotice()
             if store.snapshot == nil {
                 LocalStateUnavailableView(store: store)
             } else if store.mcpProfiles.isEmpty {
@@ -692,6 +693,27 @@ struct MCPProfilesView: View {
                 .frame(minHeight: 420)
             }
         }
+    }
+}
+
+private struct MCPPreviewNotice: View {
+    var body: some View {
+        HStack(alignment: .top, spacing: 10) {
+            Image(systemName: "hourglass.badge.exclamationmark")
+                .foregroundStyle(.secondary)
+                .frame(width: 20)
+            VStack(alignment: .leading, spacing: 3) {
+                Text("Preview Feature")
+                    .font(.headline)
+                Text("MCP Proxy is available for early testing, but setup flow polish and end-to-end coverage are not finished yet.")
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        }
+        .padding(12)
+        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 8))
+        .accessibilityElement(children: .combine)
     }
 }
 

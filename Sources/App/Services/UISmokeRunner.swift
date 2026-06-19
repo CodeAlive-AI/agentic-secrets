@@ -84,10 +84,15 @@ enum UISmokeRunner {
             forbiddenTerms: CommandPolicyConfig.default.forbiddenTerms
         )
         var previewCommand = "hcloud server delete prod-db-01"
+        var authorizationMode = DeliveryAuthorizationMode.always
         let commandPolicy = CommandPolicySettingsPage(
             terms: Binding(
                 get: { terms },
                 set: { terms = $0 }
+            ),
+            authorizationMode: Binding(
+                get: { authorizationMode },
+                set: { authorizationMode = $0 }
             ),
             previewCommand: Binding(
                 get: { previewCommand },
@@ -577,10 +582,15 @@ enum UISmokeRunner {
             destructiveTerms: ["destroy"],
             forbiddenTerms: ["shutdown"]
         ))
-        settingsDraft.sync(summary: savedPolicy, force: false)
+        settingsDraft.sync(
+            summary: savedPolicy,
+            deliveryDefaults: DeliveryDefaultsSummary(config: DeliveryDefaultsConfig(cliAuthorizationMode: .remember24h)),
+            force: false
+        )
         try expect(settingsDraft.hasLoadedBaseline, "command policy settings records first loaded baseline")
         try expect(CommandPolicyTermDraft.destructiveTerms(from: settingsDraft.terms) == ["destroy"], "command policy settings loads saved ask terms")
         try expect(CommandPolicyTermDraft.forbiddenTerms(from: settingsDraft.terms) == ["shutdown"], "command policy settings loads saved blocked terms")
+        try expect(settingsDraft.cliAuthorizationMode == .remember24h, "command policy settings loads saved CLI authorization mode")
 
         settingsDraft.terms.append(CommandPolicyTermDraft(term: "remove", disposition: .destructive))
         try expect(settingsDraft.hasChanges, "command policy settings detects unsaved local edits")
@@ -588,12 +598,21 @@ enum UISmokeRunner {
             destructiveTerms: ["erase"],
             forbiddenTerms: ["nuke"]
         ))
-        settingsDraft.sync(summary: refreshedPolicy, force: false)
+        settingsDraft.sync(
+            summary: refreshedPolicy,
+            deliveryDefaults: DeliveryDefaultsSummary(config: DeliveryDefaultsConfig(cliAuthorizationMode: .once)),
+            force: false
+        )
         try expect(CommandPolicyTermDraft.destructiveTerms(from: settingsDraft.terms) == ["destroy", "remove"], "command policy settings refresh preserves unsaved edits")
         try expect(CommandPolicyTermDraft.forbiddenTerms(from: settingsDraft.terms) == ["shutdown"], "command policy settings refresh preserves blocked edits")
-        settingsDraft.sync(summary: refreshedPolicy, force: true)
+        settingsDraft.sync(
+            summary: refreshedPolicy,
+            deliveryDefaults: DeliveryDefaultsSummary(config: DeliveryDefaultsConfig(cliAuthorizationMode: .once)),
+            force: true
+        )
         try expect(CommandPolicyTermDraft.destructiveTerms(from: settingsDraft.terms) == ["erase"], "command policy settings force sync replaces ask terms")
         try expect(CommandPolicyTermDraft.forbiddenTerms(from: settingsDraft.terms) == ["nuke"], "command policy settings force sync replaces blocked terms")
+        try expect(settingsDraft.cliAuthorizationMode == .once, "command policy settings force sync replaces CLI authorization mode")
     }
 
     private static func testProviderDashboardLinks() throws {
