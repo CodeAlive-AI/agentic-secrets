@@ -64,9 +64,21 @@ struct CLISecretsView: View {
     @Bindable var store: ControlPlaneStore
     @State private var pendingUnregister: CLIRegistrationSummary?
     @State private var deleteSecrets = false
+    @State private var showingPolicyEditor = false
 
     var body: some View {
-        Group {
+        ControlPlanePageFrame(
+            title: "CLI Delivery",
+            subtitle: "Registered command-line tools and the policy that decides when secrets may be delivered."
+        ) {
+            CLIDeliveryPolicySummaryBar(
+                commandPolicy: store.snapshot?.commandPolicy,
+                deliveryDefaults: store.snapshot?.deliveryDefaults,
+                canEdit: store.canManageBrokerState
+            ) {
+                showingPolicyEditor = true
+            }
+
             if store.snapshot == nil {
                 LocalStateUnavailableView(store: store)
             } else if store.snapshot?.cliRegistrations.isEmpty == true {
@@ -75,15 +87,20 @@ struct CLISecretsView: View {
                 NoMatchingCLIView(store: store)
             } else {
                 HSplitView {
-                    CLIRegistrationList(store: store)
-                        .frame(minWidth: 240, idealWidth: 280, maxWidth: 360)
+                    CLIRegistrationTable(store: store)
+                        .frame(minWidth: 560, idealWidth: 700)
                     CLIRegistrationDetail(
                         store: store,
                         pendingUnregister: $pendingUnregister
                     )
-                    .frame(minWidth: 420)
+                    .frame(minWidth: 460)
                 }
+                .frame(minHeight: 460)
             }
+        }
+        .sheet(isPresented: $showingPolicyEditor) {
+            CLIDeliveryPolicyEditorSheet(store: store)
+                .frame(width: 900, height: 720)
         }
         .confirmationDialog("Unregister CLI?", isPresented: Binding(
             get: { pendingUnregister != nil },
@@ -113,22 +130,206 @@ struct CLISecretsView: View {
     }
 }
 
-private struct CLIRegistrationList: View {
+private struct CLIDeliveryPolicySummaryBar: View {
+    var commandPolicy: CommandPolicySummary?
+    var deliveryDefaults: DeliveryDefaultsSummary?
+    var canEdit: Bool
+    var edit: () -> Void
+
+    var body: some View {
+        HStack(alignment: .center, spacing: 14) {
+            Label("Delivery rules", systemImage: "shield.lefthalf.filled")
+                .font(.headline)
+                .labelStyle(.titleAndIcon)
+
+            Divider()
+                .frame(height: 28)
+
+            CLIDeliveryPolicyMetric(title: "Mode", value: modeTitle)
+            CLIDeliveryPolicyMetric(title: "Ask", value: "\(commandPolicy?.destructiveTerms.count ?? 0)")
+            CLIDeliveryPolicyMetric(title: "Block", value: "\(commandPolicy?.forbiddenTerms.count ?? 0)")
+
+            Spacer(minLength: 12)
+
+            Button {
+                edit()
+            } label: {
+                Label("Edit Delivery Rules", systemImage: "slider.horizontal.3")
+            }
+            .buttonStyle(.borderedProminent)
+            .disabled(!canEdit)
+            .help(canEdit ? "Edit default approval mode, always-ask rules, and blocked command rules" : "Repair the daemon before editing delivery rules")
+        }
+        .padding(12)
+        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 8))
+        .accessibilityElement(children: .contain)
+    }
+
+    private var modeTitle: String {
+        switch deliveryDefaults?.cliAuthorizationMode ?? DeliveryDefaultsConfig.default.cliAuthorizationMode {
+        case .always:
+            "Never ask again"
+        case .remember24h:
+            "24h"
+        case .once:
+            "Always ask"
+        case .short:
+            "Short"
+        }
+    }
+}
+
+private struct CLIDeliveryPolicyMetric: View {
+    var title: String
+    var value: String
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 2) {
+            Text(title)
+                .font(.caption)
+                .foregroundStyle(.secondary)
+            Text(value)
+                .font(.callout.weight(.semibold))
+                .lineLimit(1)
+        }
+        .frame(minWidth: 56, alignment: .leading)
+        .accessibilityElement(children: .combine)
+    }
+}
+
+private struct CLIRegistrationTable: View {
     @Bindable var store: ControlPlaneStore
 
     var body: some View {
-        List(selection: $store.selectedCLI) {
-            ForEach(store.filteredCLIRegistrations) { item in
+        Table(store.filteredCLIRegistrations, selection: $store.selectedCLI) {
+            TableColumn("CLI") { item in
                 VStack(alignment: .leading, spacing: 3) {
-                    Text(item.name).font(.headline)
+                    Text(item.name)
+                        .font(.headline)
+                    Text(item.targetPath)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                }
+                .accessibilityElement(children: .combine)
+            }
+            .width(min: 180, ideal: 240)
+
+            TableColumn("Secrets") { item in
+                VStack(alignment: .leading, spacing: 3) {
+                    Text("\(item.environmentBindings.count)")
+                        .font(.callout.weight(.semibold))
                     Text(item.environmentBindings.map(\.environmentName).joined(separator: ", "))
                         .font(.caption)
                         .foregroundStyle(.secondary)
                         .lineLimit(1)
                 }
-                .tag(Optional(item.name))
-                .accessibilityElement(children: .combine)
-                .accessibilityLabel("\(item.name), \(item.environmentBindings.count) bindings")
+            }
+            .width(min: 110, ideal: 150)
+
+            TableColumn("Trust") { item in
+                StatusBadge(text: item.trustStatus, systemImage: "checkmark.shield")
+            }
+            .width(min: 110, ideal: 130)
+
+            TableColumn("Shim") { item in
+                let shimStatus = CLIShimStatusPresentation(rawValue: item.shimStatus)
+                StatusBadge(text: shimStatus.label, systemImage: "link")
+            }
+            .width(min: 120, ideal: 150)
+
+            TableColumn("Grants") { item in
+                Text("\(grantCount(for: item))")
+                    .font(.callout.weight(.semibold))
+                    .foregroundStyle(.secondary)
+            }
+            .width(min: 70, ideal: 80)
+
+            TableColumn("") { item in
+                Button {
+                    store.selectedCLI = item.name
+                } label: {
+                    Label("Details", systemImage: "sidebar.right")
+                        .labelStyle(.iconOnly)
+                }
+                .buttonStyle(.borderless)
+                .help("Show details for \(item.name)")
+                .accessibilityLabel("Show details for \(item.name)")
+            }
+            .width(44)
+        }
+        .accessibilityLabel("Registered CLI delivery table")
+    }
+
+    private func grantCount(for item: CLIRegistrationSummary) -> Int {
+        store.snapshot?.deliveryGrants.filter { $0.subject == item.name }.count ?? 0
+    }
+}
+
+private struct CLIDeliveryPolicyEditorSheet: View {
+    @Bindable var store: ControlPlaneStore
+    @Environment(\.dismiss) private var dismiss
+    @State private var draft = CommandPolicySettingsDraftState()
+    @State private var previewCommand = "hcloud server delete prod-db-01"
+
+    var body: some View {
+        CommandPolicySettingsPage(
+            terms: $draft.terms,
+            authorizationMode: $draft.cliAuthorizationMode,
+            previewCommand: $previewCommand,
+            hasChanges: draft.hasChanges,
+            canSave: store.canManageBrokerState,
+            isLoading: store.isLoading,
+            saveHelp: saveHelp,
+            revert: { syncFromSnapshot(force: true) },
+            save: save,
+            cancel: { dismiss() }
+        )
+        .onAppear {
+            syncFromSnapshot(force: true)
+        }
+        .onChange(of: store.snapshot?.generatedAt) { _, _ in
+            syncFromSnapshot(force: false)
+        }
+    }
+
+    private var destructiveTerms: [String] {
+        CommandPolicyTermDraft.destructiveTerms(from: draft.terms)
+    }
+
+    private var forbiddenTerms: [String] {
+        CommandPolicyTermDraft.forbiddenTerms(from: draft.terms)
+    }
+
+    private var saveHelp: String {
+        if !store.canManageBrokerState {
+            return "Start or repair the local daemon before saving CLI delivery rules"
+        }
+        if !draft.hasChanges {
+            return "CLI delivery rules are already saved"
+        }
+        return "Save CLI delivery rules to the local broker config"
+    }
+
+    private func syncFromSnapshot(force: Bool) {
+        draft.sync(
+            summary: store.snapshot?.commandPolicy,
+            deliveryDefaults: store.snapshot?.deliveryDefaults,
+            force: force
+        )
+    }
+
+    private func save() {
+        Task {
+            let didSave = await store.updateCommandPolicy(
+                destructiveTerms: destructiveTerms,
+                forbiddenTerms: forbiddenTerms,
+                cliAuthorizationMode: draft.cliAuthorizationMode
+            )
+            if didSave {
+                await store.refresh()
+                syncFromSnapshot(force: true)
+                dismiss()
             }
         }
     }
@@ -138,6 +339,7 @@ private struct CLIRegistrationDetail: View {
     @Bindable var store: ControlPlaneStore
     @Binding var pendingUnregister: CLIRegistrationSummary?
     @State private var pendingShimRemoval: CLIRegistrationSummary?
+    @State private var showingAdvancedIdentity = false
 
     var body: some View {
         ScrollView {
@@ -153,26 +355,6 @@ private struct CLIRegistrationDetail: View {
                         Section("Environment bindings") {
                             ForEach(cli.environmentBindings, id: \.environmentName) { binding in
                                 SecretBindingRow(store: store, binding: binding, cliName: cli.name)
-                            }
-                        }
-                        Section("Target identity") {
-                            LabeledContent("Resolved path", value: cli.targetResolvedPath ?? "Unknown")
-                            LabeledContent("Identity", value: cli.targetIdentity ?? "Unknown")
-                            LabeledContent("CDHash", value: cli.targetCDHash ?? "Unknown")
-                            LabeledContent("Signing ID", value: cli.targetSigningIdentifier ?? "Unknown")
-                            LabeledContent("Team ID", value: cli.targetTeamIdentifier ?? "Unknown")
-                            HStack {
-                                Button {
-                                    Task { await store.refreshTrust(for: cli.name) }
-                                } label: {
-                                    Label("Refresh Trust", systemImage: "arrow.clockwise")
-                                }
-                                .disabled(!store.canManageBrokerState)
-                                .help("Refresh trust metadata for this executable")
-                                CopyButton(title: "Copy Identity", value: cli.targetIdentity ?? "", help: "Copy target identity")
-                                .disabled(cli.targetIdentity == nil)
-                                CopyButton(title: "Copy CDHash", value: cli.targetCDHash ?? "", help: "Copy target CDHash")
-                                .disabled(cli.targetCDHash == nil)
                             }
                         }
                         Section("Shim") {
@@ -205,6 +387,34 @@ private struct CLIRegistrationDetail: View {
                             }
                             .disabled(!store.canClearUnlockGrants)
                             .help("Clear every active authorization grant on this Mac. Scoped CLI grant clearing is not available in the current core contract.")
+                        }
+                        Section("Advanced") {
+                            DisclosureGroup(isExpanded: $showingAdvancedIdentity) {
+                                VStack(alignment: .leading, spacing: 10) {
+                                    LabeledContent("Resolved path", value: cli.targetResolvedPath ?? "Unknown")
+                                    LabeledContent("Identity", value: cli.targetIdentity ?? "Unknown")
+                                    LabeledContent("CDHash", value: cli.targetCDHash ?? "Unknown")
+                                    LabeledContent("Signing ID", value: cli.targetSigningIdentifier ?? "Unknown")
+                                    LabeledContent("Team ID", value: cli.targetTeamIdentifier ?? "Unknown")
+                                    HStack {
+                                        Button {
+                                            Task { await store.refreshTrust(for: cli.name) }
+                                        } label: {
+                                            Label("Refresh Trust", systemImage: "arrow.clockwise")
+                                        }
+                                        .disabled(!store.canManageBrokerState)
+                                        .help("Refresh trust metadata for this executable")
+                                        CopyButton(title: "Copy Identity", value: cli.targetIdentity ?? "", help: "Copy target identity")
+                                            .disabled(cli.targetIdentity == nil)
+                                        CopyButton(title: "Copy CDHash", value: cli.targetCDHash ?? "", help: "Copy target CDHash")
+                                            .disabled(cli.targetCDHash == nil)
+                                    }
+                                }
+                                .padding(.top, 8)
+                            } label: {
+                                Label("Identity and signing details", systemImage: "number")
+                            }
+                            .help("Show low-level executable identity, hash, and signing metadata")
                         }
                         Section("Danger Zone") {
                             Button("Unregister CLI", role: .destructive) {
@@ -850,7 +1060,7 @@ struct BitwardenProviderBindingsView: View {
                         Button {
                             store.presentDiagnostics()
                         } label: {
-                            Label("Review Diagnostic & Uninstall", systemImage: "stethoscope")
+                            Label("Open Diagnostics", systemImage: "stethoscope")
                         }
                         .buttonStyle(.bordered)
                         .help("Review local broker and provider setup")
@@ -1699,7 +1909,7 @@ struct LocalStateUnavailableView: View {
                         Button {
                             store.presentDiagnostics()
                         } label: {
-                            Label("Open Diagnostic & Uninstall", systemImage: "stethoscope")
+                            Label("Open Diagnostics", systemImage: "stethoscope")
                         }
                         .buttonStyle(.bordered)
                         .help("Open daemon diagnostics, repair, and uninstall actions")

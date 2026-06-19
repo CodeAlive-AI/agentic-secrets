@@ -11,6 +11,7 @@ struct CommandPolicySettingsPage: View {
     var saveHelp: String
     var revert: () -> Void
     var save: () -> Void
+    var cancel: (() -> Void)? = nil
 
     @State private var newTerm = ""
     @State private var newDisposition: CommandPolicyDisposition = .destructive
@@ -65,7 +66,8 @@ struct CommandPolicySettingsPage: View {
                 isLoading: isLoading,
                 saveHelp: saveHelp,
                 revert: revert,
-                save: save
+                save: save,
+                cancel: cancel
             )
         }
     }
@@ -778,6 +780,7 @@ private struct CommandPolicyActionBar: View {
     var saveHelp: String
     var revert: () -> Void
     var save: () -> Void
+    var cancel: (() -> Void)?
 
     var body: some View {
         HStack(spacing: 12) {
@@ -787,6 +790,10 @@ private struct CommandPolicyActionBar: View {
                 isLoading: isLoading
             )
             Spacer()
+            if let cancel {
+                Button("Cancel", action: cancel)
+                    .help("Close without saving CLI delivery changes")
+            }
             Button("Revert", action: revert)
                 .disabled(!hasChanges)
                 .help("Discard unsaved command policy changes")

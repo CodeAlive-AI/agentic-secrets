@@ -364,7 +364,7 @@ final class ControlPlaneStore {
     func showDaemonRepairGuidance() {
         selectedSection = .diagnostics
         successMessage = nil
-        errorMessage = "Local daemon is not ready. Use Diagnostic & Uninstall to install or repair it."
+        errorMessage = "Local daemon is not ready. Use Diagnostics to install or repair it."
     }
 
     func clearFeedback() {
@@ -890,7 +890,7 @@ final class ControlPlaneStore {
     private func userFacingError(_ error: Error) -> String {
         let description = String(describing: error)
         if isDaemonReachabilityError(error) {
-            return "Local daemon is not reachable. Open Diagnostic & Uninstall to install or repair it."
+            return "Local daemon is not reachable. Open Diagnostics to install or repair it."
         }
         return description
     }

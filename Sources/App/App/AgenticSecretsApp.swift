@@ -75,7 +75,7 @@ struct AgenticSecretsApp: App {
                 }
                 .disabled(store.isCheckingForUpdates)
 
-                Button("Open Diagnostic & Uninstall") {
+                Button("Open Diagnostics") {
                     openDiagnostics(store: store)
                 }
                 .keyboardShortcut("d", modifiers: [.command, .shift])
@@ -363,7 +363,7 @@ private struct MenuBarActions: View {
             }
             .disabled(store.isLoading)
         }
-        Button("Open Diagnostic & Uninstall") {
+        Button("Open Diagnostics") {
             openDiagnostics(store: store)
         }
         Button("Open Installed Copy") {

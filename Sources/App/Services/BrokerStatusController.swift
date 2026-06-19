@@ -170,7 +170,7 @@ struct LocalBrokerStatusController: BrokerStatusControlling {
                 state: .unavailable,
                 socketPath: plan.socketPath,
                 launchAgentPath: plan.launchAgentPath,
-                message: "Install failed. Review Diagnostic & Uninstall and try again.",
+                message: "Install failed. Open Diagnostics and try again.",
                 detail: String(describing: error),
                 recoveryCommand: plan.commandPreview,
                 checkedAt: Date()
@@ -196,7 +196,7 @@ struct LocalBrokerStatusController: BrokerStatusControlling {
                 state: .unavailable,
                 socketPath: URL(fileURLWithPath: plan.socketDirectoryPath).appendingPathComponent("core.sock").path,
                 launchAgentPath: plan.launchAgentPath,
-                message: "Uninstall failed. Review Diagnostic & Uninstall and try again.",
+                message: "Uninstall failed. Open Diagnostics and try again.",
                 detail: String(describing: error),
                 recoveryCommand: "scripts/uninstall_local.sh --purge-local-state",
                 checkedAt: Date()

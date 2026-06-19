@@ -118,6 +118,19 @@ enum UISmokeRunner {
             height: 660,
             label: "narrow command policy settings"
         )
+
+        let cliStore = ControlPlaneStore(
+            client: SequenceControlPlaneClient(snapshots: [snapshot(cliNames: ["hcloud", "gh"])]),
+            brokerController: StubBrokerStatusController(statusValue: healthyBrokerStatus())
+        )
+        await cliStore.refresh()
+        try verifyHostingLayout(
+            CLISecretsView(store: cliStore),
+            width: 1180,
+            height: 720,
+            label: "CLI delivery table"
+        )
+
         try verifyHostingLayout(
             APISessionProfileEditor(store: store),
             width: 520,
@@ -466,7 +479,7 @@ enum UISmokeRunner {
             installShim: false
         )
         try expect(!store.showingRegisterCLI, "unavailable daemon direct register submit stays closed")
-        try expect(store.errorMessage == "Local daemon is not ready. Use Diagnostic & Uninstall to install or repair it.", "unavailable direct register submit shows repair guidance")
+        try expect(store.errorMessage == "Local daemon is not ready. Use Diagnostics to install or repair it.", "unavailable direct register submit shows repair guidance")
         CommandPolicyPackInstaller.presentOpenPanel(store: store)
         try expect(store.selectedSection == .diagnostics, "unavailable adapter install routes to diagnostics without opening a file picker")
     }
@@ -516,7 +529,7 @@ enum UISmokeRunner {
         await store.refresh()
         await store.replaceSecret(alias: "ai.openai.dev", value: "synthetic-secret", label: "OpenAI", environment: "api-session:openai")
         try expect(store.selectedSection == .diagnostics, "unavailable daemon action routes to diagnostics")
-        try expect(store.errorMessage == "Local daemon is not ready. Use Diagnostic & Uninstall to install or repair it.", "unavailable daemon action shows clear repair guidance")
+        try expect(store.errorMessage == "Local daemon is not ready. Use Diagnostics to install or repair it.", "unavailable daemon action shows clear repair guidance")
 
         let staleSnapshot = ControlPlaneStore(
             client: SequenceControlPlaneClient(snapshots: [emptySnapshot()]),
