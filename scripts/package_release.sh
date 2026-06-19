@@ -18,6 +18,10 @@ ENTITLEMENTS="$ROOT/packaging/AgenticSecrets.entitlements"
 ICON_PATH="${AGENTIC_SECRETS_ICON_PATH:-$BUILD_DIR/AgenticSecrets.icns}"
 GIT_COMMIT="$(git -C "$ROOT" rev-parse --short HEAD 2>/dev/null || printf 'unknown')"
 BUILD_TIMESTAMP="$(date -u +"%Y-%m-%dT%H:%M:%SZ")"
+INFO_STRING="$APP_DISPLAY_NAME $MARKETING_VERSION"
+if [ -n "${RELEASE_CHANNEL:-}" ]; then
+  INFO_STRING="$INFO_STRING $RELEASE_CHANNEL"
+fi
 PRODUCTS="$APP_EXECUTABLE_NAME agentic-secrets agentic-secrets-shim agentic-secrets-brokerd agentic-secrets-api-sessiond agentic-secrets-bitwarden-providerd agentic-secrets-mcpd"
 SIGNING_PRODUCTS="agentic-secrets agentic-secrets-shim agentic-secrets-brokerd agentic-secrets-api-sessiond agentic-secrets-bitwarden-providerd agentic-secrets-mcpd $APP_EXECUTABLE_NAME"
 
@@ -85,7 +89,7 @@ cat > "$CONTENTS/Info.plist" <<PLIST
   <key>CFBundleVersion</key>
   <string>$BUILD_NUMBER</string>
   <key>CFBundleGetInfoString</key>
-  <string>$APP_DISPLAY_NAME $MARKETING_VERSION $RELEASE_CHANNEL</string>
+  <string>$INFO_STRING</string>
   <key>LSMinimumSystemVersion</key>
   <string>14.0</string>
   <key>NSPrincipalClass</key>
