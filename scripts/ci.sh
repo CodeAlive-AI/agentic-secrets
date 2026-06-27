@@ -13,6 +13,7 @@ swift run agentic-secrets-contract-tests
 swift run agentic-secrets release-gates | grep -q '"canRunLocal" : true'
 swift run agentic-secrets ipc-conformance | grep -q '"compatibilityStatus" : "compatible"'
 swift run agentic-secrets mcp-conformance | grep -q '"no-body-logging"'
+(cd platform/windows && cargo test --workspace)
 ./scripts/package_release.sh >"$PACKAGE_LOG"
 ./scripts/validate_release_artifact.sh "build/AgenticSecrets.app"
 ./scripts/check_entitlements_diff.sh "build/AgenticSecrets.app"

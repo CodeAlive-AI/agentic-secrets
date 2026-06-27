@@ -20,3 +20,13 @@ Current coverage focuses on security-relevant contracts:
 - rollback lockout and remembered lease scope
 - config round-trip and macOS Tahoe SDK/runtime compatibility model
 - target assessment hashing and writable-parent rejection
+
+Windows Rust contracts live under `platform/windows/`:
+
+```sh
+cd platform/windows
+cargo test --workspace
+```
+
+They cover environment delivery, named pipe authorization contracts, and
+DPAPI-style store integrity with portable fakes for non-Windows CI.

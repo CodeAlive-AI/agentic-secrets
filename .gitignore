@@ -3,6 +3,10 @@
 .swiftpm/configuration/
 .swiftpm/xcode/
 
+# Rust
+target/
+platform/windows/target/
+
 # Build and release artifacts
 build/
 dist/

@@ -1,4 +1,4 @@
-# Windows Support V0 Plan
+# Windows Support Plan
 
 This document defines the first Windows support slice for Agentic Secrets. It is
 an implementation plan, not a release commitment.
@@ -10,7 +10,7 @@ The supported Windows baseline for this plan is Windows 11.
 Build a Windows command-line runtime that can safely deliver approved secrets as
 environment variables to a newly launched child process.
 
-V0 should preserve the Agentic Secrets product boundary:
+Initial support should preserve the Agentic Secrets product boundary:
 
 - secret delivery is explicit, narrow, approved, bounded, auditable, and
   fail-closed;
@@ -21,7 +21,7 @@ V0 should preserve the Agentic Secrets product boundary:
 
 ## Non-Goals
 
-V0 does not include:
+Initial support does not include:
 
 - a native Windows desktop UI;
 - the future Avalonia Windows/Linux desktop UI;
@@ -53,12 +53,12 @@ installer/repair workflows. If Windows and Linux share one future desktop UI,
 prefer Avalonia on the latest stable release available at implementation time.
 As of 2026-06-27, the current stable Avalonia package/release is 12.0.5. Do not
 pin this plan to preview or nightly Avalonia builds. C#/.NET should not be the
-default choice for the V0 secret-bearing hot path because managed strings, GC
+default choice for the initial secret-bearing hot path because managed strings, GC
 behavior, and Win32 interop make secret-buffer lifetime and copy control harder
 to reason about.
 
 Go is acceptable for exploratory CLI experiments, but it is not the preferred
-production V0 language. The Windows boundary requires precise Win32 interop,
+production language for initial Windows support. The Windows boundary requires precise Win32 interop,
 security descriptors, process identity checks, environment blocks, and handle
 lifetime control; Rust is a better fit for that runtime.
 
@@ -136,7 +136,7 @@ sharing.
 - IPC authorization;
 - delivery plan issuance.
 
-The broker should run as a per-user process for V0. Avoid a `LocalSystem`
+The broker should run as a per-user process initially. Avoid a `LocalSystem`
 Windows service until there is a concrete enterprise deployment need and a
 separate threat model.
 
@@ -164,7 +164,7 @@ The runner must not read the production secret store directly.
 
 ### Storage
 
-Use a broker-owned DPAPI-protected file store for V0.
+Use a broker-owned DPAPI-protected file store initially.
 
 Credential Manager may be researched for specific integration cases, but it
 should not be the primary source of truth. Agentic Secrets needs versioned
@@ -186,7 +186,7 @@ Use a local named pipe:
 \\.\pipe\agentic-secrets\<user-sid>\broker
 ```
 
-V0 IPC requirements:
+Initial IPC requirements:
 
 - pipe ACL allows only the current user SID and required system accounts;
 - pipe name is not treated as a secret;
@@ -226,7 +226,7 @@ same-user processes, crash dumps, or the child process itself may expose it.
 ### Future Delivery Sinks
 
 Design the runner around a `DeliverySink` abstraction from the beginning, even
-if V0 implements only environment delivery.
+if initial support implements only environment delivery.
 
 Future sinks:
 
@@ -239,7 +239,7 @@ Policy packs should be able to choose or forbid sinks per CLI and action class.
 
 ## Security Claims
 
-V0 claims:
+Initial support claims:
 
 - secrets are delivered only after policy evaluation and approval/grant checks;
 - secrets are delivered only to a newly launched child process;
@@ -250,7 +250,7 @@ V0 claims:
 - IPC is local, versioned, authenticated to the current user context, and
   fail-closed.
 
-V0 does not claim:
+Initial support does not claim:
 
 - protection from local admin or kernel compromise;
 - protection from a malicious approved target binary;
@@ -261,7 +261,7 @@ V0 does not claim:
 
 ## Architecture Decision Records
 
-Before implementation starts, capture the V0 Windows decisions as ADRs rather
+Before implementation starts, capture the initial Windows decisions as ADRs rather
 than leaving them only in this plan. Each ADR should state the context,
 decision, alternatives considered, security consequences, operational
 consequences, and what evidence would cause the decision to be revisited.
@@ -272,7 +272,7 @@ Required ADRs:
   and non-secret installer/repair workflows.
 - Separate Windows implementation under `platform/windows/` with shared
   contracts, fixtures, and tests instead of a premature shared Rust core.
-- Windows 11 as the supported V0 baseline.
+- Windows 11 as the supported baseline.
 - Per-user broker instead of a `LocalSystem` Windows service.
 - DPAPI-protected broker-owned file store instead of Credential Manager as the
   primary source of truth.

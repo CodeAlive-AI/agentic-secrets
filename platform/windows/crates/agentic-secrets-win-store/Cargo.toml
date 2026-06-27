@@ -1,0 +1,23 @@
+[package]
+name = "agentic-secrets-win-store"
+version = "0.1.0-alpha.0"
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+agentic-secrets-win-contracts = { path = "../agentic-secrets-win-contracts" }
+base64.workspace = true
+hex.workspace = true
+hmac.workspace = true
+rand.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+sha2.workspace = true
+thiserror.workspace = true
+time.workspace = true
+zeroize.workspace = true
+
+[target.'cfg(windows)'.dependencies]
+windows.workspace = true

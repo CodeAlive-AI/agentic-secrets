@@ -1,0 +1,48 @@
+[workspace]
+resolver = "2"
+members = [
+    "crates/agentic-secrets-win-broker",
+    "crates/agentic-secrets-win-contracts",
+    "crates/agentic-secrets-win-ipc",
+    "crates/agentic-secrets-win-run",
+    "crates/agentic-secrets-win-store",
+    "tests",
+]
+
+[workspace.package]
+edition = "2021"
+license = "MIT"
+publish = false
+rust-version = "1.78"
+
+[workspace.dependencies]
+anyhow = "1.0"
+base64 = "0.22"
+clap = { version = "4.5", features = ["derive"] }
+hex = "0.4"
+hmac = "0.12"
+rand = "0.8"
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+sha2 = "0.10"
+thiserror = "1.0"
+time = { version = "0.3", features = ["formatting", "macros", "parsing", "serde"] }
+uuid = { version = "1.10", features = ["v4", "serde"] }
+zeroize = { version = "1.8", features = ["derive"] }
+
+[workspace.dependencies.windows]
+version = "0.58"
+features = [
+    "Win32_Foundation",
+    "Win32_Security",
+    "Win32_Security_Authorization",
+    "Win32_Security_Cryptography",
+    "Win32_Storage_FileSystem",
+    "Win32_System_Diagnostics_Debug",
+    "Win32_System_IO",
+    "Win32_System_JobObjects",
+    "Win32_System_Memory",
+    "Win32_System_Pipes",
+    "Win32_System_Threading",
+    "Win32_System_WindowsProgramming",
+]

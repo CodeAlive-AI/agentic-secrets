@@ -1,0 +1,29 @@
+[package]
+name = "agentic-secrets-win-contract-tests"
+version = "0.1.0-alpha.0"
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+agentic-secrets-win-broker = { path = "../crates/agentic-secrets-win-broker" }
+agentic-secrets-win-contracts = { path = "../crates/agentic-secrets-win-contracts" }
+agentic-secrets-win-ipc = { path = "../crates/agentic-secrets-win-ipc" }
+agentic-secrets-win-run = { path = "../crates/agentic-secrets-win-run" }
+agentic-secrets-win-store = { path = "../crates/agentic-secrets-win-store" }
+serde_json.workspace = true
+time.workspace = true
+zeroize.workspace = true
+
+[[test]]
+name = "env_delivery_contracts"
+path = "env_delivery_contracts.rs"
+
+[[test]]
+name = "named_pipe_auth_contracts"
+path = "named_pipe_auth_contracts.rs"
+
+[[test]]
+name = "dpapi_store_contracts"
+path = "dpapi_store_contracts.rs"
