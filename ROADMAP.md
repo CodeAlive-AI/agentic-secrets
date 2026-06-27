@@ -37,6 +37,15 @@ platform layers:
   Windows service or per-user background process lifecycle, named pipe
   authorization, Windows Hello or local credential prompt integration, and MSI
   or winget packaging.
+  For DPAPI research, consider
+  [GhostPack/SharpDPAPI](https://github.com/GhostPack/SharpDPAPI) only as a
+  security-reference and test-planning tool: it documents and implements DPAPI
+  masterkey, Credential Manager, Vault, certificate, browser, and machine-scope
+  triage/decryption paths. That makes it useful for Windows threat modeling,
+  compatibility checks, negative tests, and validating that Agentic Secrets does
+  not accidentally create broad DPAPI recovery paths. It should not be bundled
+  into the product, invoked by normal runtime flows, or treated as the Windows
+  secret-delivery implementation.
 - `Command Policy Packs`: dynamic signed command policy packs and deterministic decision manifests
   that remain portable unless a specific CLI requires platform-specific rules.
 - `Tests`: contract tests shared across platforms, plus platform-specific
