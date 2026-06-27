@@ -21,6 +21,18 @@ narrow, approved, bounded, auditable, and fail-closed.
 Goal: support macOS, Linux, and Windows without forking the product into three
 unrelated implementations.
 
+The first Windows slice is tracked in
+[`Docs/WINDOWS_SUPPORT_V0.md`](Docs/WINDOWS_SUPPORT_V0.md). It targets Windows
+11 and focuses on a Rust command-line runtime for approved environment delivery
+to newly launched child processes.
+
+Future Windows/Linux desktop UI work should use Avalonia on the latest stable
+release available at implementation time when shared Windows/Linux UI reuse is
+the product goal. As of 2026-06-27, the current stable Avalonia package/release
+is 12.0.5. This UI is not part of Windows V0 and must remain outside the secret
+authority; broker-owned platform runtimes continue to own storage, policy,
+approval enforcement, and process launch.
+
 The preferred architecture is a reusable platform-neutral core with thin native
 platform layers:
 
@@ -32,11 +44,13 @@ platform layers:
   authorization, and native SwiftUI UI.
 - `Platform/Linux`: Secret Service or kernel-backed local storage options,
   systemd user service lifecycle, Unix domain socket authorization, desktop
-  prompt integration, and distribution packaging.
-- `Platform/Windows`: Windows Credential Manager or DPAPI-backed storage,
-  Windows service or per-user background process lifecycle, named pipe
-  authorization, Windows Hello or local credential prompt integration, and MSI
-  or winget packaging.
+  prompt integration, distribution packaging, and future Avalonia desktop UI
+  integration when Linux UI enters scope.
+- `Platform/Windows`: DPAPI-backed broker-owned storage, possible future
+  Credential Manager integration research, Windows service or per-user
+  background process lifecycle, named pipe authorization, Windows Hello or
+  local credential prompt integration, future Avalonia desktop UI integration,
+  and MSI or winget packaging.
   For DPAPI research, consider
   [GhostPack/SharpDPAPI](https://github.com/GhostPack/SharpDPAPI) only as a
   security-reference and test-planning tool: it documents and implements DPAPI
@@ -57,9 +71,10 @@ separated intentionally rather than mixed into core modules. A likely structure:
 ```text
 Sources/Broker/
 Sources/Platform/macOS/
-Sources/Platform/Linux/
-Sources/Platform/Windows/
 Sources/App/macOS/
+platform/windows/
+platform/linux/
+ui/AgenticSecrets.Desktop/
 Sources/CLI/
 Tests/CoreContracts/
 Tests/PlatformContracts/
@@ -78,10 +93,13 @@ Milestones:
    providers in CI.
 4. Build a Linux command-line prototype with local encrypted storage and user
    service lifecycle.
-5. Build a Windows command-line prototype with DPAPI or Credential Manager
-   storage and named pipe authorization.
+5. Build a Windows command-line prototype with a DPAPI-protected broker-owned
+   file store and named pipe authorization.
 6. Add native installer and repair flows for Linux and Windows only after the
    command-line contracts are stable.
+7. Add a shared Avalonia Windows/Linux desktop UI only after the platform
+   runtimes and management APIs are stable enough that the UI can remain outside
+   the secret authority.
 
 Acceptance criteria:
 
