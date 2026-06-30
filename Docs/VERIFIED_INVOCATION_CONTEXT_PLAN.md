@@ -78,7 +78,7 @@ Scope:
 
 Verification:
 
-- A grant created for `hcloud server list` must not satisfy `hcloud server delete`.
+- A grant created for `supabase db pull` must not satisfy `supabase projects delete`.
 - A grant created for one workspace must not satisfy another workspace.
 - A grant created before target trust refresh must not satisfy the refreshed target identity.
 - A grant created with a custom config flag must not satisfy the default config command, and vice versa.

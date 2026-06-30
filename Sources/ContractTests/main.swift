@@ -73,11 +73,11 @@ func currentProcessExecutablePath() -> String {
     return Bundle.main.executableURL?.path ?? CommandLine.arguments[0]
 }
 
-func binding(actionClass: String = "hcloud.server.list", policyEpoch: Int = 1) -> InvocationBinding {
+func binding(actionClass: String = "supabase.db.pull", policyEpoch: Int = 1) -> InvocationBinding {
     InvocationBinding(
         peerIdentity: "peer:agentic-secrets-shim",
         injectorIdentity: "sig:agentic-secrets-shim",
-        targetIdentity: "sha256:hcloud",
+        targetIdentity: "sha256:supabase",
         actionClass: actionClass,
         workspace: "/tmp/infra",
         originHint: "Codex",
@@ -106,77 +106,77 @@ func runContracts() throws {
     let managedStartupFiles = ShellStartupFilePolicy.managedConfigurationFiles(homeDirectory: shellPolicyHome).map(\.lastPathComponent)
     try expect(managedStartupFiles.contains(".zshenv"), "cleanup must remove managed zsh non-interactive shell PATH blocks")
     try expect(managedStartupFiles.contains(".zprofile"), "cleanup must remove managed zsh login shell PATH blocks")
-    let restartNotice = AgentRestartNotice.afterCLIRegistration(cliName: "hcloud", shimInstalled: true)
+    let restartNotice = AgentRestartNotice.afterCLIRegistration(cliName: "supabase", shimInstalled: true)
     try expect(restartNotice.contains("Restart Codex"), "CLI registration success notice must tell agent users to restart")
     try expect(AgentRestartNotice.requiresManualDismiss(restartNotice), "agent restart notices must remain visible until dismissed")
-    let restartPromptMessage = AgentRestartNotice.modalMessageAfterCLIRegistration(cliName: "hcloud")
+    let restartPromptMessage = AgentRestartNotice.modalMessageAfterCLIRegistration(cliName: "supabase")
     try expect(restartPromptMessage.contains("Codex, Claude Code"), "CLI registration modal guidance must name common agent apps")
     try expect(restartPromptMessage.contains("Cmd+Q"), "CLI registration modal guidance must tell users to fully quit agent apps")
 
     let classifier = CommandClassifier()
-    let hcloudRead = classifier.classify(executableName: "hcloud", arguments: ["server", "list"], observedVersion: "1.52.0")
-    try expect(hcloudRead.risk == .unknown, "hcloud server list has no built-in policy pack by default")
-    try expect(hcloudRead.confidence == .highRisk, "commands without an installed policy pack stay high-risk")
-    try expect(hcloudRead.adapterIdentity == nil, "default classification must not attach a bundled adapter identity")
+    let supabaseRead = classifier.classify(executableName: "supabase", arguments: ["db", "pull"], observedVersion: "1.52.0")
+    try expect(supabaseRead.risk == .unknown, "supabase db pull has no built-in policy pack by default")
+    try expect(supabaseRead.confidence == .highRisk, "commands without an installed policy pack stay high-risk")
+    try expect(supabaseRead.adapterIdentity == nil, "default classification must not attach a bundled adapter identity")
 
-    let customConfig = classifier.classify(executableName: "hcloud", arguments: ["--config", "./custom.toml", "server", "list"], observedVersion: "1.52.0")
-    try expect(customConfig.risk == .unknown, "custom hcloud config remains unknown without a policy pack")
+    let customConfig = classifier.classify(executableName: "supabase", arguments: ["--config", "./custom.toml", "db", "pull"], observedVersion: "1.52.0")
+    try expect(customConfig.risk == .unknown, "custom supabase config remains unknown without a policy pack")
 
-    let hcloudServerCreate = classifier.classify(executableName: "hcloud", arguments: ["server", "create", "--name", "codex-test", "--type", "cax11", "--image", "ubuntu-26.04", "--location", "fsn1"], observedVersion: "1.52.0")
-    try expect(hcloudServerCreate.risk == .unknown, "hcloud server create is unknown without a policy pack")
-    try expect(hcloudServerCreate.confidence == .highRisk, "unknown hcloud mutating command must still require one-time approval")
+    let supabaseServerCreate = classifier.classify(executableName: "supabase", arguments: ["db", "push"], observedVersion: "1.52.0")
+    try expect(supabaseServerCreate.risk == .unknown, "supabase db push is unknown without a policy pack")
+    try expect(supabaseServerCreate.confidence == .highRisk, "unknown supabase mutating command must still require one-time approval")
 
-    let hcloudFirewallRule = classifier.classify(executableName: "hcloud", arguments: ["firewall", "add-rule", "codex-test", "--direction", "in", "--protocol", "tcp", "--port", "22", "--source-ips", "178.88.45.241/32"], observedVersion: "1.52.0")
-    try expect(hcloudFirewallRule.risk == .unknown, "hcloud firewall add-rule is unknown without a policy pack")
+    let supabaseBranchesList = classifier.classify(executableName: "supabase", arguments: ["branches", "list"], observedVersion: "1.52.0")
+    try expect(supabaseBranchesList.risk == .unknown, "supabase branches list is unknown without a policy pack")
 
-    let hcloudUnknownGlobal = classifier.classify(executableName: "hcloud", arguments: ["--plugin-mode", "server", "list"], observedVersion: "1.52.0")
-    try expect(hcloudUnknownGlobal.risk == .unknown, "unknown hcloud global flags must remain high-risk unknown")
+    let supabaseUnknownGlobal = classifier.classify(executableName: "supabase", arguments: ["--plugin-mode", "db", "pull"], observedVersion: "1.52.0")
+    try expect(supabaseUnknownGlobal.risk == .unknown, "unknown supabase global flags must remain high-risk unknown")
 
-    let destructive = classifier.classify(executableName: "hcloud", arguments: ["server", "delete", "prod-db-01"], observedVersion: "1.52.0")
+    let destructive = classifier.classify(executableName: "supabase", arguments: ["projects", "delete", "prod-ref"], observedVersion: "1.52.0")
     let destructiveManifest = DeliveryDecisionManifestFactory().make(
         command: destructive,
-        intent: DeliveryRequest(flow: .cliEnv, secretAlias: "cloud.hcloud.dev", delivery: .env, environmentName: "HCLOUD_TOKEN", workspace: "/tmp/infra", originHint: "Codex"),
-        target: TargetAssessor().synthetic(path: "/opt/homebrew/bin/hcloud")
+        intent: DeliveryRequest(flow: .cliEnv, secretAlias: "supabase.db.dev", delivery: .env, environmentName: "SUPABASE_DB_PASSWORD", workspace: "/tmp/infra", originHint: "Codex"),
+        target: TargetAssessor().synthetic(path: "/opt/homebrew/bin/supabase")
     )
     try expect(destructiveManifest.approvalOptions == [.once, .deny], "destructive actions must offer one-time approval only")
     try expect(destructiveManifest.typedChallenge == destructiveManifest.digest, "destructive manifest must expose typed challenge digest")
 
-    let removeCommand = classifier.classify(executableName: "hcloud", arguments: ["server", "remove", "prod-db-01"], observedVersion: "1.52.0")
+    let removeCommand = classifier.classify(executableName: "supabase", arguments: ["projects", "remove", "prod-ref"], observedVersion: "1.52.0")
     try expect(removeCommand.risk == .destructive, "default command policy must treat remove as destructive")
-    let destroyCommand = classifier.classify(executableName: "hcloud", arguments: ["server", "destroy", "prod-db-01"], observedVersion: "1.52.0")
+    let destroyCommand = classifier.classify(executableName: "supabase", arguments: ["projects", "destroy", "prod-ref"], observedVersion: "1.52.0")
     try expect(destroyCommand.risk == .destructive, "default command policy must treat destroy as destructive")
     let customClassifier = CommandClassifier(commandPolicy: CommandPolicyConfig(destructiveTerms: ["remove"], forbiddenTerms: []))
-    let deleteWithoutTerm = customClassifier.classify(executableName: "hcloud", arguments: ["server", "delete", "prod-db-01"], observedVersion: "1.52.0")
+    let deleteWithoutTerm = customClassifier.classify(executableName: "supabase", arguments: ["projects", "delete", "prod-ref"], observedVersion: "1.52.0")
     try expect(deleteWithoutTerm.risk != .destructive, "removing delete from command policy must stop treating delete as destructive")
     let forbiddenClassifier = CommandClassifier(commandPolicy: CommandPolicyConfig(destructiveTerms: ["delete", "remove"], forbiddenTerms: ["delete"]))
-    let forbiddenCommand = forbiddenClassifier.classify(executableName: "hcloud", arguments: ["server", "delete", "prod-db-01"], observedVersion: "1.52.0")
+    let forbiddenCommand = forbiddenClassifier.classify(executableName: "supabase", arguments: ["projects", "delete", "prod-ref"], observedVersion: "1.52.0")
     let forbiddenManifest = DeliveryDecisionManifestFactory().make(
         command: forbiddenCommand,
-        intent: DeliveryRequest(flow: .cliEnv, secretAlias: "cloud.hcloud.dev", delivery: .env, environmentName: "HCLOUD_TOKEN", workspace: "/tmp/infra", originHint: "Codex"),
-        target: TargetAssessor().synthetic(path: "/opt/homebrew/bin/hcloud")
+        intent: DeliveryRequest(flow: .cliEnv, secretAlias: "supabase.db.dev", delivery: .env, environmentName: "SUPABASE_DB_PASSWORD", workspace: "/tmp/infra", originHint: "Codex"),
+        target: TargetAssessor().synthetic(path: "/opt/homebrew/bin/supabase")
     )
     try expect(forbiddenManifest.approvalOptions == [.deny], "forbidden command policy must expose deny-only approval options")
     try expectThrows(PolicyError.forbiddenCommand("delete"), {
-        _ = try PolicyEngine().authorize(command: forbiddenCommand, intent: DeliveryRequest(flow: .cliEnv, secretAlias: "cloud.hcloud.dev", delivery: .env, environmentName: "HCLOUD_TOKEN", workspace: "/tmp/infra", originHint: "Codex"), target: TargetAssessor().synthetic(path: "/opt/homebrew/bin/hcloud"), approval: .once, state: PolicyState())
+        _ = try PolicyEngine().authorize(command: forbiddenCommand, intent: DeliveryRequest(flow: .cliEnv, secretAlias: "supabase.db.dev", delivery: .env, environmentName: "SUPABASE_DB_PASSWORD", workspace: "/tmp/infra", originHint: "Codex"), target: TargetAssessor().synthetic(path: "/opt/homebrew/bin/supabase"), approval: .once, state: PolicyState())
     }, "forbidden command policy must block policy authorization")
 
     let approvalManifest = DeliveryDecisionManifestFactory().make(
-        command: hcloudRead,
-        intent: DeliveryRequest(flow: .cliEnv, secretAlias: "cloud.hcloud.dev", delivery: .env, environmentName: "HCLOUD_TOKEN", workspace: "/tmp/infra", originHint: "Codex"),
-        target: TargetAssessor().synthetic(path: "/opt/homebrew/bin/hcloud")
+        command: supabaseRead,
+        intent: DeliveryRequest(flow: .cliEnv, secretAlias: "supabase.db.dev", delivery: .env, environmentName: "SUPABASE_DB_PASSWORD", workspace: "/tmp/infra", originHint: "Codex"),
+        target: TargetAssessor().synthetic(path: "/opt/homebrew/bin/supabase")
     )
     let reusableApprovalOptions: [ApprovalOption] = [.always, .remember24h, .short, .once, .deny]
     try expect(approvalManifest.approvalOptions == reusableApprovalOptions, "non-destructive commands must offer always, 24h, short, once, and deny modes")
     let unknownManifest = DeliveryDecisionManifestFactory().make(
-        command: hcloudUnknownGlobal,
-        intent: DeliveryRequest(flow: .cliEnv, secretAlias: "cloud.hcloud.dev", delivery: .env, environmentName: "HCLOUD_TOKEN", workspace: "/tmp/infra", originHint: "Codex"),
-        target: TargetAssessor().synthetic(path: "/opt/homebrew/bin/hcloud")
+        command: supabaseUnknownGlobal,
+        intent: DeliveryRequest(flow: .cliEnv, secretAlias: "supabase.db.dev", delivery: .env, environmentName: "SUPABASE_DB_PASSWORD", workspace: "/tmp/infra", originHint: "Codex"),
+        target: TargetAssessor().synthetic(path: "/opt/homebrew/bin/supabase")
     )
     try expect(unknownManifest.approvalOptions == reusableApprovalOptions, "unknown-but-not-destructive commands must not be forced into read-only approval")
-    let reusablePolicyDecision = try PolicyEngine().authorize(command: hcloudFirewallRule, intent: DeliveryRequest(flow: .cliEnv, secretAlias: "cloud.hcloud.dev", delivery: .env, environmentName: "HCLOUD_TOKEN", workspace: "/tmp/infra", originHint: "Codex"), target: TargetAssessor().synthetic(path: "/opt/homebrew/bin/hcloud"), approval: .always, state: PolicyState())
+    let reusablePolicyDecision = try PolicyEngine().authorize(command: supabaseBranchesList, intent: DeliveryRequest(flow: .cliEnv, secretAlias: "supabase.db.dev", delivery: .env, environmentName: "SUPABASE_DB_PASSWORD", workspace: "/tmp/infra", originHint: "Codex"), target: TargetAssessor().synthetic(path: "/opt/homebrew/bin/supabase"), approval: .always, state: PolicyState())
     try expect(reusablePolicyDecision == .allowOnce, "non-destructive approval modes must pass the policy gate")
     try expectThrows(PolicyError.destructiveRememberDenied, {
-        _ = try PolicyEngine().authorize(command: destructive, intent: DeliveryRequest(flow: .cliEnv, secretAlias: "cloud.hcloud.dev", delivery: .env, environmentName: "HCLOUD_TOKEN", workspace: "/tmp/infra", originHint: "Codex"), target: TargetAssessor().synthetic(path: "/opt/homebrew/bin/hcloud"), approval: .always, state: PolicyState())
+        _ = try PolicyEngine().authorize(command: destructive, intent: DeliveryRequest(flow: .cliEnv, secretAlias: "supabase.db.dev", delivery: .env, environmentName: "SUPABASE_DB_PASSWORD", workspace: "/tmp/infra", originHint: "Codex"), target: TargetAssessor().synthetic(path: "/opt/homebrew/bin/supabase"), approval: .always, state: PolicyState())
     }, "destructive commands must reject reusable approval modes")
     let approvalStore = ApprovalSessionStore()
     let approval = approvalStore.create(manifest: approvalManifest, policyEpoch: 3, ttl: 10, now: Date(timeIntervalSince1970: 0))
@@ -186,9 +186,9 @@ func runContracts() throws {
         _ = try approvalStore.validate(sessionID: approval.id, manifest: approvalManifest, policyEpoch: 3, now: Date(timeIntervalSince1970: 11))
     }, "approval session must expire")
     let digestMismatchManifest = DeliveryDecisionManifestFactory().make(
-        command: hcloudRead,
-        intent: DeliveryRequest(flow: .cliEnv, secretAlias: "cloud.hcloud.dev", delivery: .env, environmentName: "HCLOUD_TOKEN", workspace: "/tmp/other", originHint: "Codex"),
-        target: TargetAssessor().synthetic(path: "/opt/homebrew/bin/hcloud")
+        command: supabaseRead,
+        intent: DeliveryRequest(flow: .cliEnv, secretAlias: "supabase.db.dev", delivery: .env, environmentName: "SUPABASE_DB_PASSWORD", workspace: "/tmp/other", originHint: "Codex"),
+        target: TargetAssessor().synthetic(path: "/opt/homebrew/bin/supabase")
     )
     let secondApproval = approvalStore.create(manifest: approvalManifest, policyEpoch: 3, ttl: 10, now: Date(timeIntervalSince1970: 20))
     try expectThrows(ApprovalSessionError.digestMismatch, {
@@ -545,13 +545,13 @@ func runContracts() throws {
 
     let authReason = LocalAuthenticationGate.reason(for: approvalManifest)
     try expect(authReason.contains(approvalManifest.digest), "LocalAuthentication reason must include manifest digest")
-    try expect(authReason.contains("provide HCLOUD_TOKEN to hcloud"), "LocalAuthentication reason must start with a readable approval phrase")
+    try expect(authReason.contains("provide SUPABASE_DB_PASSWORD to supabase"), "LocalAuthentication reason must start with a readable approval phrase")
     try expect(authReason.contains("Parent app: Codex"), "LocalAuthentication reason must include parent app display name")
-    try expect(authReason.contains("Command: hcloud server list"), "LocalAuthentication reason must include readable command")
+    try expect(authReason.contains("Command: supabase db pull"), "LocalAuthentication reason must include readable command")
     try expect(authReason.contains("Project: /tmp/infra"), "LocalAuthentication reason must include readable workspace")
     try expect(authReason.contains("Origin provenance: environment-hint"), "LocalAuthentication reason must label TERM_PROGRAM-style origin as an untrusted hint")
     try expect(!authReason.contains(approvalManifest.secret.alias), "LocalAuthentication reason must not expose raw secret alias")
-    try expect(authReason.contains("Secret: HCLOUD_TOKEN"), "LocalAuthentication reason must include target environment name")
+    try expect(authReason.contains("Secret: SUPABASE_DB_PASSWORD"), "LocalAuthentication reason must include target environment name")
     let authProof = LocalAuthenticationProof(manifestDigest: approvalManifest.digest, actionClass: approvalManifest.actionClass, reason: authReason, authenticatedAt: Date(timeIntervalSince1970: 0))
     try LocalAuthenticationGate.validate(proof: authProof, manifest: approvalManifest, now: Date(timeIntervalSince1970: 10))
     try expectThrows(LocalAuthenticationError.staleProof, {
@@ -575,9 +575,9 @@ func runContracts() throws {
     try expect(unlockScope.provenanceConfidence == .environmentHint, "CLI unlock scope must record untrusted environment-hint provenance")
     try expect(DeliveryGrantPolicy.allowsReuse(scope: unlockScope), "CLI unlock policy may reuse grants for read-only scopes")
     let mutatingManifest = DeliveryDecisionManifestFactory().make(
-        command: hcloudServerCreate,
-        intent: DeliveryRequest(flow: .cliEnv, secretAlias: "cloud.hcloud.dev", delivery: .env, environmentName: "HCLOUD_TOKEN", workspace: "/tmp/infra", originHint: "Codex"),
-        target: TargetAssessor().synthetic(path: "/opt/homebrew/bin/hcloud")
+        command: supabaseServerCreate,
+        intent: DeliveryRequest(flow: .cliEnv, secretAlias: "supabase.db.dev", delivery: .env, environmentName: "SUPABASE_DB_PASSWORD", workspace: "/tmp/infra", originHint: "Codex"),
+        target: TargetAssessor().synthetic(path: "/opt/homebrew/bin/supabase")
     )
     try expect(DeliveryGrantPolicy.allowsReuse(scope: DeliveryGrantScope(manifest: mutatingManifest)), "CLI unlock policy may reuse grants for non-destructive mutating scopes")
     try expect(!DeliveryGrantPolicy.allowsReuse(scope: DeliveryGrantScope(manifest: destructiveManifest)), "CLI unlock policy must not reuse grants for destructive scopes")
@@ -602,16 +602,16 @@ func runContracts() throws {
         _ = try defaultUnlockStore.grant(scope: unlockScope, ttl: DeliveryGrantPolicy.maxTTL + 1, now: Date(timeIntervalSince1970: 100))
     }, "CLI delivery grant default cap must match policy max TTL")
     let secondGrant = try unlockStore.grant(scope: unlockScope, ttl: 120, now: Date(timeIntervalSince1970: 300))
-    var otherActionCommand = hcloudRead
-    otherActionCommand.actionClass = "hcloud.server.create"
+    var otherActionCommand = supabaseRead
+    otherActionCommand.actionClass = "supabase.db.push"
     otherActionCommand.risk = .mutating
-    otherActionCommand.canonicalCommand = ["hcloud", "server", "create"]
+    otherActionCommand.canonicalCommand = ["supabase", "db", "push"]
     let otherActionManifest = DeliveryDecisionManifestFactory().make(
         command: otherActionCommand,
-        intent: DeliveryRequest(flow: .cliEnv, secretAlias: "cloud.hcloud.dev", delivery: .env, environmentName: "HCLOUD_TOKEN", workspace: "/tmp/infra", originHint: "Codex"),
-        target: TargetAssessor().synthetic(path: "/opt/homebrew/bin/hcloud")
+        intent: DeliveryRequest(flow: .cliEnv, secretAlias: "supabase.db.dev", delivery: .env, environmentName: "SUPABASE_DB_PASSWORD", workspace: "/tmp/infra", originHint: "Codex"),
+        target: TargetAssessor().synthetic(path: "/opt/homebrew/bin/supabase")
     )
-    try expect(otherActionManifest.actionClass != approvalManifest.actionClass, "test setup must use a different hcloud action class")
+    try expect(otherActionManifest.actionClass != approvalManifest.actionClass, "test setup must use a different supabase action class")
     let otherUnlockScope = DeliveryGrantScope(manifest: otherActionManifest).withOriginHint("Codex")
     let otherActionUnlockGrant = try unlockStore.validGrant(scope: otherUnlockScope, now: Date(timeIntervalSince1970: 301))
     try expect(otherActionUnlockGrant == nil, "CLI delivery grant must not apply across different action classes")
@@ -619,24 +619,24 @@ func runContracts() throws {
     let destructiveUnlockGrant = try unlockStore.validGrant(scope: destructiveUnlockScope, now: Date(timeIntervalSince1970: 301))
     try expect(destructiveUnlockGrant == nil, "CLI delivery grant must not apply from one action class to a destructive action")
     let otherWorkspaceManifest = DeliveryDecisionManifestFactory().make(
-        command: hcloudRead,
-        intent: DeliveryRequest(flow: .cliEnv, secretAlias: "cloud.hcloud.dev", delivery: .env, environmentName: "HCLOUD_TOKEN", workspace: "/tmp/other", originHint: "Codex"),
-        target: TargetAssessor().synthetic(path: "/opt/homebrew/bin/hcloud")
+        command: supabaseRead,
+        intent: DeliveryRequest(flow: .cliEnv, secretAlias: "supabase.db.dev", delivery: .env, environmentName: "SUPABASE_DB_PASSWORD", workspace: "/tmp/other", originHint: "Codex"),
+        target: TargetAssessor().synthetic(path: "/opt/homebrew/bin/supabase")
     )
     let otherWorkspaceGrant = try unlockStore.validGrant(scope: DeliveryGrantScope(manifest: otherWorkspaceManifest), now: Date(timeIntervalSince1970: 301))
     try expect(otherWorkspaceGrant == nil, "CLI delivery grant must not apply across workspaces")
     let spoofedOriginScope = DeliveryGrantScope(manifest: approvalManifest).withOriginHint("SpoofedTerminal")
     let spoofedOriginGrant = try unlockStore.validGrant(scope: spoofedOriginScope, now: Date(timeIntervalSince1970: 301))
     try expect(spoofedOriginGrant == nil, "CLI delivery grant must not apply across changed origin hints")
-    var customConfigCommand = hcloudRead
+    var customConfigCommand = supabaseRead
     customConfigCommand.globalFlags = ["config": "./custom.toml"]
-    customConfigCommand.canonicalCommand = ["hcloud", "--config", "./custom.toml", "server", "list"]
+    customConfigCommand.canonicalCommand = ["supabase", "--config", "./custom.toml", "db", "pull"]
     let customConfigManifest = DeliveryDecisionManifestFactory().make(
         command: customConfigCommand,
-        intent: DeliveryRequest(flow: .cliEnv, secretAlias: "cloud.hcloud.dev", delivery: .env, environmentName: "HCLOUD_TOKEN", workspace: "/tmp/infra", originHint: "Codex"),
-        target: TargetAssessor().synthetic(path: "/opt/homebrew/bin/hcloud")
+        intent: DeliveryRequest(flow: .cliEnv, secretAlias: "supabase.db.dev", delivery: .env, environmentName: "SUPABASE_DB_PASSWORD", workspace: "/tmp/infra", originHint: "Codex"),
+        target: TargetAssessor().synthetic(path: "/opt/homebrew/bin/supabase")
     )
-    try expect(customConfigManifest.configContext != approvalManifest.configContext, "test setup must produce different config context for custom hcloud config")
+    try expect(customConfigManifest.configContext != approvalManifest.configContext, "test setup must produce different config context for custom supabase config")
     let customConfigGrant = try unlockStore.validGrant(scope: DeliveryGrantScope(manifest: customConfigManifest), now: Date(timeIntervalSince1970: 301))
     try expect(customConfigGrant == nil, "CLI delivery grant must not apply across custom config context")
 
@@ -671,9 +671,9 @@ func runContracts() throws {
     let otherWorkspacePersistentGrant = try persistentStore.validGrant(scope: RememberedApprovalScope(manifest: otherWorkspaceManifest), now: Date(timeIntervalSince1970: 404))
     try expect(otherWorkspacePersistentGrant == nil, "persistent allow must not apply across workspaces")
     let otherOriginPersistentManifest = DeliveryDecisionManifestFactory().make(
-        command: hcloudRead,
-        intent: DeliveryRequest(flow: .cliEnv, secretAlias: "cloud.hcloud.dev", delivery: .env, environmentName: "HCLOUD_TOKEN", workspace: "/tmp/infra", originHint: "Terminal"),
-        target: TargetAssessor().synthetic(path: "/opt/homebrew/bin/hcloud")
+        command: supabaseRead,
+        intent: DeliveryRequest(flow: .cliEnv, secretAlias: "supabase.db.dev", delivery: .env, environmentName: "SUPABASE_DB_PASSWORD", workspace: "/tmp/infra", originHint: "Terminal"),
+        target: TargetAssessor().synthetic(path: "/opt/homebrew/bin/supabase")
     )
     let otherOriginPersistentGrant = try persistentStore.validGrant(scope: RememberedApprovalScope(manifest: otherOriginPersistentManifest), now: Date(timeIntervalSince1970: 405))
     try expect(otherOriginPersistentGrant == nil, "persistent allow must not apply across origin hints")
@@ -728,9 +728,9 @@ func runContracts() throws {
     try? FileManager.default.removeItem(at: unlockRoot)
 
     let secretStore = InMemorySecretStore()
-    let secretAlias = SecretAlias("cloud.hcloud.dev")
+    let secretAlias = SecretAlias("supabase.db.dev")
     secretStore.put(
-        binding: SecretBinding(alias: secretAlias, storeKind: "memory", externalID: "sec_hcloud", environment: "dev"),
+        binding: SecretBinding(alias: secretAlias, storeKind: "memory", externalID: "sec_supabase_db_password", environment: "dev"),
         material: SecretMaterial(utf8: "super-secret-token")
     )
     let material = try secretStore.resolve(alias: secretAlias, approvedFor: validatedApproval)
@@ -744,13 +744,13 @@ func runContracts() throws {
     try expectThrows(SecretStoreError.accessDenied("approval-session-secret-mismatch"), {
         _ = try secretStore.resolve(alias: SecretAlias("other.alias"), approvedFor: validatedApproval)
     }, "secret store must bind secret resolution to approval session alias")
-    let keychainDescriptor = KeychainSecretDescriptor(alias: secretAlias, service: "com.agenticsecrets.test", account: "cloud.hcloud.dev", label: "HCloud dev", authentication: .presenceRequired)
+    let keychainDescriptor = KeychainSecretDescriptor(alias: secretAlias, service: "com.agenticsecrets.test", account: "supabase.db.dev", label: "Supabase dev", authentication: .presenceRequired)
     let keychainAddQuery = try KeychainSecretQueryFactory.addQuery(descriptor: keychainDescriptor, material: SecretMaterial(utf8: "query-secret"))
     try expect(keychainAddQuery[kSecUseDataProtectionKeychain] == nil, "Self-build Keychain add query must not require restricted data-protection Keychain entitlement")
     try expect(keychainAddQuery[kSecAttrAccessControl] != nil, "Keychain add query must use access control when user presence is required")
     try expect(KeychainSecretQueryFactory.accessControlFlags(for: .presenceRequired).contains(.userPresence), "presence-required Keychain policy must require user presence")
     try expect(KeychainSecretQueryFactory.accessControlFlags(for: .biometryCurrent).contains(.biometryCurrentSet), "biometry-current Keychain policy must bind current biometric set")
-    let provisionedKeychainDescriptor = KeychainSecretDescriptor(alias: secretAlias, service: "com.agenticsecrets.test", account: "cloud.hcloud.dev", label: "HCloud dev", authentication: .presenceRequired, backend: .dataProtectionKeychain)
+    let provisionedKeychainDescriptor = KeychainSecretDescriptor(alias: secretAlias, service: "com.agenticsecrets.test", account: "supabase.db.dev", label: "Supabase dev", authentication: .presenceRequired, backend: .dataProtectionKeychain)
     let provisionedKeychainAddQuery = try KeychainSecretQueryFactory.addQuery(descriptor: provisionedKeychainDescriptor, material: SecretMaterial(utf8: "query-secret"))
     try expect(provisionedKeychainAddQuery[kSecUseDataProtectionKeychain] as? Bool == true, "Provisioned Keychain backend must opt into data-protection Keychain explicitly")
     try expect(KeychainStorageBackend.loginKeychain.requiresRestrictedSigningEntitlement == false, "Default login Keychain backend must not require restricted signing entitlements")
@@ -795,7 +795,7 @@ func runContracts() throws {
 
     let registrationRoot = URL(fileURLWithPath: NSTemporaryDirectory()).appendingPathComponent("agentic-secrets-cli-registration-\(UUID().uuidString)", isDirectory: true)
     try FileManager.default.createDirectory(at: registrationRoot, withIntermediateDirectories: true)
-    let registeredTarget = registrationRoot.appendingPathComponent("hcloud")
+    let registeredTarget = registrationRoot.appendingPathComponent("supabase")
     try "#!/bin/sh\nexit 0\n".data(using: .utf8)!.write(to: registeredTarget)
     try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: registeredTarget.path)
     let registrationLayout = LocalInstallLayout(stateDirectory: registrationRoot.appendingPathComponent("state", isDirectory: true))
@@ -819,19 +819,19 @@ func runContracts() throws {
     try legacyRegistryStore.save(CommandLineToolRegistrationDocument())
     try expect(FileManager.default.fileExists(atPath: legacyRegistryStore.integrityURL.path), "empty legacy CLI registry bootstrap must write integrity sidecar on save")
     let registration = try registrationService.register(
-        name: "hcloud",
+        name: "supabase",
         targetPath: registeredTarget.path,
-        environmentValues: ["HCLOUD_TOKEN": SecretMaterial(utf8: "registration-secret-token")],
+        environmentValues: ["SUPABASE_DB_PASSWORD": SecretMaterial(utf8: "registration-secret-token")],
         now: Date(timeIntervalSince1970: 0)
     )
-    try expect(registration.name == "hcloud", "CLI registration must preserve command name")
+    try expect(registration.name == "supabase", "CLI registration must preserve command name")
     try expect(registration.targetPath == registeredTarget.path, "CLI registration must persist resolved target path")
     try expect(registration.targetIdentity?.hasPrefix("sha256:") == true, "CLI registration must pin assessed target identity")
-    try expect(registration.environmentBindings == [EnvironmentSecretBinding(environmentName: "HCLOUD_TOKEN", secretAlias: "cli.hcloud.hcloud_token")], "CLI registration must bind env name to deterministic secret alias")
-    let loadedRegistration = try registrationService.registration(named: "hcloud")
+    try expect(registration.environmentBindings == [EnvironmentSecretBinding(environmentName: "SUPABASE_DB_PASSWORD", secretAlias: "cli.supabase.supabase_db_password")], "CLI registration must bind env name to deterministic secret alias")
+    let loadedRegistration = try registrationService.registration(named: "supabase")
     try expect(loadedRegistration == registration, "CLI run path must load registration metadata by name")
     let registryText = String(decoding: try Data(contentsOf: registrationLayout.registryURL), as: UTF8.self)
-    try expect(registryText.contains("HCLOUD_TOKEN"), "CLI registry must store env metadata")
+    try expect(registryText.contains("SUPABASE_DB_PASSWORD"), "CLI registry must store env metadata")
     try expect(!registryText.contains("registration-secret-token"), "CLI registry must not store plaintext secret values")
     try expect(FileManager.default.fileExists(atPath: registrationService.registryStore.integrityURL.path), "CLI registry must write an integrity sidecar")
     let integrityPermissions = try FileManager.default.attributesOfItem(atPath: registrationService.registryStore.integrityURL.path)[.posixPermissions] as? NSNumber
@@ -848,118 +848,118 @@ func runContracts() throws {
     let registryPermissions = try FileManager.default.attributesOfItem(atPath: registrationLayout.registryURL.path)[.posixPermissions] as? NSNumber
     try expect(registryPermissions?.intValue == 0o600, "CLI registry must be owner-only")
     let symlinkRoot = registrationRoot.appendingPathComponent("symlink-case", isDirectory: true)
-    let cellarRoot = symlinkRoot.appendingPathComponent("Cellar/hcloud/1.65.0/bin", isDirectory: true)
+    let cellarRoot = symlinkRoot.appendingPathComponent("Cellar/supabase/1.65.0/bin", isDirectory: true)
     let binRoot = symlinkRoot.appendingPathComponent("bin", isDirectory: true)
     try FileManager.default.createDirectory(at: cellarRoot, withIntermediateDirectories: true)
     try FileManager.default.createDirectory(at: binRoot, withIntermediateDirectories: true)
-    let versionedHcloud = cellarRoot.appendingPathComponent("hcloud")
-    let stableHcloud = binRoot.appendingPathComponent("hcloud")
-    try "#!/bin/sh\nexit 0\n".data(using: .utf8)!.write(to: versionedHcloud)
-    try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: versionedHcloud.path)
-    try FileManager.default.createSymbolicLink(atPath: stableHcloud.path, withDestinationPath: "../Cellar/hcloud/1.65.0/bin/hcloud")
+    let versionedSupabase = cellarRoot.appendingPathComponent("supabase")
+    let stableSupabase = binRoot.appendingPathComponent("supabase")
+    try "#!/bin/sh\nexit 0\n".data(using: .utf8)!.write(to: versionedSupabase)
+    try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: versionedSupabase.path)
+    try FileManager.default.createSymbolicLink(atPath: stableSupabase.path, withDestinationPath: "../Cellar/supabase/1.65.0/bin/supabase")
     let symlinkRegistration = try registrationService.register(
-        name: "hcloud-symlink",
-        targetPath: stableHcloud.path,
-        environmentValues: ["HCLOUD_TOKEN": SecretMaterial(utf8: "symlink-secret-token")],
+        name: "supabase-symlink",
+        targetPath: stableSupabase.path,
+        environmentValues: ["SUPABASE_DB_PASSWORD": SecretMaterial(utf8: "symlink-secret-token")],
         now: Date(timeIntervalSince1970: 0)
     )
-    try expect(symlinkRegistration.targetPath == stableHcloud.path, "CLI registration must keep stable symlink invocation path across CLI upgrades")
+    try expect(symlinkRegistration.targetPath == stableSupabase.path, "CLI registration must keep stable symlink invocation path across CLI upgrades")
     let originalSymlinkTarget = try TargetAssessor().assess(path: symlinkRegistration.targetPath)
     try registrationService.validateTargetIdentity(registration: symlinkRegistration, assessedTarget: originalSymlinkTarget)
-    let upgradedCellarRoot = symlinkRoot.appendingPathComponent("Cellar/hcloud/1.66.0/bin", isDirectory: true)
+    let upgradedCellarRoot = symlinkRoot.appendingPathComponent("Cellar/supabase/1.66.0/bin", isDirectory: true)
     try FileManager.default.createDirectory(at: upgradedCellarRoot, withIntermediateDirectories: true)
-    let upgradedHcloud = upgradedCellarRoot.appendingPathComponent("hcloud")
-    try "#!/bin/sh\nexit 0\n# changed\n".data(using: .utf8)!.write(to: upgradedHcloud)
-    try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: upgradedHcloud.path)
-    try FileManager.default.removeItem(at: stableHcloud)
-    try FileManager.default.createSymbolicLink(atPath: stableHcloud.path, withDestinationPath: "../Cellar/hcloud/1.66.0/bin/hcloud")
+    let upgradedSupabase = upgradedCellarRoot.appendingPathComponent("supabase")
+    try "#!/bin/sh\nexit 0\n# changed\n".data(using: .utf8)!.write(to: upgradedSupabase)
+    try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: upgradedSupabase.path)
+    try FileManager.default.removeItem(at: stableSupabase)
+    try FileManager.default.createSymbolicLink(atPath: stableSupabase.path, withDestinationPath: "../Cellar/supabase/1.66.0/bin/supabase")
     let changedSymlinkTarget = try TargetAssessor().assess(path: symlinkRegistration.targetPath)
-    try expectThrows(CommandLineToolRegistrationError.targetIdentityChanged(name: "hcloud-symlink", expected: symlinkRegistration.targetIdentity ?? "", actual: changedSymlinkTarget.identity), {
+    try expectThrows(CommandLineToolRegistrationError.targetIdentityChanged(name: "supabase-symlink", expected: symlinkRegistration.targetIdentity ?? "", actual: changedSymlinkTarget.identity), {
         try registrationService.validateTargetIdentity(registration: symlinkRegistration, assessedTarget: changedSymlinkTarget)
     }, "CLI run path must deny target binary replacement before resolving secrets")
-    let registrationBeforeDeniedRefresh = try registrationService.registration(named: "hcloud-symlink")
+    let registrationBeforeDeniedRefresh = try registrationService.registration(named: "supabase-symlink")
     var deniedRefreshRequest: CommandLineToolTrustRefreshAuthorizationRequest?
     try expectThrows(ContractTrustRefreshError.denied, {
-        _ = try registrationService.refreshTargetTrust(name: "hcloud-symlink") { request in
+        _ = try registrationService.refreshTargetTrust(name: "supabase-symlink") { request in
             deniedRefreshRequest = request
             throw ContractTrustRefreshError.denied
         }
     }, "trust refresh must require authorization before updating target identity")
     try expect(deniedRefreshRequest?.currentIdentity == symlinkRegistration.targetIdentity, "trust refresh authorization must include current identity")
     try expect(deniedRefreshRequest?.proposedIdentity == changedSymlinkTarget.identity, "trust refresh authorization must include proposed identity")
-    let registrationAfterDeniedRefresh = try registrationService.registration(named: "hcloud-symlink")
+    let registrationAfterDeniedRefresh = try registrationService.registration(named: "supabase-symlink")
     try expect(registrationAfterDeniedRefresh == registrationBeforeDeniedRefresh, "denied trust refresh must not modify registry metadata")
 
-    let raceCellarRoot = symlinkRoot.appendingPathComponent("Cellar/hcloud/1.67.0/bin", isDirectory: true)
+    let raceCellarRoot = symlinkRoot.appendingPathComponent("Cellar/supabase/1.67.0/bin", isDirectory: true)
     try FileManager.default.createDirectory(at: raceCellarRoot, withIntermediateDirectories: true)
-    let raceHcloud = raceCellarRoot.appendingPathComponent("hcloud")
-    try "#!/bin/sh\nexit 0\n# changed again\n".data(using: .utf8)!.write(to: raceHcloud)
-    try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: raceHcloud.path)
-    try expectThrows(CommandLineToolRegistrationError.targetChangedDuringTrustRefresh(name: "hcloud-symlink"), {
-        _ = try registrationService.refreshTargetTrust(name: "hcloud-symlink") { _ in
-            try FileManager.default.removeItem(at: stableHcloud)
-            try FileManager.default.createSymbolicLink(atPath: stableHcloud.path, withDestinationPath: "../Cellar/hcloud/1.67.0/bin/hcloud")
+    let raceSupabase = raceCellarRoot.appendingPathComponent("supabase")
+    try "#!/bin/sh\nexit 0\n# changed again\n".data(using: .utf8)!.write(to: raceSupabase)
+    try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: raceSupabase.path)
+    try expectThrows(CommandLineToolRegistrationError.targetChangedDuringTrustRefresh(name: "supabase-symlink"), {
+        _ = try registrationService.refreshTargetTrust(name: "supabase-symlink") { _ in
+            try FileManager.default.removeItem(at: stableSupabase)
+            try FileManager.default.createSymbolicLink(atPath: stableSupabase.path, withDestinationPath: "../Cellar/supabase/1.67.0/bin/supabase")
         }
     }, "trust refresh must fail closed if target changes between authorization and write")
     let racedSymlinkTarget = try TargetAssessor().assess(path: symlinkRegistration.targetPath)
-    let refreshedSymlinkRegistration = try registrationService.refreshTargetTrust(name: "hcloud-symlink") { request in
+    let refreshedSymlinkRegistration = try registrationService.refreshTargetTrust(name: "supabase-symlink") { request in
         try expect(request.currentIdentity == symlinkRegistration.targetIdentity, "authorized trust refresh must show old target identity")
         try expect(request.proposedIdentity == racedSymlinkTarget.identity, "authorized trust refresh must show current replacement identity")
     }
     try expect(refreshedSymlinkRegistration.environmentBindings == symlinkRegistration.environmentBindings, "trust refresh must not change secret bindings")
-    try expect(refreshedSymlinkRegistration.targetPath == stableHcloud.path, "trust refresh must keep stable invocation path")
+    try expect(refreshedSymlinkRegistration.targetPath == stableSupabase.path, "trust refresh must keep stable invocation path")
     try expect(refreshedSymlinkRegistration.targetIdentity == racedSymlinkTarget.identity, "trust refresh must update pinned target identity")
     try registrationService.validateTargetIdentity(registration: refreshedSymlinkRegistration, assessedTarget: racedSymlinkTarget)
-    try expectThrows(CommandLineToolRegistrationError.invalidEnvironmentName("HCLOUD_TOKEN=leak"), {
+    try expectThrows(CommandLineToolRegistrationError.invalidEnvironmentName("SUPABASE_DB_PASSWORD=leak"), {
         _ = try registrationService.register(
-            name: "hcloud",
+            name: "supabase",
             targetPath: registeredTarget.path,
-            environmentValues: ["HCLOUD_TOKEN=leak": SecretMaterial(utf8: "bad")],
+            environmentValues: ["SUPABASE_DB_PASSWORD=leak": SecretMaterial(utf8: "bad")],
             now: Date(timeIntervalSince1970: 0)
         )
     }, "CLI registration must reject env specs that include values in argument-shaped names")
-    let removedRegistration = try registrationService.unregister(name: "hcloud", deleteSecrets: true)
-    try expect(removedRegistration.name == "hcloud", "CLI unregister must return removed registration")
+    let removedRegistration = try registrationService.unregister(name: "supabase", deleteSecrets: true)
+    try expect(removedRegistration.name == "supabase", "CLI unregister must return removed registration")
     let registryAfterDelete = try registrationService.registryStore.load()
-    try expect(registryAfterDelete.registrations["hcloud"] == nil, "CLI unregister must remove registration metadata")
-    try expectThrows(SecretStoreError.missingBinding(SecretAlias("cli.hcloud.hcloud_token")), {
-        _ = try registrationService.secretStore.binding(for: SecretAlias("cli.hcloud.hcloud_token"))
+    try expect(registryAfterDelete.registrations["supabase"] == nil, "CLI unregister must remove registration metadata")
+    try expectThrows(SecretStoreError.missingBinding(SecretAlias("cli.supabase.supabase_db_password")), {
+        _ = try registrationService.secretStore.binding(for: SecretAlias("cli.supabase.supabase_db_password"))
     }, "CLI unregister with delete-secrets must remove secret binding")
     try? FileManager.default.removeItem(at: registrationRoot)
 
     let multiInjectedEnvironment = try EnvironmentScrubber().scrub(
         parent: ["PATH": "/usr/bin", "BWS_ACCESS_TOKEN": "drop-me", "SAFE": "keep"],
-        injectedValues: ["HCLOUD_TOKEN": "hcloud-value", "DEMO_TOKEN": "demo-value"]
+        injectedValues: ["SUPABASE_DB_PASSWORD": "supabase-value", "DEMO_TOKEN": "demo-value"]
     )
     try expect(multiInjectedEnvironment["PATH"] == "/usr/bin", "multi-env scrub must keep non-secret parent env")
     try expect(multiInjectedEnvironment["SAFE"] == "keep", "multi-env scrub must keep safe parent env")
     try expect(multiInjectedEnvironment["BWS_ACCESS_TOKEN"] == nil, "multi-env scrub must remove inherited secret-like env")
-    try expect(multiInjectedEnvironment["HCLOUD_TOKEN"] == "hcloud-value", "multi-env scrub must inject first target env")
+    try expect(multiInjectedEnvironment["SUPABASE_DB_PASSWORD"] == "supabase-value", "multi-env scrub must inject first target env")
     try expect(multiInjectedEnvironment["DEMO_TOKEN"] == "demo-value", "multi-env scrub must inject second target env")
-    try expectThrows(EnvironmentScrubError.targetAlreadyPresent("HCLOUD_TOKEN"), {
-        _ = try EnvironmentScrubber().scrub(parent: ["HCLOUD_TOKEN": "ambient"], injectedValues: ["HCLOUD_TOKEN": "fresh"])
+    try expectThrows(EnvironmentScrubError.targetAlreadyPresent("SUPABASE_DB_PASSWORD"), {
+        _ = try EnvironmentScrubber().scrub(parent: ["SUPABASE_DB_PASSWORD": "ambient"], injectedValues: ["SUPABASE_DB_PASSWORD": "fresh"])
     }, "multi-env scrub must fail closed on ambient target collision")
 
     try expect(CommandShimPolicy.isGlobalPassThrough(arguments: ["--help"]), "shim must pass global --help without secret delivery")
-    try expect(CommandShimPolicy.isGlobalPassThrough(arguments: ["server", "--help"]), "shim must pass nested --help without secret delivery")
-    try expect(CommandShimPolicy.isGlobalPassThrough(arguments: ["help", "server"]), "shim must pass help subcommands without secret delivery")
+    try expect(CommandShimPolicy.isGlobalPassThrough(arguments: ["db", "--help"]), "shim must pass nested --help without secret delivery")
+    try expect(CommandShimPolicy.isGlobalPassThrough(arguments: ["help", "db"]), "shim must pass help subcommands without secret delivery")
     try expect(CommandShimPolicy.isGlobalPassThrough(arguments: ["--version"]), "shim must pass --version without secret delivery")
     try expect(CommandShimPolicy.isGlobalPassThrough(arguments: ["version"]), "shim must pass version subcommand without secret delivery")
     try expect(!CommandShimPolicy.isGlobalPassThrough(arguments: ["-v"]), "shim must not treat ambiguous -v as a global version exception")
-    try expect(!CommandShimPolicy.isGlobalPassThrough(arguments: ["server", "list"]), "shim must route normal commands through AgenticSecrets")
+    try expect(!CommandShimPolicy.isGlobalPassThrough(arguments: ["db", "pull"]), "shim must route normal commands through AgenticSecrets")
 
     let shimRoot = URL(fileURLWithPath: NSTemporaryDirectory()).appendingPathComponent("agentic-secrets-shim-\(UUID().uuidString)")
-    let shimTarget = shimRoot.appendingPathComponent("hcloud")
+    let shimTarget = shimRoot.appendingPathComponent("supabase")
     try FileManager.default.createDirectory(at: shimRoot, withIntermediateDirectories: true)
-    try "fake hcloud".data(using: .utf8)!.write(to: shimTarget)
+    try "fake supabase".data(using: .utf8)!.write(to: shimTarget)
     try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: shimRoot.path)
-    let shimPolicy = TargetPolicy(commandName: "hcloud", targetPath: shimTarget.path, secretAlias: "cloud.hcloud.dev", environmentName: "HCLOUD_TOKEN")
-    let shimRequest = ShimRequest(invokedName: "/tmp/spoofable/hcloud", arguments: ["server", "list"], parentEnvironment: ["PATH": "/usr/bin", "BWS_ACCESS_TOKEN": "drop-me"], workspace: "/tmp/infra", originHint: "Codex", peerIdentity: "peer:agentic-secrets-shim", injectorIdentity: "sig:agentic-secrets-shim")
-    let shimCommand = classifier.classify(executableName: "hcloud", arguments: ["server", "list"])
+    let shimPolicy = TargetPolicy(commandName: "supabase", targetPath: shimTarget.path, secretAlias: "supabase.db.dev", environmentName: "SUPABASE_DB_PASSWORD")
+    let shimRequest = ShimRequest(invokedName: "/tmp/spoofable/supabase", arguments: ["db", "pull"], parentEnvironment: ["PATH": "/usr/bin", "BWS_ACCESS_TOKEN": "drop-me"], workspace: "/tmp/infra", originHint: "Codex", peerIdentity: "peer:agentic-secrets-shim", injectorIdentity: "sig:agentic-secrets-shim")
+    let shimCommand = classifier.classify(executableName: "supabase", arguments: ["db", "pull"])
     let shimTargetAssessment = try TargetAssessor().assess(path: shimTarget.path)
     let shimManifest = DeliveryDecisionManifestFactory().make(
         command: shimCommand,
-        intent: DeliveryRequest(flow: .cliEnv, secretAlias: "cloud.hcloud.dev", delivery: .env, environmentName: "HCLOUD_TOKEN", workspace: "/tmp/infra", originHint: "Codex"),
+        intent: DeliveryRequest(flow: .cliEnv, secretAlias: "supabase.db.dev", delivery: .env, environmentName: "SUPABASE_DB_PASSWORD", workspace: "/tmp/infra", originHint: "Codex"),
         target: shimTargetAssessment
     )
     let shimApprovals = ApprovalSessionStore()
@@ -985,15 +985,15 @@ func runContracts() throws {
     try expect(shimAuditEvents[0].outcome == "exec-plan-created", "audit event must include approved outcome")
     try expect(execPlan.targetPath == shimTarget.path, "shim planner must resolve target from policy, not argv")
     try expect(execPlan.environment["BWS_ACCESS_TOKEN"] == nil, "shim planner must scrub inherited secret-like env")
-    try expect(execPlan.environment["HCLOUD_TOKEN"] == "super-secret-token", "shim planner must inject approved secret into fresh env")
-    let execBinding = InvocationBinding(peerIdentity: "peer:agentic-secrets-shim", injectorIdentity: "sig:agentic-secrets-shim", targetIdentity: execPlan.target.identity, actionClass: "hcloud.unknown", workspace: "/tmp/infra", originHint: "Codex", policyEpoch: 1, injectionMode: .env)
+    try expect(execPlan.environment["SUPABASE_DB_PASSWORD"] == "super-secret-token", "shim planner must inject approved secret into fresh env")
+    let execBinding = InvocationBinding(peerIdentity: "peer:agentic-secrets-shim", injectorIdentity: "sig:agentic-secrets-shim", targetIdentity: execPlan.target.identity, actionClass: "supabase.unknown", workspace: "/tmp/infra", originHint: "Codex", policyEpoch: 1, injectionMode: .env)
     try shimHandles.consume(execPlan.invocationHandle, expectedBinding: execBinding, now: Date(timeIntervalSince1970: 2))
     try expectThrows(InvocationHandleError.unknown, {
         try shimHandles.consume(execPlan.invocationHandle, expectedBinding: execBinding, now: Date(timeIntervalSince1970: 3))
     }, "shim invocation handle must be single-use")
-    try expectThrows(EnvironmentScrubError.targetAlreadyPresent("HCLOUD_TOKEN"), {
+    try expectThrows(EnvironmentScrubError.targetAlreadyPresent("SUPABASE_DB_PASSWORD"), {
         _ = try ShimExecutionPlanner().plan(
-            request: ShimRequest(invokedName: "hcloud", arguments: ["server", "list"], parentEnvironment: ["HCLOUD_TOKEN": "ambient"], workspace: "/tmp/infra", originHint: "Codex", peerIdentity: "peer:agentic-secrets-shim", injectorIdentity: "sig:agentic-secrets-shim"),
+            request: ShimRequest(invokedName: "supabase", arguments: ["db", "pull"], parentEnvironment: ["SUPABASE_DB_PASSWORD": "ambient"], workspace: "/tmp/infra", originHint: "Codex", peerIdentity: "peer:agentic-secrets-shim", injectorIdentity: "sig:agentic-secrets-shim"),
             targetPolicies: [shimPolicy],
             policyState: PolicyState(epoch: 1),
             approvalSessionID: shimApproval.id,
@@ -1015,16 +1015,16 @@ func runContracts() throws {
             now: Date(timeIntervalSince1970: 1)
         )
     }, "shim planner must reject unknown symlink command names")
-    let destructiveShimCommand = classifier.classify(executableName: "hcloud", arguments: ["server", "delete", "prod-db-01"])
+    let destructiveShimCommand = classifier.classify(executableName: "supabase", arguments: ["projects", "delete", "prod-ref"])
     let destructiveShimManifest = DeliveryDecisionManifestFactory().make(
         command: destructiveShimCommand,
-        intent: DeliveryRequest(flow: .cliEnv, secretAlias: "cloud.hcloud.dev", delivery: .env, environmentName: "HCLOUD_TOKEN", workspace: "/tmp/infra", originHint: "Codex"),
+        intent: DeliveryRequest(flow: .cliEnv, secretAlias: "supabase.db.dev", delivery: .env, environmentName: "SUPABASE_DB_PASSWORD", workspace: "/tmp/infra", originHint: "Codex"),
         target: shimTargetAssessment
     )
     let destructiveApproval = shimApprovals.create(manifest: destructiveShimManifest, policyEpoch: 1, ttl: 30, now: Date(timeIntervalSince1970: 0))
     let destructiveAudit = AuditLog()
     let destructivePlan = try ShimExecutionPlanner().plan(
-        request: ShimRequest(invokedName: "hcloud", arguments: ["server", "delete", "prod-db-01"], parentEnvironment: [:], workspace: "/tmp/infra", originHint: "Codex", peerIdentity: "peer:agentic-secrets-shim", injectorIdentity: "sig:agentic-secrets-shim"),
+        request: ShimRequest(invokedName: "supabase", arguments: ["projects", "delete", "prod-ref"], parentEnvironment: [:], workspace: "/tmp/infra", originHint: "Codex", peerIdentity: "peer:agentic-secrets-shim", injectorIdentity: "sig:agentic-secrets-shim"),
         targetPolicies: [shimPolicy],
         policyState: PolicyState(epoch: 1),
         approvalSessionID: destructiveApproval.id,
@@ -1034,20 +1034,20 @@ func runContracts() throws {
         audit: destructiveAudit,
         now: Date(timeIntervalSince1970: 1)
     )
-    try expect(destructivePlan.environment["HCLOUD_TOKEN"] == "super-secret-token", "shim planner must inject approved secret for destructive registered hcloud commands")
-    try expect(destructiveAudit.snapshot().first?.decision == "allow", "destructive registered hcloud delivery must write an allow audit event")
+    try expect(destructivePlan.environment["SUPABASE_DB_PASSWORD"] == "super-secret-token", "shim planner must inject approved secret for destructive registered supabase commands")
+    try expect(destructiveAudit.snapshot().first?.decision == "allow", "destructive registered supabase delivery must write an allow audit event")
     let forbiddenShimClassifier = CommandClassifier(commandPolicy: CommandPolicyConfig(destructiveTerms: ["delete", "remove"], forbiddenTerms: ["delete"]))
-    let forbiddenShimCommand = forbiddenShimClassifier.classify(executableName: "hcloud", arguments: ["server", "delete", "prod-db-01"])
+    let forbiddenShimCommand = forbiddenShimClassifier.classify(executableName: "supabase", arguments: ["projects", "delete", "prod-ref"])
     let forbiddenShimManifest = DeliveryDecisionManifestFactory().make(
         command: forbiddenShimCommand,
-        intent: DeliveryRequest(flow: .cliEnv, secretAlias: "cloud.hcloud.dev", delivery: .env, environmentName: "HCLOUD_TOKEN", workspace: "/tmp/infra", originHint: "Codex"),
+        intent: DeliveryRequest(flow: .cliEnv, secretAlias: "supabase.db.dev", delivery: .env, environmentName: "SUPABASE_DB_PASSWORD", workspace: "/tmp/infra", originHint: "Codex"),
         target: shimTargetAssessment
     )
     let forbiddenShimApproval = shimApprovals.create(manifest: forbiddenShimManifest, policyEpoch: 1, ttl: 30, now: Date(timeIntervalSince1970: 0))
     let forbiddenShimAudit = AuditLog()
     try expectThrows(PolicyError.forbiddenCommand("delete"), {
         _ = try ShimExecutionPlanner(classifier: forbiddenShimClassifier).plan(
-            request: ShimRequest(invokedName: "hcloud", arguments: ["server", "delete", "prod-db-01"], parentEnvironment: [:], workspace: "/tmp/infra", originHint: "Codex", peerIdentity: "peer:agentic-secrets-shim", injectorIdentity: "sig:agentic-secrets-shim"),
+            request: ShimRequest(invokedName: "supabase", arguments: ["projects", "delete", "prod-ref"], parentEnvironment: [:], workspace: "/tmp/infra", originHint: "Codex", peerIdentity: "peer:agentic-secrets-shim", injectorIdentity: "sig:agentic-secrets-shim"),
             targetPolicies: [shimPolicy],
             policyState: PolicyState(epoch: 1),
             approvalSessionID: forbiddenShimApproval.id,
@@ -1061,11 +1061,11 @@ func runContracts() throws {
     try expect(forbiddenShimAudit.snapshot().first?.decision == "deny", "forbidden shim command must write a deny audit event")
     let npmTarget = shimRoot.appendingPathComponent("npm")
     try "fake npm".data(using: .utf8)!.write(to: npmTarget)
-    let npmPolicy = TargetPolicy(commandName: "npm", targetPath: npmTarget.path, secretAlias: "cloud.hcloud.dev", environmentName: "OPENAI_API_KEY")
+    let npmPolicy = TargetPolicy(commandName: "npm", targetPath: npmTarget.path, secretAlias: "supabase.db.dev", environmentName: "OPENAI_API_KEY")
     let npmCommand = CommandClassifier().classify(executableName: "npm", arguments: ["run", "dev"])
     let npmManifest = DeliveryDecisionManifestFactory().make(
         command: npmCommand,
-        intent: DeliveryRequest(flow: .cliEnv, secretAlias: "cloud.hcloud.dev", delivery: .env, environmentName: "OPENAI_API_KEY", workspace: "/tmp/infra", originHint: "Codex"),
+        intent: DeliveryRequest(flow: .cliEnv, secretAlias: "supabase.db.dev", delivery: .env, environmentName: "OPENAI_API_KEY", workspace: "/tmp/infra", originHint: "Codex"),
         target: try TargetAssessor().assess(path: npmTarget.path)
     )
     let npmApproval = shimApprovals.create(manifest: npmManifest, policyEpoch: 1, ttl: 30, now: Date(timeIntervalSince1970: 0))
@@ -1083,7 +1083,7 @@ func runContracts() throws {
     }, "shim planner must deny raw env delivery to generic runners")
     try? FileManager.default.removeItem(at: shimRoot)
 
-    let unknownFlag = classifier.classify(executableName: "hcloud", arguments: ["--plugin-mode", "server", "list"], observedVersion: "1.52.0")
+    let unknownFlag = classifier.classify(executableName: "supabase", arguments: ["--plugin-mode", "db", "pull"], observedVersion: "1.52.0")
     try expect(unknownFlag.risk == .unknown, "unknown adapter flags must classify as unknown")
     try expect(unknownFlag.leaseInvalidators.isEmpty, "missing adapters must not claim adapter-specific flag invalidators")
 
@@ -1113,7 +1113,7 @@ func runContracts() throws {
     }, "invocation handle replay must fail")
     let wrongBindingHandle = try store.create(binding: binding(), ttl: 30, maxUses: 1)
     try expectThrows(InvocationHandleError.wrongBinding, {
-        try store.consume(wrongBindingHandle, expectedBinding: binding(actionClass: "hcloud.server.delete"))
+        try store.consume(wrongBindingHandle, expectedBinding: binding(actionClass: "supabase.projects.delete"))
     }, "invocation handle must bind action class")
     try expectThrows(InvocationHandleError.invalidTTL, {
         _ = try store.create(binding: binding(), ttl: 31, maxUses: 1)
@@ -1124,12 +1124,12 @@ func runContracts() throws {
 
     let scrubbed = try EnvironmentScrubber().scrub(
         parent: ["PATH": "/usr/bin", "BWS_ACCESS_TOKEN": "x", "SOME_API_KEY": "y"],
-        targetEnvironmentName: "HCLOUD_TOKEN",
+        targetEnvironmentName: "SUPABASE_DB_PASSWORD",
         injectedValue: "test-token"
     )
     try expect(scrubbed["BWS_ACCESS_TOKEN"] == nil && scrubbed["SOME_API_KEY"] == nil, "environment scrubber must remove secret-like variables")
-    try expectThrows(EnvironmentScrubError.targetAlreadyPresent("HCLOUD_TOKEN"), {
-        _ = try EnvironmentScrubber().scrub(parent: ["HCLOUD_TOKEN": "ambient"], targetEnvironmentName: "HCLOUD_TOKEN", injectedValue: "new")
+    try expectThrows(EnvironmentScrubError.targetAlreadyPresent("SUPABASE_DB_PASSWORD"), {
+        _ = try EnvironmentScrubber().scrub(parent: ["SUPABASE_DB_PASSWORD": "ambient"], targetEnvironmentName: "SUPABASE_DB_PASSWORD", injectedValue: "new")
     }, "ambient target env must fail closed")
 
     let redacted = Redactor().redact("OPENAI_API_KEY=sk-abcdefghijklmnopqrstuvwxyz url=https://e.test?a=1&access_token=abc")
@@ -1145,11 +1145,11 @@ func runContracts() throws {
     try expect(!redactedPrivateKey.contains("abcdefghijklmnopqrstuvwxyz123456"), "redactor must remove bearer tokens")
 
     let audit = AuditLog()
-    let leakingEvent = AuditEvent(event: "secret_delivery", decision: "allow", flow: .cliEnv, subjectID: "s", secretID: "sec", actionClass: "hcloud.server.list", delivery: .env, policyEpoch: 1, approval: "once", time: Date(timeIntervalSince1970: 0), metadata: ["bad": "sk-abcdefghijklmnopqrstuvwxyz"])
+    let leakingEvent = AuditEvent(event: "secret_delivery", decision: "allow", flow: .cliEnv, subjectID: "s", secretID: "sec", actionClass: "supabase.db.pull", delivery: .env, policyEpoch: 1, approval: "once", time: Date(timeIntervalSince1970: 0), metadata: ["bad": "sk-abcdefghijklmnopqrstuvwxyz"])
     try expectThrows(AuditError.rawSecretDetected("pattern"), {
         try audit.append(leakingEvent)
     }, "audit must reject raw secret patterns")
-    try audit.append(AuditEvent(event: "secret_delivery", decision: "allow", flow: .cliEnv, subjectID: "subject", secretID: "secret", actionClass: "hcloud.server.list", delivery: .env, policyEpoch: 1, approval: "once", time: Date(timeIntervalSince1970: 1), metadata: ["safe": "ok"]))
+    try audit.append(AuditEvent(event: "secret_delivery", decision: "allow", flow: .cliEnv, subjectID: "subject", secretID: "secret", actionClass: "supabase.db.pull", delivery: .env, policyEpoch: 1, approval: "once", time: Date(timeIntervalSince1970: 1), metadata: ["safe": "ok"]))
     try expect(audit.snapshot().count == 1, "audit must persist safe structured events")
     try expect(audit.snapshot()[0].outcome == "allow", "audit event outcome must default to decision when omitted")
     let auditExport = try audit.exportRedactedJSON()
@@ -1189,10 +1189,10 @@ func runContracts() throws {
     }, "proxy runtime must not log request bodies by default")
 
     let bwsPolicy = BitwardenProviderPolicy()
-    let bitwardenBinding = BitwardenSecretBinding(alias: "cloud.hcloud.dev", projectID: "cloud-dev", secretID: "sec_hcloud", environment: "dev")
-    let invocation = try bwsPolicy.authorizeRuntimeRead(alias: "cloud.hcloud.dev", bindings: [bitwardenBinding], sinkIdentity: "agentic-secrets-shim", now: Date(timeIntervalSince1970: 0))
+    let bitwardenBinding = BitwardenSecretBinding(alias: "supabase.db.dev", projectID: "supabase-dev", secretID: "sec_supabase_db_password", environment: "dev")
+    let invocation = try bwsPolicy.authorizeRuntimeRead(alias: "supabase.db.dev", bindings: [bitwardenBinding], sinkIdentity: "agentic-secrets-shim", now: Date(timeIntervalSince1970: 0))
     try bwsPolicy.validate(invocation: invocation, sinkIdentity: "agentic-secrets-shim", now: Date(timeIntervalSince1970: 1))
-    let bwsClient = InMemoryBitwardenSecretClient(secrets: ["sec_hcloud": SecretMaterial(utf8: "bws-secret-value")])
+    let bwsClient = InMemoryBitwardenSecretClient(secrets: ["sec_supabase_db_password": SecretMaterial(utf8: "bws-secret-value")])
     let bwsRuntime = BitwardenProviderRuntime(client: bwsClient)
     let fetchedBWSSecret = try bwsRuntime.fetchOne(invocation: invocation, sinkIdentity: "agentic-secrets-shim", now: Date(timeIntervalSince1970: 1))
     try fetchedBWSSecret.withUTF8String { value in
@@ -1260,7 +1260,7 @@ func runContracts() throws {
 
     let lease = CryptoLease(
         id: "lease_1",
-        scope: LeaseScope(subject: "hcloud", adapterIdentity: "missing-adapter-identity", secretAlias: "cloud.hcloud.dev", workspaceHash: "hmac:abc", originHint: "Codex", actionClass: "hcloud.unknown", configContext: "", deliveryMode: .env, targetIdentity: "sha256:hcloud"),
+        scope: LeaseScope(subject: "supabase", adapterIdentity: "missing-adapter-identity", secretAlias: "supabase.db.dev", workspaceHash: "hmac:abc", originHint: "Codex", actionClass: "supabase.unknown", configContext: "", deliveryMode: .env, targetIdentity: "sha256:supabase"),
         risk: .readOnly,
         expiresAt: Date(timeIntervalSince1970: 3600),
         policyEpoch: 1
@@ -1286,7 +1286,7 @@ func runContracts() throws {
     }, "policy repository must reject tampered policy database")
     let secretLikeLease = CryptoLease(
         id: "lease_secret",
-        scope: LeaseScope(subject: "hcloud", adapterIdentity: "adapter", secretAlias: "OPENAI_API_KEY=sk-abcdefghijklmnopqrstuvwxyz", workspaceHash: "hmac:abc", originHint: "Codex", actionClass: "hcloud.server.list", configContext: "", deliveryMode: .env, targetIdentity: "sha256:hcloud"),
+        scope: LeaseScope(subject: "supabase", adapterIdentity: "adapter", secretAlias: "OPENAI_API_KEY=sk-abcdefghijklmnopqrstuvwxyz", workspaceHash: "hmac:abc", originHint: "Codex", actionClass: "supabase.db.pull", configContext: "", deliveryMode: .env, targetIdentity: "sha256:supabase"),
         risk: .readOnly,
         expiresAt: Date(timeIntervalSince1970: 3600),
         policyEpoch: 1
@@ -1302,7 +1302,7 @@ func runContracts() throws {
     let loadedAnchor = try anchorRepo.loadAnchor()
     try expect(loadedAnchor == anchor, "rollback anchor repository must save and load anchor state")
 
-    let recovery = try RecoveryBundleFactory.export(policy: persistedPolicy, aliasMap: ["cloud.hcloud.dev": "sec_hcloud"], providerBindingsWithoutPlaintextTokens: ["bws:project=cloud-dev;env=dev"], auditHead: "audit-head")
+    let recovery = try RecoveryBundleFactory.export(policy: persistedPolicy, aliasMap: ["supabase.db.dev": "sec_supabase_db_password"], providerBindingsWithoutPlaintextTokens: ["bws:project=supabase-dev;env=dev"], auditHead: "audit-head")
     try expect(recovery.epoch == persistedPolicy.epoch && recovery.policyHash == persistedPolicy.hash, "recovery bundle must preserve epoch metadata")
     try expectThrows(RecoveryBundleError.plaintextProviderTokenDetected, {
         _ = try RecoveryBundleFactory.export(policy: persistedPolicy, aliasMap: [:], providerBindingsWithoutPlaintextTokens: ["BWS_ACCESS_TOKEN=sk-abcdefghijklmnopqrstuvwxyz"], auditHead: "audit")

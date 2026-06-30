@@ -76,7 +76,7 @@ public struct PolicyEngine: Sendable {
         if let term = command.matchedForbiddenTerm {
             throw PolicyError.forbiddenCommand(term)
         }
-        if command.confidence == .highRisk, intent.delivery == .env, command.cli != "hcloud", command.cli != "gh" {
+        if command.confidence == .highRisk, intent.delivery == .env, command.cli != "supabase", command.cli != "gh" {
             throw PolicyError.genericEnvDenied
         }
         switch approval {

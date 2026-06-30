@@ -677,16 +677,16 @@ private struct CommandPolicyPreviewPanel: View {
                         .fixedSize(horizontal: false, vertical: true)
                 }
 
-                TextField("hcloud server delete prod-db-01", text: $command)
+                TextField("supabase projects delete prod-ref", text: $command)
                     .textFieldStyle(.roundedBorder)
                     .accessibilityLabel("Command policy preview command")
 
                 PolicyPreviewResult(classification: classification)
 
                 HStack(spacing: 6) {
-                    SampleCommandButton(title: "Delete", command: "hcloud server delete prod-db-01", selection: $command)
+                    SampleCommandButton(title: "Delete", command: "supabase projects delete prod-ref", selection: $command)
                     SampleCommandButton(title: "Remove", command: "gh release remove v1.0.0", selection: $command)
-                    SampleCommandButton(title: "Read", command: "hcloud server list", selection: $command)
+                    SampleCommandButton(title: "Read", command: "supabase db pull", selection: $command)
                     Spacer(minLength: 0)
                 }
                 .buttonStyle(.borderless)

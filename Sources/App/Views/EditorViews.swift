@@ -67,7 +67,7 @@ struct RegisterCLIView: View {
         case .target:
             Form {
                 Section("Target") {
-                    TextField("CLI name", text: $name, prompt: Text("hcloud"))
+                    TextField("CLI name", text: $name, prompt: Text("supabase"))
                         .accessibilityLabel("CLI name")
                     HStack(alignment: .firstTextBaseline, spacing: 8) {
                         TextField("Executable path", text: $targetPath)
@@ -251,7 +251,7 @@ private struct RegisterCLISecretsStep: View {
                     RegisterCLIValidationMessage("Environment names must be unique.")
                 }
                 if hasInvalidNames {
-                    RegisterCLIValidationMessage("Use shell-style names such as HCLOUD_TOKEN: letters, numbers, and underscores; do not start with a number.")
+                    RegisterCLIValidationMessage("Use shell-style names such as SUPABASE_DB_PASSWORD: letters, numbers, and underscores; do not start with a number.")
                 }
                 if hasWhitespaceOnlyValue {
                     RegisterCLIValidationMessage("Secret values cannot be only whitespace.")
@@ -383,7 +383,7 @@ private struct RegisterCLISecretRow: View {
 
     var body: some View {
         HStack(alignment: .top, spacing: 12) {
-            TextField("HCLOUD_TOKEN", text: $binding.environmentName)
+            TextField("SUPABASE_DB_PASSWORD", text: $binding.environmentName)
                 .textFieldStyle(.roundedBorder)
                 .frame(width: 210)
                 .accessibilityLabel("Environment variable name")
@@ -636,7 +636,7 @@ struct BitwardenBindingEditor: View {
     var body: some View {
         Form {
             Section("Bitwarden Provider Binding") {
-                TextField("Alias", text: $alias, prompt: Text("cloud.hcloud.dev"))
+                TextField("Alias", text: $alias, prompt: Text("supabase.db.dev"))
                     .accessibilityLabel("Bitwarden provider binding alias")
                 TextField("Project ID", text: $projectID)
                     .accessibilityLabel("BWS project ID")

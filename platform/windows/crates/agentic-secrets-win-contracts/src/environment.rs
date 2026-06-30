@@ -13,7 +13,7 @@ const BLOCKED_EXACT_NAMES: &[&str] = &[
     "GEMINI_API_KEY",
     "GH_TOKEN",
     "GITHUB_TOKEN",
-    "HCLOUD_TOKEN",
+    "SUPABASE_DB_PASSWORD",
     "OPENAI_API_KEY",
     "STRIPE_API_KEY",
 ];

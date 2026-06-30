@@ -41,9 +41,9 @@ struct AgenticSecretsCLI {
             let origin = ProcessOriginHint.current()
             let intent = DeliveryRequest(
                 flow: .cliEnv,
-                secretAlias: "cloud.hcloud.dev",
+                secretAlias: "supabase.db.dev",
                 delivery: .env,
-                environmentName: "HCLOUD_TOKEN",
+                environmentName: "SUPABASE_DB_PASSWORD",
                 workspace: FileManager.default.currentDirectoryPath,
                 originHint: origin.displayName,
                 provenanceConfidence: origin.provenanceConfidence
@@ -84,8 +84,8 @@ struct AgenticSecretsCLI {
         Usage:
           agentic-secrets profiles
           agentic-secrets invariants
-          agentic-secrets classify hcloud server list
-          agentic-secrets manifest hcloud server list
+          agentic-secrets classify supabase db pull
+          agentic-secrets manifest supabase db pull
           agentic-secrets api-session
           agentic-secrets mcp-conformance
           agentic-secrets ipc-conformance
@@ -95,15 +95,15 @@ struct AgenticSecretsCLI {
           agentic-secrets adapter list
           agentic-secrets adapter install-payload <payload.json> <registry.json>
           agentic-secrets command policy pack revoke <adapter-id> <registry.json>
-          agentic-secrets cli register hcloud --env HCLOUD_TOKEN --secret-stdin
-          agentic-secrets cli run hcloud -- server list
-          agentic-secrets cli run hcloud --authorization-mode always -- server list
-          agentic-secrets cli run hcloud --authorization-mode remember-24h -- server list
-          agentic-secrets cli run hcloud --authorization-mode once -- server delete prod-db-01
-          agentic-secrets cli run hcloud --authorization-mode short --delivery-grant-ttl-seconds 300 -- server list
-          agentic-secrets cli shim install hcloud --configure-shell
-          agentic-secrets cli trust-refresh hcloud
-          agentic-secrets cli unregister hcloud --delete-secrets
+          agentic-secrets cli register supabase --env SUPABASE_DB_PASSWORD --secret-stdin
+          agentic-secrets cli run supabase -- db pull
+          agentic-secrets cli run supabase --authorization-mode always -- db pull
+          agentic-secrets cli run supabase --authorization-mode remember-24h -- db pull
+          agentic-secrets cli run supabase --authorization-mode once -- projects delete prod-ref
+          agentic-secrets cli run supabase --authorization-mode short --delivery-grant-ttl-seconds 300 -- db pull
+          agentic-secrets cli shim install supabase --configure-shell
+          agentic-secrets cli trust-refresh supabase
+          agentic-secrets cli unregister supabase --delete-secrets
           agentic-secrets redact "OPENAI_API_KEY=..."
         """)
     }

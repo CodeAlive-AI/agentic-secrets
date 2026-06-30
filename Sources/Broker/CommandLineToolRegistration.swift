@@ -95,9 +95,9 @@ public enum CommandLineToolRegistrationError: Error, Equatable, CustomStringConv
     public var description: String {
         switch self {
         case .invalidCLIName(let name):
-            "Invalid CLI name '\(name)'. Use a command name like 'hcloud' or pass a target path with --target."
+            "Invalid CLI name '\(name)'. Use a command name like 'supabase' or pass a target path with --target."
         case .invalidEnvironmentName(let name):
-            "Invalid environment variable name '\(name)'. Pass only the name, for example --env HCLOUD_TOKEN. Do not pass HCLOUD_TOKEN=value."
+            "Invalid environment variable name '\(name)'. Pass only the name, for example --env SUPABASE_DB_PASSWORD. Do not pass SUPABASE_DB_PASSWORD=value."
         case .missingEnvironmentValue(let name):
             "Missing secret value for environment variable '\(name)'. Use --secret-stdin, --secret-prompt, or --secrets-json-stdin."
         case .targetNotExecutable(let path):

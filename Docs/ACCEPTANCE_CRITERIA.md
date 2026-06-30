@@ -437,7 +437,7 @@ Required evidence:
 
 Failure examples:
 
-- `/tmp/hcloud` can choose its own target path.
+- `/tmp/supabase` can choose its own target path.
 - Changing the target binary after approval is not detected.
 - Editing `cli-registry.json` to point at another target still allows secret resolution.
 - `trust-refresh` can silently rebind a CLI target without local authorization.
@@ -491,8 +491,8 @@ Required evidence:
 
 Failure examples:
 
-- Installing a shim overwrites `/opt/homebrew/bin/hcloud`.
-- `hcloud version` passes through without resolving or receiving `HCLOUD_TOKEN`.
+- Installing a shim overwrites `/opt/homebrew/bin/supabase`.
+- `supabase version` passes through without resolving or receiving `SUPABASE_DB_PASSWORD`.
 - A generated shell wrapper contains product logic or a secret value.
 
 ### AC-SHIM-004: Exec Plan Is Single-Use and Bound

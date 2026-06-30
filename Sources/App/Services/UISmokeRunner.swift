@@ -83,7 +83,7 @@ enum UISmokeRunner {
             destructiveTerms: CommandPolicyConfig.default.destructiveTerms,
             forbiddenTerms: CommandPolicyConfig.default.forbiddenTerms
         )
-        var previewCommand = "hcloud server delete prod-db-01"
+        var previewCommand = "supabase projects delete prod-ref"
         var authorizationMode = DeliveryAuthorizationMode.always
         let commandPolicy = CommandPolicySettingsPage(
             terms: Binding(
@@ -120,7 +120,7 @@ enum UISmokeRunner {
         )
 
         let cliStore = ControlPlaneStore(
-            client: SequenceControlPlaneClient(snapshots: [snapshot(cliNames: ["hcloud", "gh"])]),
+            client: SequenceControlPlaneClient(snapshots: [snapshot(cliNames: ["supabase", "gh"])]),
             brokerController: StubBrokerStatusController(statusValue: healthyBrokerStatus())
         )
         await cliStore.refresh()
@@ -182,14 +182,14 @@ enum UISmokeRunner {
 
     private static func testRegisterWizardValidation() async throws {
         try expect(RegisterCLIFormDefaults.installShim, "register CLI defaults to installing a command shim")
-        let restartNotice = AgentRestartNotice.afterCLIRegistration(cliName: "hcloud", shimInstalled: true)
+        let restartNotice = AgentRestartNotice.afterCLIRegistration(cliName: "supabase", shimInstalled: true)
         try expect(restartNotice.contains("Restart Codex"), "register success notice names the agent restart action")
         try expect(AgentRestartNotice.requiresManualDismiss(restartNotice), "agent restart notice stays visible until the user dismisses it")
-        let modalMessage = AgentRestartNotice.modalMessageAfterCLIRegistration(cliName: "hcloud")
+        let modalMessage = AgentRestartNotice.modalMessageAfterCLIRegistration(cliName: "supabase")
         try expect(modalMessage.contains("Codex, Claude Code"), "register modal names common agent apps")
         try expect(modalMessage.contains("Cmd+Q"), "register modal tells users to fully quit agent apps")
         try expect(
-            ExecutablePathSelection.inferredCLIName(from: URL(fileURLWithPath: "/opt/homebrew/bin/hcloud")) == "hcloud",
+            ExecutablePathSelection.inferredCLIName(from: URL(fileURLWithPath: "/opt/homebrew/bin/supabase")) == "supabase",
             "register CLI infers a CLI name from the selected executable path"
         )
         let resolvedShellPath = await ExecutablePathSelection.resolvedExecutablePath(for: "sh")
@@ -200,28 +200,28 @@ enum UISmokeRunner {
         try expect(ExecutablePathSelection.statusMessage(for: "bin/echo") != nil, "relative executable path is rejected")
         try expect(ExecutablePathSelection.statusMessage(for: "/definitely/missing/agentic-secrets-cli") != nil, "missing executable path is rejected")
         let valid = [
-            SecretDraft(environmentName: "HCLOUD_TOKEN", secretValue: "synthetic-secret"),
+            SecretDraft(environmentName: "SUPABASE_DB_PASSWORD", secretValue: "synthetic-secret"),
             SecretDraft(environmentName: "TF_TOKEN", secretValue: "synthetic-secret-2")
         ]
-        try expect(RegisterCLIFormValidation.canSubmit(name: "hcloud", targetPath: "/bin/echo", bindings: valid), "valid register form submits")
+        try expect(RegisterCLIFormValidation.canSubmit(name: "supabase", targetPath: "/bin/echo", bindings: valid), "valid register form submits")
         try expect(!RegisterCLIFormValidation.canSubmit(name: " ", targetPath: "/bin/echo", bindings: valid), "blank name is rejected")
-        try expect(!RegisterCLIFormValidation.canSubmit(name: "hcloud", targetPath: "", bindings: valid), "blank target is rejected")
-        try expect(!RegisterCLIFormValidation.canSubmit(name: "hcloud", targetPath: "bin/echo", bindings: valid), "relative target path is rejected")
-        try expect(!RegisterCLIFormValidation.canSubmit(name: "hcloud", targetPath: "/definitely/missing/agentic-secrets-cli", bindings: valid), "missing target path is rejected")
-        try expect(!RegisterCLIFormValidation.canSubmit(name: "hcloud", targetPath: "/bin/echo", bindings: [
-            SecretDraft(environmentName: "HCLOUD_TOKEN", secretValue: "one"),
-            SecretDraft(environmentName: "HCLOUD_TOKEN", secretValue: "two")
+        try expect(!RegisterCLIFormValidation.canSubmit(name: "supabase", targetPath: "", bindings: valid), "blank target is rejected")
+        try expect(!RegisterCLIFormValidation.canSubmit(name: "supabase", targetPath: "bin/echo", bindings: valid), "relative target path is rejected")
+        try expect(!RegisterCLIFormValidation.canSubmit(name: "supabase", targetPath: "/definitely/missing/agentic-secrets-cli", bindings: valid), "missing target path is rejected")
+        try expect(!RegisterCLIFormValidation.canSubmit(name: "supabase", targetPath: "/bin/echo", bindings: [
+            SecretDraft(environmentName: "SUPABASE_DB_PASSWORD", secretValue: "one"),
+            SecretDraft(environmentName: "SUPABASE_DB_PASSWORD", secretValue: "two")
         ]), "duplicate env names are rejected")
-        try expect(!RegisterCLIFormValidation.canSubmit(name: "hcloud", targetPath: "/bin/echo", bindings: [
-            SecretDraft(environmentName: "HCLOUD_TOKEN", secretValue: "   ")
+        try expect(!RegisterCLIFormValidation.canSubmit(name: "supabase", targetPath: "/bin/echo", bindings: [
+            SecretDraft(environmentName: "SUPABASE_DB_PASSWORD", secretValue: "   ")
         ]), "whitespace-only secret values are rejected")
-        try expect(!RegisterCLIFormValidation.canSubmit(name: "hcloud", targetPath: "/bin/echo", bindings: [
-            SecretDraft(environmentName: "HCLOUD-TOKEN", secretValue: "synthetic-secret")
+        try expect(!RegisterCLIFormValidation.canSubmit(name: "supabase", targetPath: "/bin/echo", bindings: [
+            SecretDraft(environmentName: "SUPABASE-DB-PASSWORD", secretValue: "synthetic-secret")
         ]), "hyphenated env names are rejected")
-        try expect(!RegisterCLIFormValidation.canSubmit(name: "hcloud", targetPath: "/bin/echo", bindings: [
+        try expect(!RegisterCLIFormValidation.canSubmit(name: "supabase", targetPath: "/bin/echo", bindings: [
             SecretDraft(environmentName: "1TOKEN", secretValue: "synthetic-secret")
         ]), "env names starting with a digit are rejected")
-        try expect(!RegisterCLIFormValidation.canSubmit(name: "hcloud", targetPath: "/bin/echo", bindings: [
+        try expect(!RegisterCLIFormValidation.canSubmit(name: "supabase", targetPath: "/bin/echo", bindings: [
             SecretDraft(environmentName: "TOKEN", secretValue: "one"),
             SecretDraft(environmentName: "token", secretValue: "two")
         ]), "case-insensitive duplicate env names are rejected")
@@ -230,35 +230,35 @@ enum UISmokeRunner {
             SecretDraft(environmentName: "GOOD_TOKEN", secretValue: "one"),
             SecretDraft(environmentName: "BAD TOKEN", secretValue: "two")
         ]) == ["BAD TOKEN"], "invalid env names are reported for inline guidance")
-        try expect(RegisterCLIFormValidation.environmentSecrets(valid)["HCLOUD_TOKEN"] == "synthetic-secret", "form builds env secret dictionary")
+        try expect(RegisterCLIFormValidation.environmentSecrets(valid)["SUPABASE_DB_PASSWORD"] == "synthetic-secret", "form builds env secret dictionary")
         try expect(RegisterCLIFormValidation.environmentSecrets([
-            SecretDraft(environmentName: "HCLOUD_TOKEN", secretValue: "  synthetic-secret  ")
-        ])["HCLOUD_TOKEN"] == "  synthetic-secret  ", "secret values are not trimmed while building payload")
+            SecretDraft(environmentName: "SUPABASE_DB_PASSWORD", secretValue: "  synthetic-secret  ")
+        ])["SUPABASE_DB_PASSWORD"] == "  synthetic-secret  ", "secret values are not trimmed while building payload")
         try expect(RegisterCLIFormValidation.environmentSecrets([
             SecretDraft(environmentName: "BAD-TOKEN", secretValue: "synthetic-secret")
         ]).isEmpty, "invalid env names are omitted from registration payload")
         try expect(RegisterCLIFormValidation.environmentSecrets([
-            SecretDraft(environmentName: "HCLOUD_TOKEN", secretValue: " \n\t ")
+            SecretDraft(environmentName: "SUPABASE_DB_PASSWORD", secretValue: " \n\t ")
         ]).isEmpty, "whitespace-only secret values are omitted from registration payload")
     }
 
     @MainActor
     private static func testSuccessfulCLIRegistrationGuidance() async throws {
         let store = ControlPlaneStore(
-            client: SequenceControlPlaneClient(snapshots: [snapshot(cliNames: ["hcloud"])]),
+            client: SequenceControlPlaneClient(snapshots: [snapshot(cliNames: ["supabase"])]),
             brokerController: StubBrokerStatusController(statusValue: healthyBrokerStatus())
         )
         await store.refresh()
         let registered = await store.registerCLI(
-            name: "hcloud",
+            name: "supabase",
             targetPath: "/bin/echo",
-            environmentSecrets: ["HCLOUD_TOKEN": "synthetic-secret"],
+            environmentSecrets: ["SUPABASE_DB_PASSWORD": "synthetic-secret"],
             installShim: false
         )
         try expect(registered, "valid direct register submit succeeds")
-        try expect(store.successMessage == AgentRestartNotice.afterCLIRegistration(cliName: "hcloud", shimInstalled: false), "successful registration tells the user to restart already-running agent apps")
+        try expect(store.successMessage == AgentRestartNotice.afterCLIRegistration(cliName: "supabase", shimInstalled: false), "successful registration tells the user to restart already-running agent apps")
         try expect(store.agentRestartPrompt?.title == AgentRestartNotice.restartPromptTitle, "successful registration opens a modal restart prompt")
-        try expect(store.agentRestartPrompt?.message == AgentRestartNotice.modalMessageAfterCLIRegistration(cliName: "hcloud"), "modal restart prompt uses concise Cmd+Q guidance")
+        try expect(store.agentRestartPrompt?.message == AgentRestartNotice.modalMessageAfterCLIRegistration(cliName: "supabase"), "modal restart prompt uses concise Cmd+Q guidance")
     }
 
     private static func testCLIShimInstallerEnvironment() throws {
@@ -473,9 +473,9 @@ enum UISmokeRunner {
         store.presentAPISessionProfileEditor()
         try expect(!store.showingAPISessionProfileEditor, "unavailable daemon does not open proxy sheet")
         await store.registerCLI(
-            name: "hcloud",
+            name: "supabase",
             targetPath: "/bin/echo",
-            environmentSecrets: ["HCLOUD_TOKEN": "synthetic-secret"],
+            environmentSecrets: ["SUPABASE_DB_PASSWORD": "synthetic-secret"],
             installShim: false
         )
         try expect(!store.showingRegisterCLI, "unavailable daemon direct register submit stays closed")
@@ -544,15 +544,15 @@ enum UISmokeRunner {
         try expect(staleSnapshot.selectedSection == .diagnostics, "stale snapshot export routes to diagnostics when daemon is unavailable")
         let policySaved = await staleSnapshot.updateCommandPolicy(destructiveTerms: ["delete"], forbiddenTerms: ["shutdown"])
         try expect(!policySaved, "command policy save reports failure when daemon is unavailable")
-        let trustRefreshed = await staleSnapshot.refreshTrust(for: "hcloud")
+        let trustRefreshed = await staleSnapshot.refreshTrust(for: "supabase")
         try expect(!trustRefreshed, "trust refresh reports failure when daemon is unavailable")
-        let secretDeleted = await staleSnapshot.deleteSecret(alias: "hcloud.token")
+        let secretDeleted = await staleSnapshot.deleteSecret(alias: "supabase.token")
         try expect(!secretDeleted, "secret deletion reports failure when daemon is unavailable")
         let apiSessionDeleted = await staleSnapshot.deleteAPISessionProfile(name: "openai")
         try expect(!apiSessionDeleted, "proxy deletion reports failure when daemon is unavailable")
         let mcpDeleted = await staleSnapshot.deleteMCPProfile(name: "linear")
         try expect(!mcpDeleted, "MCP deletion reports failure when daemon is unavailable")
-        let bwsDeleted = await staleSnapshot.deleteBitwardenBinding(alias: "cloud.hcloud.dev")
+        let bwsDeleted = await staleSnapshot.deleteBitwardenBinding(alias: "supabase.db.dev")
         try expect(!bwsDeleted, "Bitwarden provider deletion reports failure when daemon is unavailable")
         let adapterRevoked = await staleSnapshot.revokeAdapter(policyPackID: "com.example.policyPacks.demo")
         try expect(!adapterRevoked, "command policy pack revoke reports failure when daemon is unavailable")
@@ -586,9 +586,9 @@ enum UISmokeRunner {
         try expect(CommandPolicyTermValidator.validate("delete", existing: ["delete"]) == .duplicate, "duplicate policy term is rejected")
         try expect(CommandPolicyTermValidator.validate("server-delete", existing: []) == .invalidCharacters, "separator policy term is rejected")
         try expect(CommandPolicyTermValidator.validate("destroy", existing: []) == .valid, "single policy term is accepted")
-        try expect(CommandPolicyPreviewClassifier.classify(command: "hcloud server delete prod", destructiveTerms: ["delete"], forbiddenTerms: []) == .destructive("delete"), "destructive command preview requires fresh approval")
-        try expect(CommandPolicyPreviewClassifier.classify(command: "hcloud server delete prod", destructiveTerms: ["delete"], forbiddenTerms: ["delete"]) == .forbidden("delete"), "forbidden command preview overrides destructive")
-        try expect(CommandPolicyPreviewClassifier.classify(command: "hcloud server list", destructiveTerms: ["delete"], forbiddenTerms: []) == .standard, "read command preview stays standard")
+        try expect(CommandPolicyPreviewClassifier.classify(command: "supabase projects delete prod-ref", destructiveTerms: ["delete"], forbiddenTerms: []) == .destructive("delete"), "destructive command preview requires fresh approval")
+        try expect(CommandPolicyPreviewClassifier.classify(command: "supabase projects delete prod-ref", destructiveTerms: ["delete"], forbiddenTerms: ["delete"]) == .forbidden("delete"), "forbidden command preview overrides destructive")
+        try expect(CommandPolicyPreviewClassifier.classify(command: "supabase db pull", destructiveTerms: ["delete"], forbiddenTerms: []) == .standard, "read command preview stays standard")
 
         var settingsDraft = CommandPolicySettingsDraftState()
         let savedPolicy = CommandPolicySummary(config: CommandPolicyConfig(
@@ -673,16 +673,16 @@ enum UISmokeRunner {
         let registered = await store.registerCLI(
             name: " ",
             targetPath: "/bin/echo",
-            environmentSecrets: ["HCLOUD_TOKEN": "synthetic-secret"],
+            environmentSecrets: ["SUPABASE_DB_PASSWORD": "synthetic-secret"],
             installShim: false
         )
         try expect(!registered, "invalid direct register submit fails before IPC")
         try expect(store.errorMessage == "Enter CLI name before saving.", "invalid register submit shows field-specific guidance")
 
         let missingTargetRegistered = await store.registerCLI(
-            name: "hcloud",
+            name: "supabase",
             targetPath: "/definitely/missing/agentic-secrets-cli",
-            environmentSecrets: ["HCLOUD_TOKEN": "synthetic-secret"],
+            environmentSecrets: ["SUPABASE_DB_PASSWORD": "synthetic-secret"],
             installShim: false
         )
         try expect(!missingTargetRegistered, "missing executable direct register submit fails before IPC")
@@ -716,7 +716,7 @@ enum UISmokeRunner {
         try expect(!missingMCPAuthValue, "invalid MCP auth value fails before IPC")
         try expect(store.errorMessage == "Enter auth header value before saving.", "invalid MCP auth value shows guidance")
 
-        let bwsSaved = await store.upsertBitwardenBinding(alias: "cloud.hcloud.dev", projectID: "project-dev", secretID: "secret-dev", environment: "qa")
+        let bwsSaved = await store.upsertBitwardenBinding(alias: "supabase.db.dev", projectID: "project-dev", secretID: "secret-dev", environment: "qa")
         try expect(!bwsSaved, "invalid Bitwarden provider environment fails before IPC")
         try expect(store.errorMessage == "Choose a valid provider environment.", "invalid Bitwarden provider environment shows guidance")
 
@@ -920,7 +920,7 @@ enum UISmokeRunner {
 
     @MainActor
     private static func testManagementActions() async throws {
-        let base = snapshot(cliNames: ["hcloud"])
+        let base = snapshot(cliNames: ["supabase"])
         var withResources = base
         withResources.apiSessionProfiles = [
             APISessionProfileSummary(profile: APISessionProfile(
@@ -943,7 +943,7 @@ enum UISmokeRunner {
         ]
         withResources.bitwardenBindings = [
             BitwardenBindingSummary(
-                binding: BitwardenSecretBinding(alias: "cloud.hcloud.dev", projectID: "project-dev", secretID: "secret-dev", environment: ProviderEnvironment.dev.rawValue),
+                binding: BitwardenSecretBinding(alias: "supabase.db.dev", projectID: "project-dev", secretID: "secret-dev", environment: ProviderEnvironment.dev.rawValue),
                 policy: BitwardenProviderLeasePolicy.policy(for: .dev)
             )
         ]
@@ -954,24 +954,24 @@ enum UISmokeRunner {
         await store.refresh()
         try expect(store.selectedAPISessionProfileSummary?.name == "openai", "proxy selection is initialized")
         try expect(store.selectedMCPProfileSummary?.name == "linear", "MCP selection is initialized")
-        try expect(store.selectedBitwardenBindingSummary?.alias == "cloud.hcloud.dev", "Bitwarden provider binding selection is initialized")
+        try expect(store.selectedBitwardenBindingSummary?.alias == "supabase.db.dev", "Bitwarden provider binding selection is initialized")
         try expect(store.selectedPolicyPackSummary == nil, "fresh state does not invent a command policy pack selection")
-        try expect(store.selectedCLIRegistration?.name == "hcloud", "CLI selection is initialized")
+        try expect(store.selectedCLIRegistration?.name == "supabase", "CLI selection is initialized")
 
         let anchoredUnregisterStore = ControlPlaneStore(
-            client: SequenceControlPlaneClient(snapshots: [snapshot(cliNames: ["hcloud", "gh"])]),
+            client: SequenceControlPlaneClient(snapshots: [snapshot(cliNames: ["supabase", "gh"])]),
             brokerController: StubBrokerStatusController(statusValue: healthyBrokerStatus())
         )
         await anchoredUnregisterStore.refresh()
-        anchoredUnregisterStore.selectedCLI = "hcloud"
+        anchoredUnregisterStore.selectedCLI = "supabase"
         let unregisteredNamedCLI = await anchoredUnregisterStore.unregisterCLI(name: "gh", deleteSecretMaterial: false)
         try expect(unregisteredNamedCLI, "explicit CLI unregister succeeds")
-        try expect(anchoredUnregisterStore.selectedCLI == "hcloud", "explicit CLI unregister preserves current selection when it differs")
+        try expect(anchoredUnregisterStore.selectedCLI == "supabase", "explicit CLI unregister preserves current selection when it differs")
         try expect(anchoredUnregisterStore.snapshot?.cliRegistrations.contains(where: { $0.name == "gh" }) == false, "explicit CLI unregister removes the confirmed CLI")
 
-        await store.refreshTrust(for: "hcloud")
+        await store.refreshTrust(for: "supabase")
         try expect(store.successMessage == "Trust refreshed", "CLI trust refresh reports success")
-        let secretDeleted = await store.deleteSecret(alias: "hcloud.token")
+        let secretDeleted = await store.deleteSecret(alias: "supabase.token")
         try expect(secretDeleted, "secret deletion succeeds with healthy daemon")
         try expect(store.successMessage == "Secret deleted", "secret deletion reports success")
         await store.replaceSecret(alias: "ai.openai.dev", value: "synthetic-secret", label: "OpenAI", environment: "api-session:openai")
@@ -1001,9 +1001,9 @@ enum UISmokeRunner {
         let mcpDeleted = await store.deleteMCPProfile(name: "linear")
         try expect(mcpDeleted, "MCP proxy delete reports success flag")
         try expect(store.successMessage == "MCP proxy deleted", "MCP proxy delete reports success")
-        await store.upsertBitwardenBinding(alias: "cloud.hcloud.prod", projectID: "project-prod", secretID: "secret-prod", environment: ProviderEnvironment.prod.rawValue)
+        await store.upsertBitwardenBinding(alias: "supabase.db.prod", projectID: "project-prod", secretID: "secret-prod", environment: ProviderEnvironment.prod.rawValue)
         try expect(store.successMessage == "Bitwarden provider binding saved", "Bitwarden provider binding save reports success")
-        let bwsDeleted = await store.deleteBitwardenBinding(alias: "cloud.hcloud.dev")
+        let bwsDeleted = await store.deleteBitwardenBinding(alias: "supabase.db.dev")
         try expect(bwsDeleted, "Bitwarden provider binding delete reports success flag")
         try expect(store.successMessage == "Bitwarden provider binding deleted", "Bitwarden provider binding delete reports success")
         let adapterRevoked = await store.revokeAdapter(policyPackID: "com.example.policyPacks.demo")
@@ -1026,7 +1026,7 @@ enum UISmokeRunner {
         try expect(store.errorMessage == "Could not open CLI executable. Path is not available: /definitely/missing/agentic-secrets-cli", "local file open failures explain the missing path")
         await store.clearDeliveryGrants()
         try expect(store.successMessage == "All grants locked", "grant locking reports success")
-        store.selectedCLI = "hcloud"
+        store.selectedCLI = "supabase"
         await store.unregisterSelectedCLI(deleteSecretMaterial: true)
         try expect(store.successMessage == "CLI unregistered", "CLI unregister reports success")
         try expect(store.selectedCLI == nil, "CLI unregister clears selection")
@@ -1106,7 +1106,7 @@ enum UISmokeRunner {
     }
 
     private static func testAuditRelatedItemRouting() throws {
-        var withResources = snapshot(cliNames: ["hcloud"])
+        var withResources = snapshot(cliNames: ["supabase"])
         withResources.apiSessionProfiles = [
             APISessionProfileSummary(profile: APISessionProfile(
                 name: "openai",
@@ -1121,19 +1121,19 @@ enum UISmokeRunner {
         ]
         withResources.bitwardenBindings = [
             BitwardenBindingSummary(
-                binding: BitwardenSecretBinding(alias: "cloud.hcloud.dev", projectID: "project-dev", secretID: "secret-dev", environment: ProviderEnvironment.dev.rawValue),
+                binding: BitwardenSecretBinding(alias: "supabase.db.dev", projectID: "project-dev", secretID: "secret-dev", environment: ProviderEnvironment.dev.rawValue),
                 policy: BitwardenProviderLeasePolicy.policy(for: .dev)
             )
         ]
 
-        try expect(AuditRelatedItemRouter.route(for: auditEvent(flow: .cliEnv, subjectID: "hcloud", secretID: "hcloud.token"), snapshot: withResources) == .cli("hcloud"), "audit CLI event routes to CLI registration")
+        try expect(AuditRelatedItemRouter.route(for: auditEvent(flow: .cliEnv, subjectID: "supabase", secretID: "supabase.token"), snapshot: withResources) == .cli("supabase"), "audit CLI event routes to CLI registration")
         try expect(AuditRelatedItemRouter.route(for: auditEvent(flow: .apiSession, subjectID: "missing", secretID: "ai.openai.dev"), snapshot: withResources) == nil, "audit API session event stays hidden while API Sessions UI is disabled")
-        try expect(AuditRelatedItemRouter.route(for: auditEvent(flow: .bitwardenProvider, subjectID: "missing", secretID: "cloud.hcloud.dev"), snapshot: withResources) == .bitwardenBinding("cloud.hcloud.dev"), "audit Bitwarden provider event routes by binding alias")
+        try expect(AuditRelatedItemRouter.route(for: auditEvent(flow: .bitwardenProvider, subjectID: "missing", secretID: "supabase.db.dev"), snapshot: withResources) == .bitwardenBinding("supabase.db.dev"), "audit Bitwarden provider event routes by binding alias")
         try expect(AuditRelatedItemRouter.route(for: auditEvent(flow: .remoteMCP, subjectID: "linear", secretID: "mcp.linear"), snapshot: withResources) == .mcp("linear"), "audit MCP event routes to MCP proxy")
         try expect(AuditRelatedItemRouter.route(for: auditEvent(flow: .remoteSSHStdin, subjectID: "ssh", secretID: "ssh.key"), snapshot: withResources) == nil, "audit SSH event has no local route")
         try expect(AuditRelatedItemRouter.route(for: auditEvent(flow: .apiSession, subjectID: "missing", secretID: "missing"), snapshot: withResources) == nil, "audit event without matching local item has no route")
 
-        let cliEvent = auditEvent(flow: .cliEnv, subjectID: "hcloud", secretID: "hcloud.token")
+        let cliEvent = auditEvent(flow: .cliEnv, subjectID: "supabase", secretID: "supabase.token")
         var apiSessionEvent = auditEvent(flow: .apiSession, subjectID: "openai", secretID: "ai.openai.dev")
         apiSessionEvent.time = Date(timeIntervalSince1970: cliEvent.time.timeIntervalSince1970 + 1)
         let allEvents = [cliEvent, apiSessionEvent]
@@ -1152,12 +1152,12 @@ enum UISmokeRunner {
     @MainActor
     private static func testActivationRefreshLoadsMissingSnapshot() async throws {
         let store = ControlPlaneStore(
-            client: SequenceControlPlaneClient(snapshots: [snapshot(cliNames: ["hcloud"])]),
+            client: SequenceControlPlaneClient(snapshots: [snapshot(cliNames: ["supabase"])]),
             brokerController: StubBrokerStatusController(statusValue: healthyBrokerStatus())
         )
         try expect(store.snapshot == nil, "activation test starts without snapshot")
         await store.refreshAfterActivation()
-        try expect(store.snapshot?.cliRegistrations.first?.name == "hcloud", "activation refresh loads missing snapshot")
+        try expect(store.snapshot?.cliRegistrations.first?.name == "supabase", "activation refresh loads missing snapshot")
         await store.refreshAfterActivation()
         try expect(store.brokerStatus.state == .healthy, "activation refresh keeps daemon status current after snapshot load")
     }
@@ -1167,20 +1167,20 @@ enum UISmokeRunner {
         let store = ControlPlaneStore(
             client: FlakySnapshotControlPlaneClient(
                 transientFailuresBeforeSuccess: 2,
-                snapshot: snapshot(cliNames: ["hcloud"])
+                snapshot: snapshot(cliNames: ["supabase"])
             ),
             brokerController: StubBrokerStatusController(statusValue: healthyBrokerStatus())
         )
         await store.refresh()
         try expect(store.brokerStatus.state == .healthy, "transient snapshot retry starts from a healthy daemon")
-        try expect(store.snapshot?.cliRegistrations.first?.name == "hcloud", "healthy daemon refresh retries transient snapshot IPC failures")
+        try expect(store.snapshot?.cliRegistrations.first?.name == "supabase", "healthy daemon refresh retries transient snapshot IPC failures")
         try expect(store.errorMessage == nil, "transient snapshot IPC recovery does not leave a stale error")
     }
 
     @MainActor
     private static func testSelectionSurvivesRefresh() async throws {
-        let first = snapshot(cliNames: ["hcloud", "gh"])
-        let second = snapshot(cliNames: ["hcloud", "gh", "terraform"])
+        let first = snapshot(cliNames: ["supabase", "gh"])
+        let second = snapshot(cliNames: ["supabase", "gh", "terraform"])
         let store = ControlPlaneStore(
             client: SequenceControlPlaneClient(snapshots: [first, second]),
             brokerController: StubBrokerStatusController(statusValue: healthyBrokerStatus())

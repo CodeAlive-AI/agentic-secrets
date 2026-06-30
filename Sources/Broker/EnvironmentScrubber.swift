@@ -21,7 +21,7 @@ public struct EnvironmentScrubber: Sendable {
         "ANTHROPIC_API_KEY",
         "ANTHROPIC_AUTH_TOKEN",
         "GEMINI_API_KEY",
-        "HCLOUD_TOKEN",
+        "SUPABASE_DB_PASSWORD",
         "STRIPE_API_KEY",
         "GITHUB_TOKEN",
         "GH_TOKEN"

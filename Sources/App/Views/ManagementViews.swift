@@ -270,7 +270,7 @@ private struct CLIDeliveryPolicyEditorSheet: View {
     @Bindable var store: ControlPlaneStore
     @Environment(\.dismiss) private var dismiss
     @State private var draft = CommandPolicySettingsDraftState()
-    @State private var previewCommand = "hcloud server delete prod-db-01"
+    @State private var previewCommand = "supabase projects delete prod-ref"
 
     var body: some View {
         CommandPolicySettingsPage(

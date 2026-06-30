@@ -21,7 +21,7 @@ struct AgenticSecretsCommandShim {
         }
         let invokedName = URL(fileURLWithPath: CommandLine.arguments.first ?? "agentic-secrets-shim").lastPathComponent
         guard invokedName != "agentic-secrets-shim" else {
-            throw ShimCLIError.missingArgument("invoke this binary through a registered CLI symlink, for example hcloud")
+            throw ShimCLIError.missingArgument("invoke this binary through a registered CLI symlink, for example supabase")
         }
         if CommandShimPolicy.isGlobalPassThrough(arguments: args) {
             try runGlobalPassThrough(name: invokedName, arguments: args)

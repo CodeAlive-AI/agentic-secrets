@@ -103,45 +103,45 @@ Register a CLI app with one secret-backed environment variable:
 
 ```sh
 PREFIX="$HOME/Library/Application Support/AgenticSecrets/LocalInstall"
-"$PREFIX/bin/agentic-secrets" cli register hcloud \
-  --env HCLOUD_TOKEN \
+"$PREFIX/bin/agentic-secrets" cli register supabase \
+  --env SUPABASE_DB_PASSWORD \
   --secret-prompt
 ```
 
-The secret value is read by `agentic-secrets-brokerd` through a hidden prompt. The front-end CLI process does not parse or persist the value, and the value must not be passed as `HCLOUD_TOKEN=value` in argv.
+The database password is read by `agentic-secrets-brokerd` through a hidden prompt. The front-end CLI process does not parse or persist the value, and the value must not be passed as `SUPABASE_DB_PASSWORD=value` in argv.
 
 For clipboard or automation use, pipe the value explicitly:
 
 ```sh
-pbpaste | "$PREFIX/bin/agentic-secrets" cli register hcloud \
-  --env HCLOUD_TOKEN \
+pbpaste | "$PREFIX/bin/agentic-secrets" cli register supabase \
+  --env SUPABASE_DB_PASSWORD \
   --secret-stdin
 ```
 
 For multiple environment variables, pass a JSON object over stdin:
 
 ```sh
-printf '%s\n' '{"HCLOUD_TOKEN":"<redacted>"}' | "$PREFIX/bin/agentic-secrets" cli register hcloud \
-  --env HCLOUD_TOKEN \
+printf '%s\n' '{"SUPABASE_DB_PASSWORD":"<redacted>"}' | "$PREFIX/bin/agentic-secrets" cli register supabase \
+  --env SUPABASE_DB_PASSWORD \
   --secrets-json-stdin
 ```
 
 Run the registered CLI with target arguments after `--`:
 
 ```sh
-"$PREFIX/bin/agentic-secrets" cli run hcloud -- server list
+"$PREFIX/bin/agentic-secrets" cli run supabase -- db pull
 ```
 
 Use `--quiet` before `--` for scripts that do not want AgenticSecrets diagnostic lines on stderr:
 
 ```sh
-"$PREFIX/bin/agentic-secrets" cli run hcloud --quiet -- server list
+"$PREFIX/bin/agentic-secrets" cli run supabase --quiet -- db pull
 ```
 
 Unregister the CLI app and delete its local secret records:
 
 ```sh
-"$PREFIX/bin/agentic-secrets" cli unregister hcloud --delete-secrets
+"$PREFIX/bin/agentic-secrets" cli unregister supabase --delete-secrets
 ```
 
 Registration stores non-secret metadata in `var/agentic-secrets/cli-registry.json` and encrypted secret records under `var/agentic-secrets/secrets/`. Registry files are owner-only and must not contain plaintext token material. The registry is also paired with `var/agentic-secrets/cli-registry.integrity.json`; that sidecar is signed with an HMAC-SHA256 key stored in the user's macOS Keychain using `WhenUnlockedThisDeviceOnly` accessibility. If the registry or sidecar is edited outside Agentic Secrets, `cli run` fails before local authentication and before any secret-store read.
@@ -155,56 +155,56 @@ The LocalAuthentication prompt shows the parent app display name when available.
 Per-run authorization mode:
 
 ```sh
-"$PREFIX/bin/agentic-secrets" cli run hcloud --authorization-mode remember-24h -- server list
-"$PREFIX/bin/agentic-secrets" cli run hcloud --authorization-mode short --delivery-grant-ttl-seconds 60 -- server list
-"$PREFIX/bin/agentic-secrets" cli run hcloud --authorization-mode once -- server list
+"$PREFIX/bin/agentic-secrets" cli run supabase --authorization-mode remember-24h -- db pull
+"$PREFIX/bin/agentic-secrets" cli run supabase --authorization-mode short --delivery-grant-ttl-seconds 60 -- db pull
+"$PREFIX/bin/agentic-secrets" cli run supabase --authorization-mode once -- db pull
 ```
 
 Legacy TTL override still selects short authorization mode:
 
 ```sh
-"$PREFIX/bin/agentic-secrets" cli run hcloud --delivery-grant-ttl-seconds 0 -- server list
+"$PREFIX/bin/agentic-secrets" cli run supabase --delivery-grant-ttl-seconds 0 -- db pull
 ```
 
-Agentic Secrets does not require per-CLI shims in the default self-build flow. Installed Agentic Secrets executables are symlinked under `$PREFIX/bin`, while registered apps are stored as metadata in `cli-registry.json`. When a CLI is auto-discovered from `PATH`, the registry keeps the stable invocation path such as `/opt/homebrew/bin/hcloud`, plus the target binary identity captured at registration time. Each `cli run` resolves the current target, validates it against the captured macOS designated requirement when available, and otherwise falls back to SHA-256 identity pinning. Homebrew CLI upgrades therefore fail closed until the CLI target trust is refreshed after you verify the new binary. Because this changes trusted identity metadata, it requires LocalAuthentication:
+Agentic Secrets does not require per-CLI shims in the default self-build flow. Installed Agentic Secrets executables are symlinked under `$PREFIX/bin`, while registered apps are stored as metadata in `cli-registry.json`. When a CLI is auto-discovered from `PATH`, the registry keeps the stable invocation path such as `/opt/homebrew/bin/supabase`, plus the target binary identity captured at registration time. Each `cli run` resolves the current target, validates it against the captured macOS designated requirement when available, and otherwise falls back to SHA-256 identity pinning. Homebrew CLI upgrades therefore fail closed until the CLI target trust is refreshed after you verify the new binary. Because this changes trusted identity metadata, it requires LocalAuthentication:
 
 ```sh
-"$PREFIX/bin/agentic-secrets" cli trust-refresh hcloud
+"$PREFIX/bin/agentic-secrets" cli trust-refresh supabase
 ```
 
-`trust-refresh` updates only target identity metadata and re-seals the registry integrity sidecar; it does not read, rewrite, or ask for the token again. If local authentication is canceled or the target changes between the authentication prompt and the registry write, the command fails closed and leaves the previous trust metadata intact. A manually registered versioned path such as `/opt/homebrew/Cellar/hcloud/1.65.0/bin/hcloud` is also pinned and must be trust-refreshed or registered again after the version is removed.
+`trust-refresh` updates only target identity metadata and re-seals the registry integrity sidecar; it does not read, rewrite, or ask for the token again. If local authentication is canceled or the target changes between the authentication prompt and the registry write, the command fails closed and leaves the previous trust metadata intact. A manually registered versioned path such as `/opt/homebrew/Cellar/supabase/1.65.0/bin/supabase` is also pinned and must be trust-refreshed or registered again after the version is removed.
 
-Optional shim mode is available when users want `hcloud ...` to route through Agentic Secrets directly:
+Optional shim mode is available when users want `supabase ...` to route through Agentic Secrets directly:
 
 ```sh
-agentic-secrets cli shim install hcloud --configure-shell
+agentic-secrets cli shim install supabase --configure-shell
 ```
 
-This creates `$PREFIX/shims/hcloud` as a symlink to the installed `agentic-secrets-shim` binary and prepends the shim directory to future shell sessions. It does not edit or replace `/opt/homebrew/bin/hcloud`.
+This creates `$PREFIX/shims/supabase` as a symlink to the installed `agentic-secrets-shim` binary and prepends the shim directory to future shell sessions. It does not edit or replace `/opt/homebrew/bin/supabase`.
 
-Normal shimmed commands route to `agentic-secrets cli run hcloud -- ...`. Global help/version commands pass through to the registered target without secret resolution or injection:
+Normal shimmed commands route to `agentic-secrets cli run supabase -- ...`. Global help/version commands pass through to the registered target without secret resolution or injection:
 
 ```sh
-hcloud --help
-hcloud server --help
-hcloud version
+supabase --help
+supabase db --help
+supabase version
 ```
 
 The pass-through environment is still scrubbed of inherited secret-like variables.
 
 Pass-through help/version reads only non-secret registry metadata and avoids the registry Keychain integrity key. Secret-bearing commands still verify registry integrity inside core before resolving local secret material.
 
-If `hcloud server list` works through `agentic-secrets cli run hcloud -- ...`
+If `supabase db pull` works through `agentic-secrets cli run supabase -- ...`
 but fails inside Codex App with `no active context or token`, verify that Codex
-resolves `hcloud` to the Agentic Secrets shim:
+resolves `supabase` to the Agentic Secrets shim:
 
 ```sh
-command -v hcloud
-agentic-secrets cli shim install hcloud --force
+command -v supabase
+agentic-secrets cli shim install supabase --force
 ```
 
-Do not fix this by adding `HCLOUD_TOKEN` to `~/.codex/.env`; keep provider
-tokens out of Codex process environment and route through Agentic Secrets.
+Do not fix this by adding `SUPABASE_DB_PASSWORD` to `~/.codex/.env`; keep provider
+secrets out of Codex process environment and route through Agentic Secrets.
 
 ## Adapter Management
 

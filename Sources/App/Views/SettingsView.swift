@@ -5,7 +5,7 @@ struct SettingsView: View {
     var store: ControlPlaneStore
     @AppStorage("launchMenuBarStatus") private var launchMenuBarStatus = true
     @State private var commandPolicyDraft = CommandPolicySettingsDraftState()
-    @State private var previewCommand = "hcloud server delete prod-db-01"
+    @State private var previewCommand = "supabase projects delete prod-ref"
 
     var body: some View {
         TabView {
